@@ -15,15 +15,15 @@ export default async function handler(req: any, res: any) {
       {
         headers: {
           "User-Agent": "Mozilla/5.0",
-          "Accept": "application/json",
-        },
+          "Accept": "application/json"
+        }
       }
     );
 
     if (!response.ok) {
       return res.status(500).json({
         error: "Yahoo 台股 API 連線失敗",
-        status: response.status,
+        status: response.status
       });
     }
 
@@ -38,14 +38,14 @@ export default async function handler(req: any, res: any) {
         Name: item.shortName || item.longName || code,
         TradeVolume: item.regularMarketVolume || 0,
         ClosingPrice: item.regularMarketPrice || 0,
-        Change: item.regularMarketChange || 0,
+        Change: item.regularMarketChange || 0
       };
     });
 
     return res.status(200).json(data);
   } catch (error: any) {
     return res.status(500).json({
-      error: error.message || "伺服器抓取 Yahoo 台股資料失敗",
+      error: error.message || "伺服器抓取 Yahoo 台股資料失敗"
     });
   }
 }
