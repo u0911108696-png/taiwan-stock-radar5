@@ -46,8 +46,7 @@ export default function App() {
       setLoading(true);
       setError("");
 
-      const res = await fetch("https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL");
-
+      const res = await fetch("/api/stocks");
       if (!res.ok) {
         throw new Error("TWSE API 連線失敗");
       }
