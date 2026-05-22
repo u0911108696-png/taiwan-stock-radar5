@@ -31,31 +31,29 @@ export default async function handler() {
     }
 
     const raw = await response.json();
-
     const rows = raw.data || [];
 
-    const data = rows.map((row: any[]) => {
-      const sign = String(row[8] || "");
-      const changeRaw = String(row[9] || "0")
-        .replaceAll(",", "")
-        .replace("X", "")
-        .replace("+", "")
-        .trim();
+    const data = rows
+      .map((row: any[]) => {
+        const code = String(row[0] || "");
+        const name = String(row[1] || "");
 
-      const changeNumber = Number(changeRaw || 0);
-      const change =
-        sign.includes("-") || sign.includes("down")
-          ? -Math.abs(changeNumber)
-          : changeNumber;
+        const changeText = String(row[8] || "0")
+          .replace(/<[^>]*>/g, "")
+          .replaceAll(",", "")
+          .replace("X", "")
+          .replace("+", "")
+          .trim();
 
-      return {
-        Code: String(row[0] || ""),
-        Name: String(row[1] || ""),
-        TradeVolume: String(row[2] || "0").replaceAll(",", ""),
-        ClosingPrice: String(row[7] || "0").replaceAll(",", ""),
-        Change: change
-      };
-    });
+        return {
+          Code: code,
+          Name: name,
+          TradeVolume: String(row[2] || "0").replaceAll(",", ""),
+          ClosingPrice: String(row[7] || "0").replaceAll(",", ""),
+          Change: Number(changeText || 0)
+        };
+      })
+      .filter((s: any) => /^\d{4}$/.test(s.Code));
 
     return new Response(JSON.stringify(data), {
       status: 200,
