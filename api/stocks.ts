@@ -6,31 +6,39 @@ const stockList = [
   "3293", "3653", "3702", "4938", "5871", "5876", "6505", "8046", "8454", "9910"
 ];
 
-export default async function handler(req: any, res: any) {
-  try {
-    const symbols = stockList.map((code) => `${code}.TW`).join(",");
+export default async function handler(req, res) {
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Access-Control-Allow-Origin", "*");
 
-    const response = await fetch(
-      `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`,
-      {
-        headers: {
-          "User-Agent": "Mozilla/5.0",
-          "Accept": "application/json"
-        }
+  try {
+    const symbols = stockList.map((code) => code + ".TW").join(",");
+
+    const yahooUrl =
+      "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" +
+      encodeURIComponent(symbols);
+
+    const response = await fetch(yahooUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Accept": "application/json"
       }
-    );
+    });
 
     if (!response.ok) {
-      return res.status(500).json({
+      res.statusCode = 500;
+      res.end(JSON.stringify({
         error: "Yahoo 台股 API 連線失敗",
         status: response.status
-      });
+      }));
+      return;
     }
 
     const raw = await response.json();
-    const result = raw.quoteResponse?.result || [];
+    const result = raw && raw.quoteResponse && raw.quoteResponse.result
+      ? raw.quoteResponse.result
+      : [];
 
-    const data = result.map((item: any) => {
+    const data = result.map((item) => {
       const code = String(item.symbol || "").replace(".TW", "");
 
       return {
@@ -42,10 +50,12 @@ export default async function handler(req: any, res: any) {
       };
     });
 
-    return res.status(200).json(data);
-  } catch (error: any) {
-    return res.status(500).json({
-      error: error.message || "伺服器抓取 Yahoo 台股資料失敗"
-    });
+    res.statusCode = 200;
+    res.end(JSON.stringify(data));
+  } catch (error) {
+    res.statusCode = 500;
+    res.end(JSON.stringify({
+      error: error && error.message ? error.message : "伺服器抓取 Yahoo 台股資料失敗"
+    }));
   }
 }
