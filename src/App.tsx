@@ -9,6 +9,13 @@ type Stock = {
   industry: string;
 };
 
+type IndustryGroup = {
+  industry: string;
+  total: number;
+  avgChange: number;
+  stocks: Stock[];
+};
+
 const industryMap: Record<string, string> = {
   "2911": "百貨",
   "3042": "PCB",
@@ -164,6 +171,33 @@ function isVolumeHot(stock: Stock) {
   return stock.volume >= 3000000;
 }
 
+function buildIndustryGroups(stocks: Stock[]) {
+  const map: Record<string, Stock[]> = {};
+
+  stocks.forEach((s) => {
+    map[s.industry] = map[s.industry] || [];
+    map[s.industry].push(s);
+  });
+
+  return Object.entries(map)
+    .map(([industry, groupStocks]) => {
+      const avgChange =
+        groupStocks.reduce((sum, s) => sum + s.changePercent, 0) /
+        groupStocks.length;
+
+      return {
+        industry,
+        total: groupStocks.length,
+        avgChange: Number(avgChange.toFixed(2)),
+        stocks: groupStocks.sort((a, b) => b.changePercent - a.changePercent),
+      };
+    })
+    .sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total;
+      return b.avgChange - a.avgChange;
+    });
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
@@ -248,29 +282,19 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  const industryRanking = useMemo(() => {
-    const count: Record<string, number> = {};
-
-    stocks.forEach((s) => {
-      count[s.industry] = (count[s.industry] || 0) + 1;
-    });
-
-    return Object.entries(count)
-      .map(([industry, total]) => ({ industry, total }))
-      .sort((a, b) => b.total - a.total);
+  const industryGroups = useMemo(() => {
+    return buildIndustryGroups(stocks);
   }, [stocks]);
 
-  const topIndustries = industryRanking.slice(0, 3);
+  const mainIndustryGroups = useMemo(() => {
+    return industryGroups.filter((g) => g.industry !== "其他");
+  }, [industryGroups]);
 
-  const groupedTopIndustryStocks = useMemo(() => {
-    return topIndustries.map((item) => {
-      return {
-        industry: item.industry,
-        total: item.total,
-        stocks: stocks.filter((s) => s.industry === item.industry),
-      };
-    });
-  }, [stocks, topIndustries]);
+  const otherGroup = useMemo(() => {
+    return industryGroups.find((g) => g.industry === "其他");
+  }, [industryGroups]);
+
+  const topIndustries = mainIndustryGroups.slice(0, 3);
 
   const breakoutStocks = stocks.filter((s) => s.changePercent >= 5).slice(0, 10);
 
@@ -312,41 +336,71 @@ export default function App() {
         {!loading && !error && (
           <>
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">前三大熱門產業</h2>
+              <h2 className="mb-3 text-lg font-bold">前三大主流產業</h2>
 
-              <div className="grid grid-cols-3 gap-2">
-                {topIndustries.map((item) => (
-                  <div
-                    key={item.industry}
-                    className="rounded-xl bg-slate-800 p-3 text-center"
-                  >
-                    <div className="text-sm text-slate-300">{item.industry}</div>
-                    <div className="mt-1 text-xl font-bold text-red-400">
-                      {item.total}
+              {topIndustries.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  目前前 50 名多數還未分類，請繼續補產業表。
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 gap-3">
+                  {topIndustries.map((item, index) => (
+                    <div
+                      key={item.industry}
+                      className="rounded-2xl bg-slate-800 p-4"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs text-slate-400">
+                            #{index + 1}
+                          </div>
+                          <div className="text-xl font-bold">
+                            {item.industry}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-lg font-bold text-red-400">
+                            {item.total} 檔
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            平均 +{item.avgChange}%
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">前三大產業分組</h2>
+              <h2 className="mb-3 text-lg font-bold">產業分類雷達</h2>
 
-              {groupedTopIndustryStocks.map((group) => (
-                <div key={group.industry} className="mb-4">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="font-bold text-yellow-300">
-                      {group.industry}
-                    </h3>
-                    <span className="text-xs text-slate-400">
+              {mainIndustryGroups.map((group) => (
+                <div
+                  key={group.industry}
+                  className="mb-4 rounded-2xl bg-slate-800 p-3"
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <div>
+                      <div className="text-lg font-bold text-yellow-300">
+                        {group.industry}
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {group.total} 檔 / 平均 +{group.avgChange}%
+                      </div>
+                    </div>
+
+                    <div className="text-sm font-bold text-red-400">
                       {group.total} 檔
-                    </span>
+                    </div>
                   </div>
 
                   {group.stocks.map((s) => (
                     <div
                       key={s.code}
-                      className="mb-2 rounded-xl bg-slate-800 px-3 py-2"
+                      className="mb-2 rounded-xl bg-slate-900 px-3 py-2"
                     >
                       <div className="flex justify-between">
                         <div>
@@ -388,24 +442,25 @@ export default function App() {
                   ))}
                 </div>
               ))}
-            </section>
 
-            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">產業熱度排行</h2>
+              {otherGroup && (
+                <div className="mt-4 rounded-2xl bg-slate-800 p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-lg font-bold text-slate-300">
+                        其他
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        尚未分類，不列入前三大主流產業
+                      </div>
+                    </div>
 
-              {industryRanking.map((item, index) => (
-                <div
-                  key={item.industry}
-                  className="mb-2 flex items-center justify-between rounded-xl bg-slate-800 px-3 py-2"
-                >
-                  <span>
-                    {index + 1}. {item.industry}
-                  </span>
-                  <span className="font-bold text-red-400">
-                    {item.total} 檔
-                  </span>
+                    <div className="font-bold text-slate-400">
+                      {otherGroup.total} 檔
+                    </div>
+                  </div>
                 </div>
-              ))}
+              )}
             </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
