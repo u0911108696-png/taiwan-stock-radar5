@@ -17,6 +17,8 @@ type IndustryGroup = {
   stocks: Stock[];
 };
 
+const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
+
 const industryMap: Record<string, string> = {
   "2911": "百貨",
   "3042": "PCB",
@@ -249,9 +251,29 @@ function buildIndustryGroups(stocks: Stock[]) {
     .sort((a, b) => b.strength - a.strength);
 }
 
+function loadSavedWatchCodes() {
+  try {
+    const saved = localStorage.getItem("watchCodes");
+    if (!saved) return defaultWatchCodes;
+
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return defaultWatchCodes;
+
+    const codes = parsed
+      .map((code) => String(code).trim())
+      .filter((code) => /^\d{4}$/.test(code));
+
+    return codes.length > 0 ? codes : defaultWatchCodes;
+  } catch {
+    return defaultWatchCodes;
+  }
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
+  const [watchCodes, setWatchCodes] = useState<string[]>(defaultWatchCodes);
+  const [newWatchCode, setNewWatchCode] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
@@ -259,14 +281,18 @@ export default function App() {
   const [selectedIndustry, setSelectedIndustry] = useState("全部");
   const [searchText, setSearchText] = useState("");
 
-  async function loadStocks() {
+  async function loadStocks(codes = watchCodes) {
     try {
       setLoading(true);
       setError("");
 
-      const res = await fetch("/api/stocks?t=" + Date.now(), {
-        cache: "no-store",
-      });
+      const watchParam = codes.join(",");
+      const res = await fetch(
+        "/api/stocks?watch=" + encodeURIComponent(watchParam) + "&t=" + Date.now(),
+        {
+          cache: "no-store",
+        }
+      );
 
       if (!res.ok) {
         throw new Error("台股 API 連線失敗");
@@ -307,15 +333,58 @@ export default function App() {
     }
   }
 
+  function saveWatchCodes(codes: string[]) {
+    const cleanCodes = Array.from(
+      new Set(
+        codes
+          .map((code) => String(code).trim())
+          .filter((code) => /^\d{4}$/.test(code))
+      )
+    );
+
+    setWatchCodes(cleanCodes);
+    localStorage.setItem("watchCodes", JSON.stringify(cleanCodes));
+    loadStocks(cleanCodes);
+  }
+
+  function addWatchCode() {
+    const code = newWatchCode.trim().replace(/\D/g, "").slice(0, 4);
+
+    if (!/^\d{4}$/.test(code)) {
+      setError("請輸入 4 碼股票代號，例如 2330");
+      return;
+    }
+
+    if (watchCodes.includes(code)) {
+      setError(code + " 已經在觀察名單");
+      return;
+    }
+
+    setNewWatchCode("");
+    setError("");
+    saveWatchCodes([...watchCodes, code]);
+  }
+
+  function removeWatchCode(code: string) {
+    const nextCodes = watchCodes.filter((item) => item !== code);
+    saveWatchCodes(nextCodes.length > 0 ? nextCodes : defaultWatchCodes);
+  }
+
+  function resetWatchCodes() {
+    saveWatchCodes(defaultWatchCodes);
+  }
+
   useEffect(() => {
-    loadStocks();
+    const savedCodes = loadSavedWatchCodes();
+    setWatchCodes(savedCodes);
+    loadStocks(savedCodes);
   }, []);
 
   useEffect(() => {
     const timer = setInterval(() => {
       setNextRefresh((prev) => {
         if (prev <= 1) {
-          loadStocks();
+          loadStocks(watchCodes);
           return 60;
         }
 
@@ -324,7 +393,7 @@ export default function App() {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, []);
+  }, [watchCodes]);
 
   const watchAlerts = useMemo(() => {
     const strong = watchListStocks.filter((s) => getWatchStatus(s).group === "strong");
@@ -397,7 +466,7 @@ export default function App() {
         </header>
 
         <button
-          onClick={loadStocks}
+          onClick={() => loadStocks(watchCodes)}
           className="mb-4 w-full rounded-xl bg-red-500 py-3 font-bold text-white"
         >
           重新整理即時資料
@@ -410,12 +479,12 @@ export default function App() {
         )}
 
         {error && (
-          <div className="rounded-xl bg-red-900 p-4 text-sm">
+          <div className="mb-4 rounded-xl bg-red-900 p-4 text-sm">
             錯誤：{error}
           </div>
         )}
 
-        {!loading && !error && (
+        {!loading && (
           <>
             {strongestIndustry && (
               <section className="mb-5 rounded-2xl bg-gradient-to-br from-red-500/20 to-yellow-500/10 p-4">
@@ -432,6 +501,51 @@ export default function App() {
                 </div>
               </section>
             )}
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">新增觀察股</h2>
+
+              <div className="flex gap-2">
+                <input
+                  value={newWatchCode}
+                  onChange={(e) => setNewWatchCode(e.target.value)}
+                  placeholder="輸入代號，例如 2454"
+                  inputMode="numeric"
+                  className="min-w-0 flex-1 rounded-xl bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                />
+
+                <button
+                  onClick={addWatchCode}
+                  className="rounded-xl bg-red-500 px-4 text-sm font-bold text-white"
+                >
+                  加入
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {watchCodes.map((code) => (
+                  <div
+                    key={code}
+                    className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-2 text-sm"
+                  >
+                    <span>{code}</span>
+                    <button
+                      onClick={() => removeWatchCode(code)}
+                      className="text-slate-400"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+
+                <button
+                  onClick={resetWatchCodes}
+                  className="rounded-full bg-slate-700 px-3 py-2 text-sm text-slate-300"
+                >
+                  還原預設
+                </button>
+              </div>
+            </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">今日觀察警報</h2>
