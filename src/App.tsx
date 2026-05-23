@@ -318,6 +318,39 @@ function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
     .sort((a, b) => b.strength - a.strength);
 }
 
+function getTradeAdvice(stock: Stock) {
+  const advice: string[] = [];
+
+  if (stock.changePercent >= 9.8) {
+    advice.push("🔥 強勢追蹤：漲幅接近漲停，屬於今日強勢股");
+    advice.push("⚠️ 注意風險：漲幅已高，避免盲目追高");
+    advice.push("📌 觀察重點：是否持續鎖住高檔、成交量是否放大");
+  } else if (stock.changePercent >= 7) {
+    advice.push("🚨 警報股：漲幅超過 7%，短線動能強");
+    advice.push("⚠️ 注意風險：若量能不足，容易拉高震盪");
+    advice.push("📌 觀察重點：是否能守住高點附近");
+  } else if (stock.changePercent >= 5) {
+    advice.push("⚡ 突破股：漲幅超過 5%，可列入觀察");
+    advice.push("📌 觀察重點：是否放量突破、是否有同產業一起轉強");
+  } else if (stock.changePercent >= 0) {
+    advice.push("🟡 觀察股：目前沒有明顯轉弱");
+    advice.push("📌 觀察重點：是否有量能增加、是否往強勢區靠近");
+  } else {
+    advice.push("🔴 轉弱股：目前漲幅為負，先保守觀察");
+    advice.push("⚠️ 注意風險：不要急著追，等轉強訊號再看");
+  }
+
+  if (volumeLots(stock.volume) < 300) {
+    advice.push("⚠️ 成交量偏低：流動性較差，進出要小心");
+  }
+
+  if (stockScore(stock) >= 85) {
+    advice.push("✅ 強度高：符合警報條件，可優先追蹤");
+  }
+
+  return advice;
+}
+
 function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
 
@@ -441,6 +474,7 @@ function StockDetail({
 }) {
   const status = stockStatus(stock);
   const links = getStockLinks(stock.code);
+  const tradeAdvice = getTradeAdvice(stock);
 
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
@@ -545,6 +579,21 @@ function StockDetail({
             >
               Yahoo 股價
             </a>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">操作提醒</div>
+
+            <div className="space-y-2">
+              {tradeAdvice.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-xl bg-black/40 px-3 py-2 text-sm font-bold text-slate-200"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
