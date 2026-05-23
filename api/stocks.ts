@@ -2,6 +2,16 @@ export const config = {
   runtime: "edge",
 };
 
+const watchListCodes = [
+  "2330",
+  "3042",
+  "3714",
+  "3481",
+  "2356",
+  "6168",
+  "6405"
+];
+
 function cleanNumber(value: any) {
   return String(value || "0")
     .replace(/<[^>]*>/g, "")
@@ -9,6 +19,11 @@ function cleanNumber(value: any) {
     .replace("+", "")
     .replace("X", "")
     .trim();
+}
+
+function parseChange(value: any) {
+  const text = cleanNumber(value);
+  return Number(text || 0);
 }
 
 async function fetchTwseOld() {
@@ -23,7 +38,9 @@ async function fetchTwseOld() {
     }
   );
 
-  if (!response.ok) throw new Error("TWSE 舊 API 失敗：" + response.status);
+  if (!response.ok) {
+    throw new Error("TWSE 舊 API 失敗：" + response.status);
+  }
 
   const raw = await response.json();
   const rows = raw.data || [];
@@ -34,7 +51,7 @@ async function fetchTwseOld() {
       Name: String(row[1] || ""),
       TradeVolume: cleanNumber(row[2]),
       ClosingPrice: cleanNumber(row[7]),
-      Change: Number(cleanNumber(row[8]) || 0),
+      Change: parseChange(row[8]),
     }))
     .filter((s: any) => /^\d{4}$/.test(s.Code));
 }
@@ -51,7 +68,9 @@ async function fetchTwseOpenApi() {
     }
   );
 
-  if (!response.ok) throw new Error("TWSE OpenAPI 失敗：" + response.status);
+  if (!response.ok) {
+    throw new Error("TWSE OpenAPI 失敗：" + response.status);
+  }
 
   const rows = await response.json();
 
@@ -61,29 +80,74 @@ async function fetchTwseOpenApi() {
       Name: String(item.Name || ""),
       TradeVolume: cleanNumber(item.TradeVolume),
       ClosingPrice: cleanNumber(item.ClosingPrice),
-      Change: Number(cleanNumber(item.Change) || 0),
+      Change: parseChange(item.Change),
     }))
     .filter((s: any) => /^\d{4}$/.test(s.Code));
 }
 
 export default async function handler() {
   try {
-    let data: any[] = [];
+    let allStocks: any[] = [];
 
     try {
-      data = await fetchTwseOld();
+      allStocks = await fetchTwseOld();
     } catch (e1: any) {
-      data = await fetchTwseOpenApi();
+      allStocks = await fetchTwseOpenApi();
     }
 
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "no-store",
-      },
-    });
+    const rankedStocks = allStocks
+      .map((item: any) => {
+        const price = Number(cleanNumber(item.ClosingPrice));
+        const change = Number(cleanNumber(item.Change));
+        const previous = price - change;
+
+        const changePercent =
+          previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
+
+        return {
+          ...item,
+          ChangePercent: changePercent,
+        };
+      })
+      .filter((s: any) => {
+        return Number(s.ClosingPrice) > 0 && Number.isFinite(s.ChangePercent);
+      })
+      .sort((a: any, b: any) => b.ChangePercent - a.ChangePercent)
+      .slice(0, 50);
+
+    const watchList = watchListCodes
+      .map((code) => allStocks.find((s: any) => s.Code === code))
+      .filter(Boolean)
+      .map((item: any) => {
+        const price = Number(cleanNumber(item.ClosingPrice));
+        const change = Number(cleanNumber(item.Change));
+        const previous = price - change;
+
+        const changePercent =
+          previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
+
+        return {
+          ...item,
+          ChangePercent: changePercent,
+        };
+      });
+
+    return new Response(
+      JSON.stringify({
+        rankedStocks,
+        watchList,
+        total: allStocks.length,
+        updatedAt: new Date().toISOString(),
+      }),
+      {
+        status: 200,
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "Access-Control-Allow-Origin": "*",
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (error: any) {
     return new Response(
       JSON.stringify({
