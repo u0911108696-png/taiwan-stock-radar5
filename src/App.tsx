@@ -171,6 +171,15 @@ function getMarketStatus() {
   };
 }
 
+function getStockLinks(code: string) {
+  const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
+
+  return {
+    kline: `https://tw.tradingview.com/chart/?symbol=TWSE:${twseCode}`,
+    yahoo: `https://tw.stock.yahoo.com/quote/${twseCode}.TW`,
+  };
+}
+
 function normalizeStock(item: any): Stock {
   const code = String(item.Code ?? "").trim();
   const name = String(item.Name ?? "").trim();
@@ -431,6 +440,7 @@ function StockDetail({
   alertReasons: string[];
 }) {
   const status = stockStatus(stock);
+  const links = getStockLinks(stock.code);
 
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
@@ -515,6 +525,26 @@ function StockDetail({
                 {isWatch ? "已加入" : "未加入"}
               </div>
             </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <a
+              href={links.kline}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl bg-slate-800 px-4 py-3 text-center text-sm font-black text-white"
+            >
+              看 K 線
+            </a>
+
+            <a
+              href={links.yahoo}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl bg-red-500 px-4 py-3 text-center text-sm font-black text-white"
+            >
+              Yahoo 股價
+            </a>
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
@@ -1198,46 +1228,6 @@ export default function App() {
                 />
               ))
             )}
-          </section>
-        )}
-
-        {tab === "top50" && !searchText && filterKey === "all" && (
-          <section className="mt-4">
-            <h2 className="mb-2 text-lg font-black">強勢指標統計</h2>
-
-            <div className="grid grid-cols-4 gap-2">
-              <div className="rounded-2xl border border-green-900 bg-green-950 p-2 text-center">
-                <div className="text-xs font-bold text-green-300">強勢股</div>
-                <div className="mt-1 text-2xl font-black text-green-300">
-                  {strongStocks.length}
-                </div>
-                <div className="text-xs text-green-400">檔</div>
-              </div>
-
-              <div className="rounded-2xl border border-yellow-900 bg-yellow-950 p-2 text-center">
-                <div className="text-xs font-bold text-yellow-300">觀察股</div>
-                <div className="mt-1 text-2xl font-black text-yellow-300">
-                  {watchStocks.length}
-                </div>
-                <div className="text-xs text-yellow-400">檔</div>
-              </div>
-
-              <div className="rounded-2xl border border-red-900 bg-red-950 p-2 text-center">
-                <div className="text-xs font-bold text-red-300">警報股</div>
-                <div className="mt-1 text-2xl font-black text-red-300">
-                  {alertStocks.length}
-                </div>
-                <div className="text-xs text-red-400">檔</div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-700 bg-slate-900 p-2 text-center">
-                <div className="text-xs font-bold text-slate-300">低量股</div>
-                <div className="mt-1 text-2xl font-black text-slate-300">
-                  {lowVolumeStocks.length}
-                </div>
-                <div className="text-xs text-slate-400">檔</div>
-              </div>
-            </div>
           </section>
         )}
       </div>
