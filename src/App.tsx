@@ -269,12 +269,22 @@ function loadSavedWatchCodes() {
   }
 }
 
+function openKLine(code: string) {
+  const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
+  window.open(
+    `https://tw.tradingview.com/chart/?symbol=TWSE:${twseCode}`,
+    "_blank",
+    "noopener,noreferrer"
+  );
+}
+
 function StockLinks({ code }: { code: string }) {
   const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
 
   return (
     <div className="mt-3 flex gap-2">
       <a
+        onClick={(e) => e.stopPropagation()}
         href={`https://tw.tradingview.com/chart/?symbol=TWSE:${twseCode}`}
         target="_blank"
         rel="noreferrer"
@@ -284,6 +294,7 @@ function StockLinks({ code }: { code: string }) {
       </a>
 
       <a
+        onClick={(e) => e.stopPropagation()}
         href={`https://tw.stock.yahoo.com/quote/${twseCode}.TW`}
         target="_blank"
         rel="noreferrer"
@@ -297,7 +308,10 @@ function StockLinks({ code }: { code: string }) {
 
 function StockCard({ stock, rank }: { stock: Stock; rank?: number }) {
   return (
-    <div className="mb-3 rounded-xl bg-slate-800 p-3">
+    <div
+      onClick={() => openKLine(stock.code)}
+      className="mb-3 cursor-pointer rounded-xl bg-slate-800 p-3 active:scale-[0.99]"
+    >
       <div className="flex justify-between gap-3">
         <div className="min-w-0">
           <div className="font-bold">
@@ -682,7 +696,8 @@ export default function App() {
                   return (
                     <div
                       key={s.code}
-                      className="mb-3 rounded-xl bg-slate-800 p-3"
+                      onClick={() => openKLine(s.code)}
+                      className="mb-3 cursor-pointer rounded-xl bg-slate-800 p-3 active:scale-[0.99]"
                     >
                       <div className="flex justify-between gap-3">
                         <div>
