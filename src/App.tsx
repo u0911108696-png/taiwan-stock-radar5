@@ -1023,7 +1023,6 @@ function StockDetail({
     </div>
   );
 }
-
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -1244,6 +1243,7 @@ export default function App() {
   }, [stocks, dismissedLowVolumeCodes]);
 
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
+
   const breakoutStocks = sortStocks(
     stocks.filter((stock) => stock.changePercent >= 5),
     sortKey
@@ -1254,6 +1254,7 @@ export default function App() {
     if (tab === "watch") return sortedWatchListStocks;
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
+
     return sortedStocks;
   }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
 
@@ -1410,6 +1411,15 @@ export default function App() {
           </div>
         </div>
 
+        {lastFailReason && stocks.length > 0 && (
+          <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-200">
+            ⚠️ 本次更新失敗，仍顯示上一次成功資料。
+            <div className="mt-1 text-xs">
+              失敗時間：{lastFailAt}｜原因：{lastFailReason}
+            </div>
+          </div>
+        )}
+
         <div className="mb-3 grid grid-cols-3 gap-2">
           <button
             onClick={applyOpenMode}
@@ -1494,21 +1504,33 @@ export default function App() {
 
             <div className="mb-2 text-xs font-black text-slate-400">快速篩選</div>
 
-            <div className="flex gap-2 overflow-x-auto">
+            <div className="grid grid-cols-4 gap-2">
               {filterButtons.map((item) => (
                 <button
                   key={item.key}
                   onClick={() => setFilterKey(item.key)}
                   className={
                     filterKey === item.key
-                      ? "whitespace-nowrap rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
-                      : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+                      ? "rounded-xl bg-orange-500 px-2 py-2 text-xs font-black text-white"
+                      : "rounded-xl bg-slate-900 px-2 py-2 text-xs font-bold text-slate-300"
                   }
                 >
                   {item.label}
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {mode === "open" && tab === "alert" && (
+          <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
+            開盤模式：目前只看警報股，並依強度排序。
+          </div>
+        )}
+
+        {mode === "open" && tab === "top50" && filterKey === "breakout" && (
+          <div className="mb-3 rounded-2xl border border-orange-900 bg-orange-950/50 p-3 text-sm font-bold text-orange-100">
+            9:10 快篩：顯示漲幅排行 TOP 50 中的突破股，並依強度排序。
           </div>
         )}
 
@@ -1557,7 +1579,14 @@ export default function App() {
 
         {tab === "industry" ? (
           <section>
-            <h2 className="mb-3 text-lg font-black">產業排行 TOP 10</h2>
+            <h2 className="mb-3 text-lg font-black">
+              產業排行 TOP 10
+              {(searchText || filterKey !== "all") && (
+                <span className="ml-2 text-xs text-slate-400">
+                  / 結果 {filteredIndustryGroups.length} 類
+                </span>
+              )}
+            </h2>
 
             {filteredIndustryGroups.length === 0 ? (
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
