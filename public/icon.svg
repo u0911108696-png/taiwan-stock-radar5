@@ -1,22 +1,20 @@
-<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-  <rect width="512" height="512" rx="110" fill="#000000"/>
-
-  <circle cx="256" cy="256" r="170" fill="none" stroke="#ef4444" stroke-width="22"/>
-  <circle cx="256" cy="256" r="105" fill="none" stroke="#ef4444" stroke-width="14" opacity="0.8"/>
-  <circle cx="256" cy="256" r="38" fill="#ef4444"/>
-
-  <path d="M256 256 L395 150" stroke="#ef4444" stroke-width="18" stroke-linecap="round"/>
-  <circle cx="395" cy="150" r="20" fill="#ffffff"/>
-
-  <text
-    x="256"
-    y="340"
-    text-anchor="middle"
-    font-size="118"
-    font-weight="900"
-    font-family="Arial, sans-serif"
-    fill="#ffffff"
-  >
-    股
-  </text>
-</svg>
+{
+  "name": "台股即時雷達",
+  "short_name": "台股雷達",
+  "description": "台股漲幅排行、產業排行、突破股、警報股、自選股",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#ef4444",
+  "orientation": "portrait",
+  "lang": "zh-TW",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
