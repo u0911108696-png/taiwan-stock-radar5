@@ -120,6 +120,57 @@ function formatTime(date: Date) {
   });
 }
 
+function getMarketStatus() {
+  const now = new Date();
+  const day = now.getDay();
+  const hour = now.getHours();
+  const minute = now.getMinutes();
+  const totalMinutes = hour * 60 + minute;
+
+  const isWeekday = day >= 1 && day <= 5;
+  const preOpenStart = 8 * 60 + 30;
+  const marketOpen = 9 * 60;
+  const marketClose = 13 * 60 + 30;
+
+  if (!isWeekday) {
+    return {
+      title: "⚠️ 非交易日",
+      text: "目前可能是最近一次交易資料，請注意資料日期。",
+      color: "border-yellow-900 bg-yellow-950/50 text-yellow-200",
+    };
+  }
+
+  if (totalMinutes < preOpenStart) {
+    return {
+      title: "⚠️ 開盤前",
+      text: "目前可能是昨日或最近一次交易資料。",
+      color: "border-yellow-900 bg-yellow-950/50 text-yellow-200",
+    };
+  }
+
+  if (totalMinutes >= preOpenStart && totalMinutes < marketOpen) {
+    return {
+      title: "⏳ 開盤前準備",
+      text: "接近開盤，資料可能尚未完整更新。",
+      color: "border-orange-900 bg-orange-950/50 text-orange-200",
+    };
+  }
+
+  if (totalMinutes >= marketOpen && totalMinutes <= marketClose) {
+    return {
+      title: "✅ 今日盤中資料",
+      text: "目前為台股盤中時間，資料較接近即時。",
+      color: "border-green-900 bg-green-950/50 text-green-200",
+    };
+  }
+
+  return {
+    title: "⚠️ 收盤後",
+    text: "目前可能是今日收盤或最近一次交易資料。",
+    color: "border-slate-700 bg-slate-900 text-slate-300",
+  };
+}
+
 function normalizeStock(item: any): Stock {
   const code = String(item.Code ?? "").trim();
   const name = String(item.Name ?? "").trim();
@@ -342,7 +393,9 @@ function StockRow({
             {stock.changePercent >= 0 ? "+" : ""}
             {stock.changePercent.toFixed(2)}%
           </div>
+
           <MiniLine />
+
           <div
             className={
               status === "強勢"
@@ -485,7 +538,9 @@ function StockDetail({
             </div>
 
             {sameIndustryStocks.length === 0 ? (
-              <div className="text-sm text-slate-400">目前沒有其他同產業強勢股</div>
+              <div className="text-sm text-slate-400">
+                目前沒有其他同產業強勢股
+              </div>
             ) : (
               sameIndustryStocks.map((s, index) => (
                 <div
@@ -689,6 +744,8 @@ export default function App() {
     return () => clearInterval(timer);
   }, [watchCodes]);
 
+  const marketStatus = getMarketStatus();
+
   const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
   const sortedWatchListStocks = useMemo(
     () => sortStocks(watchListStocks, sortKey),
@@ -808,6 +865,11 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
       <div className="mx-auto max-w-md px-3 py-4">
+        <div className={`mb-3 rounded-2xl border p-3 ${marketStatus.color}`}>
+          <div className="text-sm font-black">{marketStatus.title}</div>
+          <div className="mt-1 text-xs font-bold">{marketStatus.text}</div>
+        </div>
+
         <header className="mb-3">
           <div className="flex items-center justify-between">
             <div>
@@ -1040,7 +1102,10 @@ export default function App() {
               </div>
             ) : (
               filteredIndustryGroups.slice(0, 10).map((group, index) => {
-                const isOpen = expandedIndustry === group.industry || Boolean(searchText) || filterKey !== "all";
+                const isOpen =
+                  expandedIndustry === group.industry ||
+                  Boolean(searchText) ||
+                  filterKey !== "all";
 
                 return (
                   <div
@@ -1049,7 +1114,9 @@ export default function App() {
                   >
                     <button
                       onClick={() =>
-                        setExpandedIndustry(isOpen && !searchText && filterKey === "all" ? "" : group.industry)
+                        setExpandedIndustry(
+                          isOpen && !searchText && filterKey === "all" ? "" : group.industry
+                        )
                       }
                       className="w-full text-left"
                     >
