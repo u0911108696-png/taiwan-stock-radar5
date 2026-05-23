@@ -265,6 +265,24 @@ function isAlertStock(stock: Stock) {
   );
 }
 
+function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
+  const tags: string[] = [];
+
+  if (stock.changePercent >= 9.8) tags.push("漲停附近");
+  else if (stock.changePercent >= 7) tags.push("急漲");
+
+  if (stock.changePercent >= 5) tags.push("突破");
+
+  if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
+  else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
+
+  if (stockScore(stock) >= 85) tags.push("強度高");
+
+  if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
+
+  return Array.from(new Set(tags)).slice(0, 4);
+}
+
 function sortStocks(list: Stock[], sortKey: SortKey) {
   const copied = [...list];
 
@@ -432,18 +450,45 @@ function MiniLine() {
   );
 }
 
+function AlertTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className={
+            tag === "漲停附近" || tag === "急漲"
+              ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+              : tag === "主流產業"
+                ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                : tag === "強度高"
+                  ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                  : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+          }
+        >
+          {tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function StockRow({
   stock,
   rank,
   onClick,
   compact = false,
   badge = "",
+  alertTags = [],
 }: {
   stock: Stock;
   rank: number;
   onClick: () => void;
   compact?: boolean;
   badge?: string;
+  alertTags?: string[];
 }) {
   const status = stockStatus(stock);
 
@@ -475,6 +520,8 @@ function StockRow({
             <div className="mt-1 text-xs font-bold text-slate-500">
               {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
             </div>
+
+            <AlertTags tags={alertTags} />
           </div>
         </div>
 
@@ -620,6 +667,10 @@ function StockDetail({
             <div className="text-6xl font-black">
               {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
             </div>
+          </div>
+
+          <div className="mt-3">
+            <AlertTags tags={getAlertTags(stock, [])} />
           </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3">
@@ -1451,6 +1502,7 @@ export default function App() {
                             rank={stockIndex + 1}
                             compact
                             badge={getIndustryRole(stock, group.stocks)}
+                            alertTags={getAlertTags(stock, topIndustryNames)}
                             onClick={() => setSelectedStock(stock)}
                           />
                         ))}
@@ -1487,6 +1539,7 @@ export default function App() {
                   stock={stock}
                   rank={index + 1}
                   compact={tab !== "top50"}
+                  alertTags={getAlertTags(stock, topIndustryNames)}
                   onClick={() => setSelectedStock(stock)}
                 />
               ))
