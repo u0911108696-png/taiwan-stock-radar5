@@ -455,7 +455,6 @@ export default function App() {
   );
 
   const topIndustries = mainIndustryGroups.slice(0, 5);
-  const strongestIndustry = topIndustries[0];
 
   const strongStocks = stocks.filter((s) => stockStatus(s) === "強勢");
   const watchStocks = stocks.filter((s) => stockStatus(s) === "觀察");
@@ -534,34 +533,34 @@ export default function App() {
         )}
 
         {tab === "top50" && topIndustries.length > 0 && (
-          <section className="mb-5 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-5 shadow-lg shadow-red-950/40">
-            <div className="mb-4 flex items-center justify-between">
-              <div className="text-lg font-black text-white">
+          <section className="mb-4 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-3 shadow-lg shadow-red-950/40">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="text-base font-black text-white">
                 👑 今日最強主流 TOP 5
               </div>
-              <div className="text-2xl">🏆</div>
+              <div className="text-xl">🏆</div>
             </div>
 
-            <div className="space-y-3">
+            <div className="space-y-2">
               {topIndustries.map((item, index) => (
                 <div
                   key={item.industry}
                   className="flex items-center justify-between"
                 >
                   <div className="flex items-center gap-3">
-                    <div className="w-6 text-3xl font-black text-orange-300">
+                    <div className="w-5 text-2xl font-black text-orange-300">
                       {index + 1}
                     </div>
-                    <div className="text-2xl font-black text-white">
+                    <div className="text-xl font-black text-white">
                       {item.industry}
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <div className="text-base font-black text-white">
+                    <div className="text-sm font-black text-white">
                       {item.total}檔
                     </div>
-                    <div className="text-sm font-black text-red-100">
+                    <div className="text-xs font-black text-red-100">
                       平均 +{item.avgChange}%
                     </div>
                   </div>
@@ -653,14 +652,14 @@ export default function App() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-black">
-                {tab === "top50" && "漲幅排行 TOP 5"}
+                {tab === "top50" && "漲幅排行 TOP 50"}
                 {tab === "watch" && "自選股"}
                 {tab === "breakout" && "突破股"}
                 {tab === "alert" && "警報股"}
               </h2>
 
               <span className="text-sm font-bold text-slate-400">
-                {tab === "top50" ? "前 5 名" : `${tabStocks.length} 檔`}
+                {tab === "top50" ? "前 50 名" : `${tabStocks.length} 檔`}
               </span>
             </div>
 
@@ -670,7 +669,7 @@ export default function App() {
               </div>
             ) : tab === "top50" ? (
               tabStocks
-                .slice(0, 5)
+                .slice(0, 50)
                 .map((stock, index) => (
                   <SmallStockCard key={stock.code} stock={stock} rank={index + 1} />
                 ))
