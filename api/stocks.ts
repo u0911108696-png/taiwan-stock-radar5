@@ -9,30 +9,34 @@ const defaultWatchListCodes = [
   "3481",
   "2356",
   "6168",
-  "6405"
+  "6405",
 ];
 
-function cleanNumber(value: any) {
-  return String(value || "0")
+function cleanText(value: any) {
+  return String(value ?? "")
     .replace(/<[^>]*>/g, "")
     .replaceAll(",", "")
-    .replace("+", "")
-    .replace("X", "")
+    .replaceAll("&nbsp;", "")
+    .replaceAll(" ", "")
     .trim();
 }
 
-function parseChange(value: any) {
-  const text = cleanNumber(value);
-  return Number(text || 0);
+function toNumber(value: any) {
+  const text = cleanText(value)
+    .replace("+", "")
+    .replace("X", "")
+    .replace("--", "")
+    .trim();
+
+  const number = Number(text);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function getWatchCodesFromUrl(req: Request) {
   const url = new URL(req.url);
   const watch = url.searchParams.get("watch");
 
-  if (!watch) {
-    return defaultWatchListCodes;
-  }
+  if (!watch) return defaultWatchListCodes;
 
   const codes = watch
     .split(",")
@@ -42,131 +46,192 @@ function getWatchCodesFromUrl(req: Request) {
   return codes.length > 0 ? codes : defaultWatchListCodes;
 }
 
-async function fetchTwseOld() {
-  const response = await fetch(
-    "https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json",
-    {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json,text/plain,*/*",
-      },
-      cache: "no-store",
-    }
-  );
+function taiwanDateString(daysAgo = 0) {
+  const taiwanNow = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  taiwanNow.setUTCDate(taiwanNow.getUTCDate() - daysAgo);
 
-  if (!response.ok) {
-    throw new Error("TWSE 舊 API 失敗：" + response.status);
-  }
+  const year = taiwanNow.getUTCFullYear();
+  const month = String(taiwanNow.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(taiwanNow.getUTCDate()).padStart(2, "0");
 
-  const raw = await response.json();
-  const rows = raw.data || [];
-
-  return rows
-    .map((row: any[]) => ({
-      Code: String(row[0] || ""),
-      Name: String(row[1] || ""),
-      TradeVolume: cleanNumber(row[2]),
-      ClosingPrice: cleanNumber(row[7]),
-      Change: parseChange(row[8]),
-    }))
-    .filter((s: any) => /^\d{4}$/.test(s.Code));
+  return `${year}${month}${day}`;
 }
 
-async function fetchTwseOpenApi() {
-  const response = await fetch(
-    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
-    {
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Accept: "application/json",
-      },
-      cache: "no-store",
-    }
-  );
+async function fetchTwseDaily(date: string) {
+  const url =
+    "https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX" +
+    `?date=${date}&type=ALLBUT0999&response=json`;
 
-  if (!response.ok) {
-    throw new Error("TWSE OpenAPI 失敗：" + response.status);
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!res.ok) {
+    throw new Error("TWSE API 連線失敗");
   }
 
-  const rows = await response.json();
+  const data = await res.json();
 
-  return rows
-    .map((item: any) => ({
-      Code: String(item.Code || ""),
-      Name: String(item.Name || ""),
-      TradeVolume: cleanNumber(item.TradeVolume),
-      ClosingPrice: cleanNumber(item.ClosingPrice),
-      Change: parseChange(item.Change),
-    }))
-    .filter((s: any) => /^\d{4}$/.test(s.Code));
+  if (!data || data.stat !== "OK" || !Array.isArray(data.tables)) {
+    throw new Error("TWSE 尚未提供該日資料");
+  }
+
+  const table = data.tables.find((item: any) => {
+    const fields = item.fields || [];
+    return (
+      fields.includes("證券代號") &&
+      fields.includes("證券名稱") &&
+      fields.includes("開盤價") &&
+      fields.includes("收盤價")
+    );
+  });
+
+  if (!table || !Array.isArray(table.data)) {
+    throw new Error("找不到每日收盤行情表");
+  }
+
+  return table;
 }
 
-function addChangePercent(item: any) {
-  const price = Number(cleanNumber(item.ClosingPrice));
-  const change = Number(cleanNumber(item.Change));
-  const previous = price - change;
+async function getLatestTwseTable() {
+  let lastError = "";
+
+  for (let i = 0; i < 12; i++) {
+    const date = taiwanDateString(i);
+
+    try {
+      const table = await fetchTwseDaily(date);
+      return {
+        date,
+        table,
+      };
+    } catch (error: any) {
+      lastError = error?.message || "資料取得失敗";
+    }
+  }
+
+  throw new Error(lastError || "找不到最近交易日資料");
+}
+
+function rowToObject(fields: string[], row: any[]) {
+  const obj: Record<string, any> = {};
+
+  fields.forEach((field, index) => {
+    obj[field] = row[index];
+  });
+
+  return obj;
+}
+
+function normalizeStock(fields: string[], row: any[]) {
+  const item = rowToObject(fields, row);
+
+  const code = cleanText(item["證券代號"]);
+  const name = cleanText(item["證券名稱"]);
+
+  const volume = toNumber(item["成交股數"]);
+  const openPrice = toNumber(item["開盤價"]);
+  const highPrice = toNumber(item["最高價"]);
+  const lowPrice = toNumber(item["最低價"]);
+  const closingPrice = toNumber(item["收盤價"]);
+
+  const signText = cleanText(item["漲跌(+/-)"]);
+  const changeValue = toNumber(item["漲跌價差"]);
+
+  let signedChange = changeValue;
+
+  if (signText.includes("-")) {
+    signedChange = -changeValue;
+  }
+
+  const previousClose =
+    closingPrice > 0 ? Number((closingPrice - signedChange).toFixed(2)) : 0;
 
   const changePercent =
-    previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
+    previousClose > 0
+      ? Number(((signedChange / previousClose) * 100).toFixed(2))
+      : 0;
+
+  const openPremiumPercent =
+    openPrice > 0 && previousClose > 0
+      ? Number((((openPrice - previousClose) / previousClose) * 100).toFixed(2))
+      : null;
 
   return {
-    ...item,
+    Code: code,
+    Name: name,
+
+    ClosingPrice: closingPrice,
+    OpeningPrice: openPrice,
+    HighPrice: highPrice,
+    LowPrice: lowPrice,
+    PreviousClose: previousClose,
+
+    Change: Number(signedChange.toFixed(2)),
     ChangePercent: changePercent,
+    OpenPremiumPercent: openPremiumPercent,
+
+    TradeVolume: volume,
   };
 }
 
 export default async function handler(req: Request) {
   try {
-    const watchListCodes = getWatchCodesFromUrl(req);
+    const watchCodes = getWatchCodesFromUrl(req);
 
-    let allStocks: any[] = [];
+    const { date, table } = await getLatestTwseTable();
 
-    try {
-      allStocks = await fetchTwseOld();
-    } catch (e1: any) {
-      allStocks = await fetchTwseOpenApi();
-    }
+    const fields: string[] = table.fields || [];
+    const rows: any[][] = table.data || [];
+
+    const allStocks = rows
+      .map((row) => normalizeStock(fields, row))
+      .filter((stock) => {
+        return (
+          /^\d{4}$/.test(stock.Code) &&
+          stock.Name &&
+          stock.ClosingPrice > 0
+        );
+      });
 
     const rankedStocks = allStocks
-      .map(addChangePercent)
-      .filter((s: any) => {
-        return Number(s.ClosingPrice) > 0 && Number.isFinite(s.ChangePercent);
-      })
-      .sort((a: any, b: any) => b.ChangePercent - a.ChangePercent)
+      .filter((stock) => stock.ChangePercent > 0)
+      .sort((a, b) => b.ChangePercent - a.ChangePercent)
       .slice(0, 50);
 
-    const watchList = watchListCodes
-      .map((code) => allStocks.find((s: any) => s.Code === code))
-      .filter(Boolean)
-      .map(addChangePercent);
+    const watchList = watchCodes
+      .map((code) => allStocks.find((stock) => stock.Code === code))
+      .filter(Boolean);
 
-    return new Response(
-      JSON.stringify({
+    return Response.json(
+      {
+        ok: true,
+        source: "TWSE",
+        date,
         rankedStocks,
         watchList,
-        watchListCodes,
-        total: allStocks.length,
-        updatedAt: new Date().toISOString(),
-      }),
+      },
       {
-        status: 200,
         headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
           "Cache-Control": "no-store",
         },
       }
     );
   } catch (error: any) {
-    return new Response(
-      JSON.stringify({
-        error: error?.message || "伺服器抓取台股資料失敗",
-      }),
+    return Response.json(
+      {
+        ok: false,
+        message: error?.message || "台股資料取得失敗",
+        rankedStocks: [],
+        watchList: [],
+      },
       {
         status: 500,
         headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Access-Control-Allow-Origin": "*",
           "Cache-Control": "no-store",
         },
       }
