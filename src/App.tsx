@@ -501,6 +501,7 @@ function StockDetail({
   lastSuccessAt,
   lastFailReason,
   lastFailAt,
+  onSelectStock,
 }: {
   stock: Stock;
   onBack: () => void;
@@ -512,6 +513,7 @@ function StockDetail({
   lastSuccessAt: string;
   lastFailReason: string;
   lastFailAt: string;
+  onSelectStock: (stock: Stock) => void;
 }) {
   const status = stockStatus(stock);
   const links = getStockLinks(stock.code);
@@ -692,9 +694,10 @@ function StockDetail({
               </div>
             ) : (
               sameIndustryStocks.map((s, index) => (
-                <div
+                <button
                   key={s.code}
-                  className="mb-2 flex items-center justify-between rounded-xl bg-black/40 px-3 py-2"
+                  onClick={() => onSelectStock(s)}
+                  className="mb-2 flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left active:scale-[0.99]"
                 >
                   <div>
                     <div className="font-black">
@@ -706,10 +709,15 @@ function StockDetail({
                     </div>
                   </div>
 
-                  <div className="font-black text-red-400">
-                    +{s.changePercent.toFixed(2)}%
+                  <div className="text-right">
+                    <div className="font-black text-red-400">
+                      +{s.changePercent.toFixed(2)}%
+                    </div>
+                    <div className="text-xs font-bold text-slate-500">
+                      點我查看
+                    </div>
                   </div>
-                </div>
+                </button>
               ))
             )}
           </div>
@@ -1009,6 +1017,7 @@ export default function App() {
         lastSuccessAt={lastSuccessAt}
         lastFailReason={lastFailReason}
         lastFailAt={lastFailAt}
+        onSelectStock={setSelectedStock}
       />
     );
   }
