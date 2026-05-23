@@ -496,6 +496,7 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("top50");
   const [expandedIndustry, setExpandedIndustry] = useState<string>("");
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [searchText, setSearchText] = useState("");
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -590,6 +591,20 @@ export default function App() {
     }
   }
 
+  function filterStocks(list: Stock[]) {
+    const keyword = searchText.trim().toLowerCase();
+
+    if (!keyword) return list;
+
+    return list.filter((s) => {
+      return (
+        s.code.toLowerCase().includes(keyword) ||
+        s.name.toLowerCase().includes(keyword) ||
+        s.industry.toLowerCase().includes(keyword)
+      );
+    });
+  }
+
   useEffect(() => {
     const savedCodes = loadSavedWatchCodes();
     setWatchCodes(savedCodes);
@@ -635,6 +650,38 @@ export default function App() {
     if (tab === "alert") return alertStocks;
     return stocks;
   }, [tab, stocks, watchListStocks, breakoutStocks, alertStocks]);
+
+  const filteredTabStocks = useMemo(() => {
+    return filterStocks(tabStocks);
+  }, [tabStocks, searchText]);
+
+  const filteredIndustryGroups = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+
+    if (!keyword) return mainIndustryGroups;
+
+    return mainIndustryGroups
+      .map((group) => {
+        const matchIndustry = group.industry.toLowerCase().includes(keyword);
+
+        if (matchIndustry) return group;
+
+        const filteredStocks = group.stocks.filter((s) => {
+          return (
+            s.code.toLowerCase().includes(keyword) ||
+            s.name.toLowerCase().includes(keyword) ||
+            s.industry.toLowerCase().includes(keyword)
+          );
+        });
+
+        return {
+          ...group,
+          stocks: filteredStocks,
+          total: filteredStocks.length,
+        };
+      })
+      .filter((group) => group.industry.toLowerCase().includes(keyword) || group.stocks.length > 0);
+  }, [mainIndustryGroups, searchText]);
 
   const tabs: { key: TabKey; label: string; icon: string }[] = [
     { key: "top50", label: "50強", icon: "📊" },
@@ -687,6 +734,32 @@ export default function App() {
           </div>
         </header>
 
+        <div className="mb-3">
+          <div className="flex gap-2">
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="搜尋代號 / 名稱 / 產業"
+              className="min-w-0 flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
+            />
+
+            {searchText && (
+              <button
+                onClick={() => setSearchText("")}
+                className="rounded-xl bg-slate-800 px-3 text-xs font-black text-slate-300"
+              >
+                清除
+              </button>
+            )}
+          </div>
+
+          {searchText && (
+            <div className="mt-2 text-xs font-bold text-slate-400">
+              搜尋：{searchText}
+            </div>
+          )}
+        </div>
+
         <div className="mb-3 flex gap-2 overflow-x-auto">
           {tabs.map((item) => (
             <button
@@ -715,7 +788,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === "top50" && topIndustries.length > 0 && (
+        {tab === "top50" && !searchText && topIndustries.length > 0 && (
           <section className="mb-3 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div className="text-sm font-black text-white">
@@ -799,68 +872,81 @@ export default function App() {
 
         {tab === "industry" ? (
           <section>
-            <h2 className="mb-3 text-lg font-black">產業排行 TOP 10</h2>
+            <h2 className="mb-3 text-lg font-black">
+              產業排行 TOP 10
+              {searchText && (
+                <span className="ml-2 text-xs text-slate-400">
+                  / 搜尋結果 {filteredIndustryGroups.length} 類
+                </span>
+              )}
+            </h2>
 
-            {mainIndustryGroups.slice(0, 10).map((group, index) => {
-              const isOpen = expandedIndustry === group.industry;
+            {filteredIndustryGroups.slice(0, 10).length === 0 ? (
+              <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
+                沒有符合搜尋的產業或股票
+              </div>
+            ) : (
+              filteredIndustryGroups.slice(0, 10).map((group, index) => {
+                const isOpen = expandedIndustry === group.industry || Boolean(searchText);
 
-              return (
-                <div
-                  key={group.industry}
-                  className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
-                >
-                  <button
-                    onClick={() =>
-                      setExpandedIndustry(isOpen ? "" : group.industry)
-                    }
-                    className="w-full text-left"
+                return (
+                  <div
+                    key={group.industry}
+                    className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="text-xl font-black text-red-400">
-                          {index + 1}
-                        </div>
-                        <div>
-                          <div className="text-2xl font-black text-white">
-                            {group.industry}
+                    <button
+                      onClick={() =>
+                        setExpandedIndustry(isOpen && !searchText ? "" : group.industry)
+                      }
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="text-xl font-black text-red-400">
+                            {index + 1}
                           </div>
-                          <div className="mt-1 text-xs text-slate-400">
-                            平均 +{group.avgChange}%｜強度 {group.strength}
+                          <div>
+                            <div className="text-2xl font-black text-white">
+                              {group.industry}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              平均 +{group.avgChange}%｜強度 {group.strength}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-2xl font-black text-red-400">
+                            {group.total}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            檔 {isOpen ? "▲" : "▼"}
                           </div>
                         </div>
                       </div>
+                    </button>
 
-                      <div className="text-right">
-                        <div className="text-2xl font-black text-red-400">
-                          {group.total}
+                    {isOpen && (
+                      <div className="mt-3 rounded-2xl bg-black/40 p-2">
+                        <div className="mb-2 text-sm font-black text-slate-300">
+                          {group.industry} 個股
                         </div>
-                        <div className="text-xs text-slate-400">
-                          檔 {isOpen ? "▲" : "▼"}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
 
-                  {isOpen && (
-                    <div className="mt-3 rounded-2xl bg-black/40 p-2">
-                      <div className="mb-2 text-sm font-black text-slate-300">
-                        {group.industry} 個股
+                        {group.stocks.map((stock, stockIndex) => (
+                          <StockRow
+                            key={stock.code}
+                            stock={stock}
+                            rank={stockIndex + 1}
+                            compact
+                            onClick={() => setSelectedStock(stock)}
+                          />
+                        ))}
                       </div>
-
-                      {group.stocks.map((stock, stockIndex) => (
-                        <StockRow
-                          key={stock.code}
-                          stock={stock}
-                          rank={stockIndex + 1}
-                          compact
-                          onClick={() => setSelectedStock(stock)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })
+            )}
           </section>
         ) : (
           <section>
@@ -873,16 +959,16 @@ export default function App() {
               </h2>
 
               <span className="text-xs font-bold text-slate-400">
-                {tab === "top50" ? "前 50 名" : `${tabStocks.length} 檔`}
+                {tab === "top50" ? `${filteredTabStocks.length} / 50` : `${filteredTabStocks.length} 檔`}
               </span>
             </div>
 
-            {tabStocks.length === 0 ? (
+            {filteredTabStocks.length === 0 ? (
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
-                目前沒有符合條件的股票
+                目前沒有符合搜尋的股票
               </div>
             ) : (
-              tabStocks.slice(0, 50).map((stock, index) => (
+              filteredTabStocks.slice(0, 50).map((stock, index) => (
                 <StockRow
                   key={stock.code}
                   stock={stock}
@@ -895,7 +981,7 @@ export default function App() {
           </section>
         )}
 
-        {tab === "top50" && (
+        {tab === "top50" && !searchText && (
           <section className="mt-4">
             <h2 className="mb-2 text-lg font-black">強勢指標統計</h2>
 
