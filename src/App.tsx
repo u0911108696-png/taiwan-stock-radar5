@@ -17,94 +17,43 @@ type ModeKey = "open" | "normal";
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
 const industryMap: Record<string, string> = {
-  "2911": "百貨",
-  "3042": "PCB",
-  "3711": "半導體",
-  "3714": "光電",
-  "6168": "光電",
-  "8374": "電機機械",
-  "2356": "電腦週邊",
-  "3481": "面板",
-  "4722": "化工",
-  "6405": "光電",
-  "6278": "光電",
+  "2911": "百貨", "3042": "PCB", "3711": "半導體", "3714": "光電",
+  "6168": "光電", "8374": "電機機械", "2356": "電腦週邊", "3481": "面板",
+  "4722": "化工", "6405": "光電", "6278": "光電",
 
-  "2330": "半導體",
-  "2303": "半導體",
-  "2454": "半導體",
-  "3034": "半導體",
-  "3035": "半導體",
-  "3443": "半導體",
-  "2379": "半導體",
-  "3661": "半導體",
+  "2330": "半導體", "2303": "半導體", "2454": "半導體", "3034": "半導體",
+  "3035": "半導體", "3443": "半導體", "2379": "半導體", "3661": "半導體",
   "2408": "半導體",
 
-  "2317": "電子代工",
-  "4938": "電子代工",
-  "2354": "電子代工",
-  "2382": "電腦週邊",
-  "2357": "電腦週邊",
-  "3231": "電腦週邊",
-  "2301": "電腦週邊",
-  "6669": "電腦週邊",
-  "3017": "電腦週邊",
+  "2317": "電子代工", "4938": "電子代工", "2354": "電子代工",
+  "2382": "電腦週邊", "2357": "電腦週邊", "3231": "電腦週邊",
+  "2301": "電腦週邊", "6669": "電腦週邊", "3017": "電腦週邊",
 
-  "2308": "電子零組件",
-  "2327": "電子零組件",
-  "3037": "電子零組件",
-  "8046": "電子零組件",
-  "2313": "PCB",
-  "2367": "PCB",
-  "4958": "PCB",
+  "2308": "電子零組件", "2327": "電子零組件", "3037": "電子零組件",
+  "8046": "電子零組件", "2313": "PCB", "2367": "PCB", "4958": "PCB",
 
-  "3008": "光電",
-  "2409": "面板",
-  "3406": "光電",
+  "3008": "光電", "2409": "面板", "3406": "光電",
 
-  "2881": "金融",
-  "2882": "金融",
-  "2884": "金融",
-  "2886": "金融",
-  "2891": "金融",
-  "2892": "金融",
-  "5871": "金融",
-  "5876": "金融",
+  "2881": "金融", "2882": "金融", "2884": "金融", "2886": "金融",
+  "2891": "金融", "2892": "金融", "5871": "金融", "5876": "金融",
 
-  "2603": "航運",
-  "2609": "航運",
-  "2615": "航運",
-  "2618": "航空",
+  "2603": "航運", "2609": "航運", "2615": "航運", "2618": "航空",
 
-  "1301": "塑化",
-  "1303": "塑化",
-  "6505": "塑化",
-  "1717": "化工",
-  "1722": "化工",
+  "1301": "塑化", "1303": "塑化", "6505": "塑化",
+  "1717": "化工", "1722": "化工",
 
-  "2002": "鋼鐵",
-  "2014": "鋼鐵",
-  "2027": "鋼鐵",
+  "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
 
-  "1101": "水泥",
-  "1102": "水泥",
+  "1101": "水泥", "1102": "水泥",
 
-  "2201": "汽車",
-  "2207": "汽車",
-  "2227": "汽車",
+  "2201": "汽車", "2207": "汽車", "2227": "汽車",
 
-  "1216": "食品",
-  "1227": "食品",
+  "1216": "食品", "1227": "食品",
 
-  "1707": "生技",
-  "1760": "生技",
-  "1783": "生技",
+  "1707": "生技", "1760": "生技", "1783": "生技",
 
-  "2912": "百貨",
-  "5903": "百貨",
-  "9904": "消費",
-  "9907": "消費",
-  "9914": "消費",
-  "9926": "消費",
+  "2912": "百貨", "5903": "百貨",
+  "9904": "消費", "9907": "消費", "9914": "消費", "9926": "消費",
 };
 
 function getIndustry(code: string) {
@@ -191,6 +140,7 @@ function normalizeStock(item: any): Stock {
   if (!Number.isFinite(changePercent) || changePercent === 0) {
     const change = Number(String(item.Change ?? "0").replaceAll(",", ""));
     const previous = price - change;
+
     changePercent =
       previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
   }
@@ -254,22 +204,10 @@ function sortStocks(list: Stock[], sortKey: SortKey) {
 }
 
 function filterByQuick(list: Stock[], filterKey: FilterKey) {
-  if (filterKey === "strong") {
-    return list.filter((s) => s.changePercent >= 9.8);
-  }
-
-  if (filterKey === "breakout") {
-    return list.filter((s) => s.changePercent >= 5);
-  }
-
-  if (filterKey === "alert") {
-    return list.filter(isAlertStock);
-  }
-
-  if (filterKey === "lowVolume") {
-    return list.filter((s) => s.volume > 0 && s.volume < 300000);
-  }
-
+  if (filterKey === "strong") return list.filter((s) => s.changePercent >= 9.8);
+  if (filterKey === "breakout") return list.filter((s) => s.changePercent >= 5);
+  if (filterKey === "alert") return list.filter(isAlertStock);
+  if (filterKey === "lowVolume") return list.filter((s) => s.volume > 0 && s.volume < 300000);
   return list;
 }
 
@@ -302,8 +240,7 @@ function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
   return Object.entries(map)
     .map(([industry, groupStocks]) => {
       const avgChange =
-        groupStocks.reduce((sum, s) => sum + s.changePercent, 0) /
-        groupStocks.length;
+        groupStocks.reduce((sum, s) => sum + s.changePercent, 0) / groupStocks.length;
 
       const strength = Math.round(groupStocks.length * avgChange * 10);
 
@@ -643,20 +580,6 @@ function StockDetail({
               ))
             )}
           </div>
-
-          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
-            <div className="mb-2 text-sm font-bold text-slate-400">簡易走勢</div>
-            <svg viewBox="0 0 300 80" className="h-20 w-full">
-              <polyline
-                points="8,65 42,60 76,42 110,42 140,36 168,50 198,24 232,30 270,18 292,22"
-                fill="none"
-                stroke="#ef4444"
-                strokeWidth="6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
         </section>
       </div>
     </div>
@@ -679,6 +602,7 @@ export default function App() {
   const [sortKey, setSortKey] = useState<SortKey>("change");
   const [filterKey, setFilterKey] = useState<FilterKey>("all");
   const [mode, setMode] = useState<ModeKey>("normal");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -826,6 +750,7 @@ export default function App() {
   const marketStatus = getMarketStatus();
 
   const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
+
   const sortedWatchListStocks = useMemo(
     () => sortStocks(watchListStocks, sortKey),
     [watchListStocks, sortKey]
@@ -844,11 +769,7 @@ export default function App() {
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((g) => g.industry);
 
-  const strongStocks = sortedStocks.filter((s) => stockStatus(s) === "強勢");
-  const watchStocks = sortedStocks.filter((s) => stockStatus(s) === "觀察");
-
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
-  const lowVolumeStocks = stocks.filter((s) => s.volume > 0 && s.volume < 300000);
   const breakoutStocks = sortStocks(stocks.filter((s) => s.changePercent >= 5), sortKey);
 
   const tabStocks = useMemo(() => {
@@ -952,9 +873,7 @@ export default function App() {
         <header className="mb-3">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-xl font-black tracking-wide">
-                台股即時雷達
-              </h1>
+              <h1 className="text-xl font-black tracking-wide">台股即時雷達</h1>
               <div className="mt-1 text-xs font-bold text-slate-400">
                 更新 {updatedAt || "尚未更新"}｜下次 {nextRefresh}s
               </div>
@@ -1013,38 +932,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="mb-2 flex gap-2 overflow-x-auto">
-          {sortButtons.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setSortKey(item.key)}
-              className={
-                sortKey === item.key
-                  ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white"
-                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
-              }
-            >
-              {item.label}排序
-            </button>
-          ))}
-        </div>
-
-        <div className="mb-3 flex gap-2 overflow-x-auto">
-          {filterButtons.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => setFilterKey(item.key)}
-              className={
-                filterKey === item.key
-                  ? "whitespace-nowrap rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
-                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
-              }
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
         <div className="mb-3 flex gap-2 overflow-x-auto">
           {tabs.map((item) => (
             <button
@@ -1063,6 +950,53 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="mb-3 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-black text-slate-200"
+        >
+          {showAdvanced ? "收起進階篩選 ▲" : "展開進階篩選 ▼"}
+        </button>
+
+        {showAdvanced && (
+          <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+            <div className="mb-2 text-xs font-black text-slate-400">排序方式</div>
+
+            <div className="mb-3 flex gap-2 overflow-x-auto">
+              {sortButtons.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setSortKey(item.key)}
+                  className={
+                    sortKey === item.key
+                      ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white"
+                      : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+                  }
+                >
+                  {item.label}排序
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-2 text-xs font-black text-slate-400">快速篩選</div>
+
+            <div className="flex gap-2 overflow-x-auto">
+              {filterButtons.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setFilterKey(item.key)}
+                  className={
+                    filterKey === item.key
+                      ? "whitespace-nowrap rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
+                      : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {mode === "open" && (
           <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
@@ -1085,31 +1019,20 @@ export default function App() {
         {tab === "top50" && !searchText && filterKey === "all" && topIndustries.length > 0 && (
           <section className="mb-3 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-3">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-black text-white">
-                👑 今日最強主流 TOP 5
-              </div>
+              <div className="text-sm font-black text-white">👑 今日最強主流 TOP 5</div>
               <div className="text-lg">🏆</div>
             </div>
 
             <div className="space-y-1.5">
               {topIndustries.map((item, index) => (
-                <div
-                  key={item.industry}
-                  className="flex items-center justify-between"
-                >
+                <div key={item.industry} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-5 text-xl font-black text-orange-300">
-                      {index + 1}
-                    </div>
-                    <div className="text-lg font-black text-white">
-                      {item.industry}
-                    </div>
+                    <div className="w-5 text-xl font-black text-orange-300">{index + 1}</div>
+                    <div className="text-lg font-black text-white">{item.industry}</div>
                   </div>
 
                   <div className="text-right">
-                    <div className="text-xs font-black text-white">
-                      {item.total}檔
-                    </div>
+                    <div className="text-xs font-black text-white">{item.total}檔</div>
                     <div className="text-xs font-black text-red-100">
                       平均 +{item.avgChange}%
                     </div>
@@ -1204,6 +1127,7 @@ export default function App() {
                           <div className="text-xl font-black text-red-400">
                             {index + 1}
                           </div>
+
                           <div>
                             <div className="text-2xl font-black text-white">
                               {group.industry}
