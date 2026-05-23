@@ -144,7 +144,7 @@ const industryMap: Record<string, string> = {
   "9904": "消費",
   "9907": "消費",
   "9914": "消費",
-  "9926": "消費"
+  "9926": "消費",
 };
 
 function getIndustry(code: string) {
@@ -291,6 +291,68 @@ function StockLinks({ code }: { code: string }) {
       >
         Yahoo股價
       </a>
+    </div>
+  );
+}
+
+function StockCard({ stock, rank }: { stock: Stock; rank?: number }) {
+  return (
+    <div className="mb-3 rounded-xl bg-slate-800 p-3">
+      <div className="flex justify-between gap-3">
+        <div className="min-w-0">
+          <div className="font-bold">
+            {rank ? `#${rank} ` : ""}
+            {stock.code} {stock.name}
+          </div>
+
+          <div className="mt-2 text-xl font-bold text-white">
+            即時價 {stock.price}
+          </div>
+
+          <div className="mt-1 text-sm text-slate-400">
+            {stock.industry}
+          </div>
+        </div>
+
+        <div className="shrink-0 text-right">
+          <div
+            className={
+              stock.changePercent >= 0
+                ? "text-lg font-bold text-red-400"
+                : "text-lg font-bold text-green-400"
+            }
+          >
+            {stock.changePercent >= 0 ? "+" : ""}
+            {stock.changePercent}%
+          </div>
+
+          {getStockTag(stock) && (
+            <div className="mt-1 text-xs text-yellow-300">
+              {getStockTag(stock)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-2 text-xs text-slate-500">
+        成交量：{stock.volume.toLocaleString()}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+        {isVolumeHot(stock) && (
+          <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
+            量能放大
+          </span>
+        )}
+
+        {isLowVolume(stock) && (
+          <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
+            低成交量
+          </span>
+        )}
+      </div>
+
+      <StockLinks code={stock.code} />
     </div>
   );
 }
@@ -622,13 +684,18 @@ export default function App() {
                       key={s.code}
                       className="mb-3 rounded-xl bg-slate-800 p-3"
                     >
-                      <div className="flex justify-between">
+                      <div className="flex justify-between gap-3">
                         <div>
                           <div className="font-bold">
                             {s.code} {s.name}
                           </div>
+
+                          <div className="mt-2 text-xl font-bold text-white">
+                            即時價 {s.price}
+                          </div>
+
                           <div className="mt-1 text-sm text-slate-400">
-                            {s.industry} / 成交價 {s.price}
+                            {s.industry}
                           </div>
                         </div>
 
@@ -636,8 +703,8 @@ export default function App() {
                           <div
                             className={
                               s.changePercent >= 0
-                                ? "font-bold text-red-400"
-                                : "font-bold text-green-400"
+                                ? "text-lg font-bold text-red-400"
+                                : "text-lg font-bold text-green-400"
                             }
                           >
                             {s.changePercent >= 0 ? "+" : ""}
@@ -778,35 +845,7 @@ export default function App() {
                   </button>
 
                   {group.stocks.slice(0, 5).map((s) => (
-                    <div
-                      key={s.code}
-                      className="mb-2 rounded-xl bg-slate-900 px-3 py-2"
-                    >
-                      <div className="flex justify-between">
-                        <div>
-                          <div className="font-bold">
-                            {s.code} {s.name}
-                          </div>
-                          <div className="mt-1 text-sm text-slate-400">
-                            成交價 {s.price}
-                          </div>
-                        </div>
-
-                        <div className="text-right">
-                          <div className="font-bold text-red-400">
-                            +{s.changePercent}%
-                          </div>
-
-                          {getStockTag(s) && (
-                            <div className="mt-1 text-xs text-yellow-300">
-                              {getStockTag(s)}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      <StockLinks code={s.code} />
-                    </div>
+                    <StockCard key={s.code} stock={s} />
                   ))}
                 </div>
               ))}
@@ -845,25 +884,7 @@ export default function App() {
                 </p>
               ) : (
                 breakoutStocks.map((s) => (
-                  <div
-                    key={s.code}
-                    className="mb-2 rounded-xl bg-slate-800 px-3 py-2"
-                  >
-                    <div className="flex justify-between">
-                      <span className="font-bold">
-                        {s.code} {s.name}
-                      </span>
-                      <span className="text-red-400">
-                        +{s.changePercent}%
-                      </span>
-                    </div>
-
-                    <div className="mt-1 text-sm text-slate-400">
-                      {s.industry} / 成交價 {s.price}
-                    </div>
-
-                    <StockLinks code={s.code} />
-                  </div>
+                  <StockCard key={s.code} stock={s} />
                 ))
               )}
             </section>
@@ -879,55 +900,7 @@ export default function App() {
                 </p>
               ) : (
                 filteredStocks.map((s, index) => (
-                  <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
-                    <div className="flex justify-between">
-                      <div>
-                        <div className="font-bold">
-                          #{index + 1} {s.code} {s.name}
-                        </div>
-
-                        <div className="mt-1 text-sm text-slate-400">
-                          {s.industry}
-                        </div>
-                      </div>
-
-                      <div className="text-right">
-                        <div className="font-bold text-red-400">
-                          +{s.changePercent}%
-                        </div>
-
-                        <div className="mt-1 text-sm text-slate-400">
-                          {s.price}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-2 text-xs text-slate-500">
-                      成交量：{s.volume.toLocaleString()}
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                      {getStockTag(s) && (
-                        <span className="rounded-full bg-yellow-500/20 px-2 py-1 text-yellow-300">
-                          {getStockTag(s)}
-                        </span>
-                      )}
-
-                      {isVolumeHot(s) && (
-                        <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
-                          量能放大
-                        </span>
-                      )}
-
-                      {isLowVolume(s) && (
-                        <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
-                          低成交量
-                        </span>
-                      )}
-                    </div>
-
-                    <StockLinks code={s.code} />
-                  </div>
+                  <StockCard key={s.code} stock={s} rank={index + 1} />
                 ))
               )}
             </section>
