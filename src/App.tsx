@@ -886,6 +886,15 @@ export default function App() {
     setSearchText("");
   }
 
+  function applyNineTenMode() {
+    setMode("open");
+    setTab("top50");
+    setFilterKey("breakout");
+    setSortKey("score");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
   function applyNormalMode() {
     setMode("normal");
     setTab("top50");
@@ -1124,16 +1133,27 @@ export default function App() {
           </div>
         )}
 
-        <div className="mb-3 grid grid-cols-2 gap-2">
+        <div className="mb-3 grid grid-cols-3 gap-2">
           <button
             onClick={applyOpenMode}
             className={
-              mode === "open"
+              mode === "open" && tab === "alert"
                 ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
                 : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
             }
           >
             開盤模式
+          </button>
+
+          <button
+            onClick={applyNineTenMode}
+            className={
+              mode === "open" && tab === "top50" && filterKey === "breakout"
+                ? "rounded-xl bg-orange-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            9:10快篩
           </button>
 
           <button
@@ -1234,9 +1254,15 @@ export default function App() {
           </div>
         )}
 
-        {mode === "open" && (
+        {mode === "open" && tab === "alert" && (
           <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
             開盤模式：目前只看警報股，並依強度排序。
+          </div>
+        )}
+
+        {mode === "open" && tab === "top50" && filterKey === "breakout" && (
+          <div className="mb-3 rounded-2xl border border-orange-900 bg-orange-950/50 p-3 text-sm font-bold text-orange-100">
+            9:10 快篩：顯示漲幅排行 TOP 50 中的突破股，並依強度排序。
           </div>
         )}
 
@@ -1270,6 +1296,33 @@ export default function App() {
                   <div className="text-right">
                     <div className="text-xs font-black text-white">{item.total}檔</div>
                     <div className="text-xs font-black text-red-100">
+                      平均 +{item.avgChange}%
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {tab === "top50" && filterKey === "breakout" && topIndustries.length > 0 && (
+          <section className="mb-3 rounded-2xl bg-gradient-to-br from-orange-600 to-red-900 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-sm font-black text-white">⚡ 9:10 主流觀察 TOP 5</div>
+              <div className="text-lg">🚀</div>
+            </div>
+
+            <div className="space-y-1.5">
+              {topIndustries.map((item, index) => (
+                <div key={item.industry} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 text-xl font-black text-yellow-200">{index + 1}</div>
+                    <div className="text-lg font-black text-white">{item.industry}</div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-xs font-black text-white">{item.total}檔</div>
+                    <div className="text-xs font-black text-orange-100">
                       平均 +{item.avgChange}%
                     </div>
                   </div>
