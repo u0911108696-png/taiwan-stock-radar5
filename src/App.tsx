@@ -13,7 +13,7 @@ type Stock = {
 };
 
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
-type SortKey = "change" | "volume" | "score";
+type SortKey = "change" | "volume" | "score" | "openPremium";
 type FilterKey =
   | "all"
   | "strong"
@@ -345,6 +345,14 @@ function sortStocks(list: Stock[], sortKey: SortKey) {
   if (sortKey === "volume") return copied.sort((a, b) => b.volume - a.volume);
   if (sortKey === "score") return copied.sort((a, b) => stockScore(b) - stockScore(a));
 
+  if (sortKey === "openPremium") {
+    return copied.sort((a, b) => {
+      const aValue = a.openPremiumPercent ?? -999;
+      const bValue = b.openPremiumPercent ?? -999;
+      return bValue - aValue;
+    });
+  }
+
   return copied.sort((a, b) => b.changePercent - a.changePercent);
 }
 
@@ -445,7 +453,6 @@ function getDataCheckStatus(
     ],
   };
 }
-
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
 
@@ -717,6 +724,7 @@ function StockRow({
     </button>
   );
 }
+
 function StockDetail({
   stock,
   onBack,
@@ -1278,6 +1286,7 @@ export default function App() {
     { key: "change", label: "漲幅" },
     { key: "volume", label: "成交量" },
     { key: "score", label: "強度" },
+    { key: "openPremium", label: "開盤溢價" },
   ];
 
   const filterButtons: { key: FilterKey; label: string }[] = [
@@ -1358,45 +1367,6 @@ export default function App() {
           onSelectStock={setSelectedStock}
         />
 
-        <div
-          className={
-            dataCheck.isGood
-              ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
-              : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
-          }
-        >
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="text-sm font-black">{dataCheck.title}</div>
-              <div className="mt-1 text-xs font-bold">{dataCheck.text}</div>
-            </div>
-
-            <div className="text-right text-xs font-black">
-              {dataCheck.okCount}/5
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            {dataCheck.items.map((item) => (
-              <div key={item.label} className="rounded-xl bg-black/30 px-3 py-2">
-                <div className="text-xs font-bold text-slate-300">
-                  {item.ok ? "✅" : "⚠️"} {item.label}
-                </div>
-                <div className="mt-1 text-sm font-black">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {lastFailReason && stocks.length > 0 && (
-          <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-200">
-            ⚠️ 本次更新失敗，仍顯示上一次成功資料。
-            <div className="mt-1 text-xs">
-              失敗時間：{lastFailAt}｜原因：{lastFailReason}
-            </div>
-          </div>
-        )}
-
         <div className="mb-3 grid grid-cols-3 gap-2">
           <button
             onClick={applyOpenMode}
@@ -1452,25 +1422,6 @@ export default function App() {
           </div>
         </div>
 
-        <div className="mb-3 flex gap-2 overflow-x-auto">
-          {tabs.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => {
-                setMode("normal");
-                setTab(item.key);
-              }}
-              className={
-                tab === item.key
-                  ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
-                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
-              }
-            >
-              {item.label}
-            </button>
-          ))}
-        </div>
-
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="mb-3 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-black text-slate-200"
@@ -1518,18 +1469,6 @@ export default function App() {
           </div>
         )}
 
-        {mode === "open" && tab === "alert" && (
-          <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
-            開盤模式：目前只看警報股，並依強度排序。
-          </div>
-        )}
-
-        {mode === "open" && tab === "top50" && filterKey === "breakout" && (
-          <div className="mb-3 rounded-2xl border border-orange-900 bg-orange-950/50 p-3 text-sm font-bold text-orange-100">
-            9:10 快篩：顯示漲幅排行 TOP 50 中的突破股，並依強度排序。
-          </div>
-        )}
-
         {filterKey === "openStrong" && (
           <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-100">
             開盤強：只顯示開盤溢價率 ≥ 3% 的股票。
@@ -1548,189 +1487,91 @@ export default function App() {
           </div>
         )}
 
-        {tab === "top50" && !searchText && filterKey === "all" && topIndustries.length > 0 && (
-          <section className="mb-3 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-black text-white">👑 今日最強主流 TOP 5</div>
-              <div className="text-lg">🏆</div>
-            </div>
-
-            <div className="space-y-1.5">
-              {topIndustries.map((item, index) => (
-                <div key={item.industry} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 text-xl font-black text-orange-300">{index + 1}</div>
-                    <div className="text-lg font-black text-white">{item.industry}</div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs font-black text-white">{item.total}檔</div>
-                    <div className="text-xs font-black text-red-100">
-                      平均 +{item.avgChange}%
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {tab === "top50" && filterKey === "breakout" && topIndustries.length > 0 && (
-          <section className="mb-3 rounded-2xl bg-gradient-to-br from-orange-600 to-red-900 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="text-sm font-black text-white">⚡ 9:10 主流觀察 TOP 5</div>
-              <div className="text-lg">🚀</div>
-            </div>
-
-            <div className="space-y-1.5">
-              {topIndustries.map((item, index) => (
-                <div key={item.industry} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 text-xl font-black text-yellow-200">{index + 1}</div>
-                    <div className="text-lg font-black text-white">{item.industry}</div>
-                  </div>
-
-                  <div className="text-right">
-                    <div className="text-xs font-black text-white">{item.total}檔</div>
-                    <div className="text-xs font-black text-orange-100">
-                      平均 +{item.avgChange}%
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {tab === "watch" && (
-          <section className="mb-3 rounded-2xl bg-slate-900 p-3">
-            <h2 className="mb-2 text-base font-black">自選股新增 / 刪除</h2>
-
-            <div className="flex gap-2">
-              <input
-                value={newWatchCode}
-                onChange={(event) => setNewWatchCode(event.target.value)}
-                placeholder="輸入代號，例如 2454"
-                inputMode="numeric"
-                className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
-              />
-
-              <button
-                onClick={addWatchCode}
-                className="rounded-xl bg-red-500 px-3 text-sm font-black text-white"
-              >
-                加入
-              </button>
-            </div>
-
-            <div className="mt-2 flex flex-wrap gap-2">
-              {watchCodes.map((code) => (
-                <div
-                  key={code}
-                  className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-1.5 text-xs font-bold"
-                >
-                  <span>{code}</span>
-                  <button onClick={() => removeWatchCode(code)} className="text-slate-400">
-                    ×
-                  </button>
-                </div>
-              ))}
-
-              <button
-                onClick={resetWatchCodes}
-                className="rounded-full bg-slate-700 px-3 py-1.5 text-xs font-bold text-slate-300"
-              >
-                還原預設
-              </button>
-            </div>
-          </section>
-        )}
+        <div className="mb-3 flex gap-2 overflow-x-auto">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => {
+                setMode("normal");
+                setTab(item.key);
+              }}
+              className={
+                tab === item.key
+                  ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+              }
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
         {tab === "industry" ? (
           <section>
-            <h2 className="mb-3 text-lg font-black">
-              產業排行 TOP 10
-              {(searchText || filterKey !== "all") && (
-                <span className="ml-2 text-xs text-slate-400">
-                  / 結果 {filteredIndustryGroups.length} 類
-                </span>
-              )}
-            </h2>
+            <h2 className="mb-3 text-lg font-black">產業排行 TOP 10</h2>
 
-            {filteredIndustryGroups.slice(0, 10).length === 0 ? (
-              <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
-                沒有符合條件的產業或股票
-              </div>
-            ) : (
-              filteredIndustryGroups.slice(0, 10).map((group, index) => {
-                const isOpen =
-                  expandedIndustry === group.industry ||
-                  Boolean(searchText) ||
-                  filterKey !== "all";
+            {filteredIndustryGroups.slice(0, 10).map((group, index) => {
+              const isOpen =
+                expandedIndustry === group.industry ||
+                Boolean(searchText) ||
+                filterKey !== "all";
 
-                return (
-                  <div
-                    key={group.industry}
-                    className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
+              return (
+                <div
+                  key={group.industry}
+                  className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedIndustry(
+                        isOpen && !searchText && filterKey === "all" ? "" : group.industry
+                      )
+                    }
+                    className="w-full text-left"
                   >
-                    <button
-                      onClick={() =>
-                        setExpandedIndustry(
-                          isOpen && !searchText && filterKey === "all" ? "" : group.industry
-                        )
-                      }
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="text-xl font-black text-red-400">
-                            {index + 1}
-                          </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-xl font-black text-red-400">{index + 1}</div>
 
-                          <div>
-                            <div className="text-2xl font-black text-white">
-                              {group.industry}
-                            </div>
-                            <div className="mt-1 text-xs text-slate-400">
-                              平均 +{group.avgChange}%｜強度 {group.strength}
-                            </div>
+                        <div>
+                          <div className="text-2xl font-black text-white">
+                            {group.industry}
                           </div>
-                        </div>
-
-                        <div className="text-right">
-                          <div className="text-2xl font-black text-red-400">
-                            {group.total}
-                          </div>
-                          <div className="text-xs text-slate-400">
-                            檔 {isOpen ? "▲" : "▼"}
+                          <div className="mt-1 text-xs text-slate-400">
+                            平均 +{group.avgChange}%｜強度 {group.strength}
                           </div>
                         </div>
                       </div>
-                    </button>
 
-                    {isOpen && (
-                      <div className="mt-3 rounded-2xl bg-black/40 p-2">
-                        <div className="mb-2 text-sm font-black text-slate-300">
-                          {group.industry} 個股
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-red-400">
+                          {group.total}
                         </div>
-
-                        {group.stocks.map((stock, stockIndex) => (
-                          <StockRow
-                            key={stock.code}
-                            stock={stock}
-                            rank={stockIndex + 1}
-                            compact
-                            badge={getIndustryRole(stock, group.stocks)}
-                            alertTags={getAlertTags(stock, topIndustryNames)}
-                            onClick={() => setSelectedStock(stock)}
-                          />
-                        ))}
+                        <div className="text-xs text-slate-400">
+                          檔 {isOpen ? "▲" : "▼"}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
+                    </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="mt-3 rounded-2xl bg-black/40 p-2">
+                      {group.stocks.map((stock, stockIndex) => (
+                        <StockRow
+                          key={stock.code}
+                          stock={stock}
+                          rank={stockIndex + 1}
+                          compact
+                          badge={getIndustryRole(stock, group.stocks)}
+                          alertTags={getAlertTags(stock, topIndustryNames)}
+                          onClick={() => setSelectedStock(stock)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </section>
         ) : (
           <section>
