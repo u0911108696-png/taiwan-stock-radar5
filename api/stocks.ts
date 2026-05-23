@@ -2,7 +2,7 @@ export const config = {
   runtime: "edge",
 };
 
-const watchListCodes = [
+const defaultWatchListCodes = [
   "2330",
   "3042",
   "3714",
@@ -24,6 +24,22 @@ function cleanNumber(value: any) {
 function parseChange(value: any) {
   const text = cleanNumber(value);
   return Number(text || 0);
+}
+
+function getWatchCodesFromUrl(req: Request) {
+  const url = new URL(req.url);
+  const watch = url.searchParams.get("watch");
+
+  if (!watch) {
+    return defaultWatchListCodes;
+  }
+
+  const codes = watch
+    .split(",")
+    .map((code) => code.trim())
+    .filter((code) => /^\d{4}$/.test(code));
+
+  return codes.length > 0 ? codes : defaultWatchListCodes;
 }
 
 async function fetchTwseOld() {
@@ -85,8 +101,24 @@ async function fetchTwseOpenApi() {
     .filter((s: any) => /^\d{4}$/.test(s.Code));
 }
 
-export default async function handler() {
+function addChangePercent(item: any) {
+  const price = Number(cleanNumber(item.ClosingPrice));
+  const change = Number(cleanNumber(item.Change));
+  const previous = price - change;
+
+  const changePercent =
+    previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
+
+  return {
+    ...item,
+    ChangePercent: changePercent,
+  };
+}
+
+export default async function handler(req: Request) {
   try {
+    const watchListCodes = getWatchCodesFromUrl(req);
+
     let allStocks: any[] = [];
 
     try {
@@ -96,19 +128,7 @@ export default async function handler() {
     }
 
     const rankedStocks = allStocks
-      .map((item: any) => {
-        const price = Number(cleanNumber(item.ClosingPrice));
-        const change = Number(cleanNumber(item.Change));
-        const previous = price - change;
-
-        const changePercent =
-          previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
-
-        return {
-          ...item,
-          ChangePercent: changePercent,
-        };
-      })
+      .map(addChangePercent)
       .filter((s: any) => {
         return Number(s.ClosingPrice) > 0 && Number.isFinite(s.ChangePercent);
       })
@@ -118,24 +138,13 @@ export default async function handler() {
     const watchList = watchListCodes
       .map((code) => allStocks.find((s: any) => s.Code === code))
       .filter(Boolean)
-      .map((item: any) => {
-        const price = Number(cleanNumber(item.ClosingPrice));
-        const change = Number(cleanNumber(item.Change));
-        const previous = price - change;
-
-        const changePercent =
-          previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
-
-        return {
-          ...item,
-          ChangePercent: changePercent,
-        };
-      });
+      .map(addChangePercent);
 
     return new Response(
       JSON.stringify({
         rankedStocks,
         watchList,
+        watchListCodes,
         total: allStocks.length,
         updatedAt: new Date().toISOString(),
       }),
