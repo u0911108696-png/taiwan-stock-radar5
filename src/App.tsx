@@ -14,7 +14,13 @@ type Stock = {
 
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score";
-type FilterKey = "all" | "strong" | "breakout" | "alert" | "lowVolume";
+type FilterKey =
+  | "all"
+  | "strong"
+  | "breakout"
+  | "alert"
+  | "lowVolume"
+  | "openStrong";
 type ModeKey = "open" | "normal";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -347,6 +353,13 @@ function filterByQuick(list: Stock[], filterKey: FilterKey) {
   if (filterKey === "breakout") return list.filter((s) => s.changePercent >= 5);
   if (filterKey === "alert") return list.filter(isAlertStock);
   if (filterKey === "lowVolume") return list.filter((s) => s.volume > 0 && s.volume < 300000);
+
+  if (filterKey === "openStrong") {
+    return list.filter((s) => {
+      return s.openPremiumPercent !== null && s.openPremiumPercent >= 3;
+    });
+  }
+
   return list;
 }
 
@@ -704,7 +717,6 @@ function StockRow({
     </button>
   );
 }
-
 function StockDetail({
   stock,
   onBack,
@@ -1274,6 +1286,7 @@ export default function App() {
     { key: "breakout", label: "突破" },
     { key: "alert", label: "警報" },
     { key: "lowVolume", label: "低量" },
+    { key: "openStrong", label: "開盤強" },
   ];
 
   if (selectedStock) {
@@ -1514,6 +1527,12 @@ export default function App() {
         {mode === "open" && tab === "top50" && filterKey === "breakout" && (
           <div className="mb-3 rounded-2xl border border-orange-900 bg-orange-950/50 p-3 text-sm font-bold text-orange-100">
             9:10 快篩：顯示漲幅排行 TOP 50 中的突破股，並依強度排序。
+          </div>
+        )}
+
+        {filterKey === "openStrong" && (
+          <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-100">
+            開盤強：只顯示開盤溢價率 ≥ 3% 的股票。
           </div>
         )}
 
