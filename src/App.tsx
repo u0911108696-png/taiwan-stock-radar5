@@ -269,6 +269,32 @@ function loadSavedWatchCodes() {
   }
 }
 
+function StockLinks({ code }: { code: string }) {
+  const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
+
+  return (
+    <div className="mt-3 flex gap-2">
+      <a
+        href={`https://tw.tradingview.com/chart/?symbol=TWSE:${twseCode}`}
+        target="_blank"
+        rel="noreferrer"
+        className="flex-1 rounded-xl bg-slate-700 px-3 py-2 text-center text-xs font-bold text-white"
+      >
+        看K線
+      </a>
+
+      <a
+        href={`https://tw.stock.yahoo.com/quote/${twseCode}.TW`}
+        target="_blank"
+        rel="noreferrer"
+        className="flex-1 rounded-xl bg-red-500 px-3 py-2 text-center text-xs font-bold text-white"
+      >
+        Yahoo股價
+      </a>
+    </div>
+  );
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -633,6 +659,8 @@ export default function App() {
                       <div className="mt-2 text-xs text-slate-500">
                         成交量：{s.volume.toLocaleString()}
                       </div>
+
+                      <StockLinks code={s.code} />
                     </div>
                   );
                 })
@@ -776,6 +804,8 @@ export default function App() {
                           )}
                         </div>
                       </div>
+
+                      <StockLinks code={s.code} />
                     </div>
                   ))}
                 </div>
@@ -831,6 +861,8 @@ export default function App() {
                     <div className="mt-1 text-sm text-slate-400">
                       {s.industry} / 成交價 {s.price}
                     </div>
+
+                    <StockLinks code={s.code} />
                   </div>
                 ))
               )}
@@ -893,6 +925,8 @@ export default function App() {
                         </span>
                       )}
                     </div>
+
+                    <StockLinks code={s.code} />
                   </div>
                 ))
               )}
