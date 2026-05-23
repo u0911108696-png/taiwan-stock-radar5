@@ -142,10 +142,29 @@ function getIndustry(code: string) {
   return industryMap[cleanCode] || "其他";
 }
 
+function formatTime(date: Date) {
+  return date.toLocaleTimeString("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getStockTag(stock: Stock) {
+  if (stock.changePercent >= 9.8) return "🚀 漲停強勢";
+  if (stock.changePercent >= 7) return "🔥 強勢股";
+  if (stock.changePercent >= 5) return "剛突破";
+  return "";
+}
+
+function isLowVolume(stock: Stock) {
+  return stock.volume > 0 && stock.volume < 300000;
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [updatedAt, setUpdatedAt] = useState("");
 
   async function loadStocks() {
     try {
@@ -196,6 +215,7 @@ export default function App() {
         .slice(0, 50);
 
       setStocks(list);
+      setUpdatedAt(formatTime(new Date()));
     } catch (err: any) {
       setError(err.message || "資料載入失敗");
     } finally {
@@ -220,6 +240,12 @@ export default function App() {
   }, [stocks]);
 
   const topIndustries = industryRanking.slice(0, 3);
+
+  const topIndustryStocks = useMemo(() => {
+    const names = topIndustries.map((i) => i.industry);
+    return stocks.filter((s) => names.includes(s.industry));
+  }, [stocks, topIndustries]);
+
   const breakoutStocks = stocks.filter((s) => s.changePercent >= 5).slice(0, 10);
 
   return (
@@ -230,6 +256,12 @@ export default function App() {
           <p className="mt-1 text-sm text-slate-400">
             今日漲幅排行前 50 名 / 產業熱度 / 剛突破股票
           </p>
+
+          {updatedAt && (
+            <p className="mt-2 text-xs text-slate-500">
+              資料更新時間：{updatedAt}
+            </p>
+          )}
         </header>
 
         <button
@@ -283,6 +315,42 @@ export default function App() {
                   <span className="font-bold text-red-400">
                     {item.total} 檔
                   </span>
+                </div>
+              ))}
+            </section>
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">前三大產業精選股</h2>
+
+              {topIndustryStocks.map((s) => (
+                <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
+                  <div className="flex justify-between">
+                    <div>
+                      <div className="font-bold">
+                        {s.code} {s.name}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        {s.industry} / 成交價 {s.price}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="font-bold text-red-400">
+                        +{s.changePercent}%
+                      </div>
+                      {getStockTag(s) && (
+                        <div className="mt-1 text-xs text-yellow-300">
+                          {getStockTag(s)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {isLowVolume(s) && (
+                    <div className="mt-2 text-xs text-orange-300">
+                      ⚠️ 成交量偏低，追價要小心
+                    </div>
+                  )}
                 </div>
               ))}
             </section>
@@ -344,6 +412,18 @@ export default function App() {
                   <div className="mt-2 text-xs text-slate-500">
                     成交量：{s.volume.toLocaleString()}
                   </div>
+
+                  {getStockTag(s) && (
+                    <div className="mt-2 text-xs text-yellow-300">
+                      {getStockTag(s)}
+                    </div>
+                  )}
+
+                  {isLowVolume(s) && (
+                    <div className="mt-1 text-xs text-orange-300">
+                      ⚠️ 成交量偏低
+                    </div>
+                  )}
                 </div>
               ))}
             </section>
