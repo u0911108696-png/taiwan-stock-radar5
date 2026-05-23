@@ -190,6 +190,27 @@ function getStockTag(stock: Stock) {
   return "";
 }
 
+function getWatchStatus(stock: Stock) {
+  if (stock.changePercent >= 5) {
+    return {
+      text: "🟢 強勢",
+      style: "text-green-300",
+    };
+  }
+
+  if (stock.changePercent >= 0) {
+    return {
+      text: "🟡 觀察",
+      style: "text-yellow-300",
+    };
+  }
+
+  return {
+    text: "🔴 轉弱",
+    style: "text-red-300",
+  };
+}
+
 function isLowVolume(stock: Stock) {
   return stock.volume > 0 && stock.volume < 300000;
 }
@@ -404,43 +425,54 @@ export default function App() {
                   觀察名單資料載入中，或目前沒有資料。
                 </div>
               ) : (
-                watchListStocks.map((s) => (
-                  <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
-                    <div className="flex justify-between">
-                      <div>
-                        <div className="font-bold">
-                          {s.code} {s.name}
-                        </div>
-                        <div className="mt-1 text-sm text-slate-400">
-                          {s.industry} / 成交價 {s.price}
-                        </div>
-                      </div>
+                watchListStocks.map((s) => {
+                  const status = getWatchStatus(s);
 
-                      <div className="text-right">
-                        <div
-                          className={
-                            s.changePercent >= 0
-                              ? "font-bold text-red-400"
-                              : "font-bold text-green-400"
-                          }
-                        >
-                          {s.changePercent >= 0 ? "+" : ""}
-                          {s.changePercent}%
-                        </div>
-
-                        {getStockTag(s) && (
-                          <div className="mt-1 text-xs text-yellow-300">
-                            {getStockTag(s)}
+                  return (
+                    <div
+                      key={s.code}
+                      className="mb-3 rounded-xl bg-slate-800 p-3"
+                    >
+                      <div className="flex justify-between">
+                        <div>
+                          <div className="font-bold">
+                            {s.code} {s.name}
                           </div>
-                        )}
+                          <div className="mt-1 text-sm text-slate-400">
+                            {s.industry} / 成交價 {s.price}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div
+                            className={
+                              s.changePercent >= 0
+                                ? "font-bold text-red-400"
+                                : "font-bold text-green-400"
+                            }
+                          >
+                            {s.changePercent >= 0 ? "+" : ""}
+                            {s.changePercent}%
+                          </div>
+
+                          {getStockTag(s) && (
+                            <div className="mt-1 text-xs text-yellow-300">
+                              {getStockTag(s)}
+                            </div>
+                          )}
+
+                          <div className={`mt-1 text-xs ${status.style}`}>
+                            {status.text}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 text-xs text-slate-500">
+                        成交量：{s.volume.toLocaleString()}
                       </div>
                     </div>
-
-                    <div className="mt-2 text-xs text-slate-500">
-                      成交量：{s.volume.toLocaleString()}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </section>
 
