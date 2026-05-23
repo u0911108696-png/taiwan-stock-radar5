@@ -13,6 +13,7 @@ type IndustryGroup = {
   industry: string;
   total: number;
   avgChange: number;
+  strength: number;
   stocks: Stock[];
 };
 
@@ -27,6 +28,7 @@ const industryMap: Record<string, string> = {
   "3481": "面板",
   "4722": "化工",
   "6405": "光電",
+  "6278": "光電",
 
   "2330": "半導體",
   "2303": "半導體",
@@ -59,7 +61,6 @@ const industryMap: Record<string, string> = {
   "3008": "光電",
   "2409": "面板",
   "3406": "光電",
-  "6278": "光電",
 
   "2345": "網通",
   "2412": "電信",
@@ -185,17 +186,17 @@ function buildIndustryGroups(stocks: Stock[]) {
         groupStocks.reduce((sum, s) => sum + s.changePercent, 0) /
         groupStocks.length;
 
+      const strength = Number((groupStocks.length * avgChange * 10).toFixed(0));
+
       return {
         industry,
         total: groupStocks.length,
         avgChange: Number(avgChange.toFixed(2)),
+        strength,
         stocks: groupStocks.sort((a, b) => b.changePercent - a.changePercent),
       };
     })
-    .sort((a, b) => {
-      if (b.total !== a.total) return b.total - a.total;
-      return b.avgChange - a.avgChange;
-    });
+    .sort((a, b) => b.strength - a.strength);
 }
 
 export default function App() {
@@ -295,7 +296,7 @@ export default function App() {
   }, [industryGroups]);
 
   const topIndustries = mainIndustryGroups.slice(0, 3);
-
+  const strongestIndustry = topIndustries[0];
   const breakoutStocks = stocks.filter((s) => s.changePercent >= 5).slice(0, 10);
 
   return (
@@ -335,6 +336,22 @@ export default function App() {
 
         {!loading && !error && (
           <>
+            {strongestIndustry && (
+              <section className="mb-5 rounded-2xl bg-gradient-to-br from-red-500/20 to-yellow-500/10 p-4">
+                <div className="text-sm text-yellow-300">今日最強主流</div>
+
+                <div className="mt-1 text-2xl font-bold">
+                  {strongestIndustry.industry}
+                </div>
+
+                <div className="mt-2 text-sm text-slate-300">
+                  {strongestIndustry.total} 檔進榜｜平均 +
+                  {strongestIndustry.avgChange}%｜強度{" "}
+                  {strongestIndustry.strength}
+                </div>
+              </section>
+            )}
+
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">前三大主流產業</h2>
 
@@ -364,7 +381,7 @@ export default function App() {
                             {item.total} 檔
                           </div>
                           <div className="text-xs text-slate-400">
-                            平均 +{item.avgChange}%
+                            平均 +{item.avgChange}%｜強度 {item.strength}
                           </div>
                         </div>
                       </div>
@@ -388,7 +405,8 @@ export default function App() {
                         {group.industry}
                       </div>
                       <div className="text-xs text-slate-400">
-                        {group.total} 檔 / 平均 +{group.avgChange}%
+                        {group.total} 檔 / 平均 +{group.avgChange}% / 強度{" "}
+                        {group.strength}
                       </div>
                     </div>
 
