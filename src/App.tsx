@@ -22,7 +22,7 @@ type FilterKey =
   | "lowVolume"
   | "openStrong"
   | "highOpenContinue";
-type ModeKey = "open" | "normal";
+type ModeKey = "open" | "normal" | "strong910";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -1170,6 +1170,15 @@ export default function App() {
     setShowAdvanced(true);
   }
 
+  function applyStrong910Mode() {
+    setMode("strong910");
+    setTab("top50");
+    setFilterKey("highOpenContinue");
+    setSortKey("openPremium");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
   function applyNormalMode() {
     setMode("normal");
     setTab("top50");
@@ -1444,16 +1453,23 @@ export default function App() {
           </button>
 
           <button
-            onClick={applyNormalMode}
+            onClick={applyStrong910Mode}
             className={
-              mode === "normal"
-                ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+              mode === "strong910"
+                ? "rounded-xl bg-lime-500 px-3 py-2 text-sm font-black text-black"
                 : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
             }
           >
-            盤中模式
+            9:10最強
           </button>
         </div>
+
+        <button
+          onClick={applyNormalMode}
+          className="mb-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
+        >
+          回到盤中模式
+        </button>
 
         <div className="mb-3">
           <div className="flex gap-2">
@@ -1522,15 +1538,9 @@ export default function App() {
           </div>
         )}
 
-        {mode === "open" && tab === "alert" && (
-          <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
-            開盤模式：目前只看警報股，並依強度排序。
-          </div>
-        )}
-
-        {mode === "open" && tab === "top50" && filterKey === "breakout" && (
-          <div className="mb-3 rounded-2xl border border-orange-900 bg-orange-950/50 p-3 text-sm font-bold text-orange-100">
-            9:10 快篩：顯示漲幅排行 TOP 50 中的突破股，並依強度排序。
+        {mode === "strong910" && (
+          <div className="mb-3 rounded-2xl border border-lime-900 bg-lime-950/40 p-3 text-sm font-bold text-lime-100">
+            9:10 最強清單：高開續強 + 開盤溢價排序。
           </div>
         )}
 
