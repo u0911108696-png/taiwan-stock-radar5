@@ -17,16 +17,6 @@ type IndustryGroup = {
   stocks: Stock[];
 };
 
-const watchListCodes = [
-  "2330",
-  "3042",
-  "3714",
-  "3481",
-  "2356",
-  "6168",
-  "6405"
-];
-
 const industryMap: Record<string, string> = {
   "2911": "百貨",
   "3042": "PCB",
@@ -167,6 +157,32 @@ function formatTime(date: Date) {
   });
 }
 
+function normalizeStock(item: any): Stock {
+  const code = String(item.Code ?? "").trim();
+  const name = String(item.Name ?? "").trim();
+
+  const price = Number(String(item.ClosingPrice ?? "0").replaceAll(",", ""));
+  const volume = Number(String(item.TradeVolume ?? "0").replaceAll(",", ""));
+
+  let changePercent = Number(item.ChangePercent ?? 0);
+
+  if (!Number.isFinite(changePercent) || changePercent === 0) {
+    const change = Number(String(item.Change ?? "0").replaceAll(",", ""));
+    const previous = price - change;
+    changePercent =
+      previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
+  }
+
+  return {
+    code,
+    name,
+    price,
+    changePercent,
+    volume,
+    industry: getIndustry(code),
+  };
+}
+
 function getStockTag(stock: Stock) {
   if (stock.changePercent >= 9.8) return "🚀 漲停強勢";
   if (stock.changePercent >= 7) return "🔥 強勢股";
@@ -211,6 +227,7 @@ function buildIndustryGroups(stocks: Stock[]) {
 
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
+  const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
@@ -233,40 +250,30 @@ export default function App() {
 
       const data = await res.json();
 
-      const list: Stock[] = data
-        .map((item: any) => {
-          const code = String(item.Code ?? "").trim();
-          const name = String(item.Name ?? "").trim();
+      const rankedRaw = Array.isArray(data)
+        ? data
+        : Array.isArray(data.rankedStocks)
+          ? data.rankedStocks
+          : [];
 
-          const price = Number(
-            String(item.ClosingPrice ?? "0").replaceAll(",", "")
-          );
+      const watchRaw = Array.isArray(data.watchList) ? data.watchList : [];
 
-          const change = Number(
-            String(item.Change ?? "0").replaceAll(",", "")
-          );
-
-          const previous = price - change;
-
-          const changePercent =
-            previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
-
-          return {
-            code,
-            name,
-            price,
-            changePercent,
-            volume: Number(String(item.TradeVolume ?? "0").replaceAll(",", "")),
-            industry: getIndustry(code),
-          };
-        })
+      const rankedList: Stock[] = rankedRaw
+        .map(normalizeStock)
         .filter((s: Stock) => {
           return s.code && s.name && Number.isFinite(s.price) && s.price > 0;
         })
         .sort((a: Stock, b: Stock) => b.changePercent - a.changePercent)
         .slice(0, 50);
 
-      setStocks(list);
+      const watchList: Stock[] = watchRaw
+        .map(normalizeStock)
+        .filter((s: Stock) => {
+          return s.code && s.name && Number.isFinite(s.price) && s.price > 0;
+        });
+
+      setStocks(rankedList);
+      setWatchListStocks(watchList);
       setUpdatedAt(formatTime(new Date()));
       setNextRefresh(60);
     } catch (err: any) {
@@ -294,18 +301,6 @@ export default function App() {
 
     return () => clearInterval(timer);
   }, []);
-
-  const watchListStocks = useMemo(() => {
-    return watchListCodes
-      .map((code) => stocks.find((s) => s.code === code))
-      .filter(Boolean) as Stock[];
-  }, [stocks]);
-
-  const missingWatchList = useMemo(() => {
-    return watchListCodes.filter(
-      (code) => !watchListStocks.some((s) => s.code === code)
-    );
-  }, [watchListStocks]);
 
   const industryGroups = useMemo(() => {
     return buildIndustryGroups(stocks);
@@ -406,7 +401,7 @@ export default function App() {
 
               {watchListStocks.length === 0 ? (
                 <div className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
-                  觀察名單目前沒有出現在今日漲幅前 50。下面會列出未進榜代號。
+                  觀察名單資料載入中，或目前沒有資料。
                 </div>
               ) : (
                 watchListStocks.map((s) => (
@@ -422,8 +417,15 @@ export default function App() {
                       </div>
 
                       <div className="text-right">
-                        <div className="font-bold text-red-400">
-                          +{s.changePercent}%
+                        <div
+                          className={
+                            s.changePercent >= 0
+                              ? "font-bold text-red-400"
+                              : "font-bold text-green-400"
+                          }
+                        >
+                          {s.changePercent >= 0 ? "+" : ""}
+                          {s.changePercent}%
                         </div>
 
                         {getStockTag(s) && (
@@ -439,15 +441,6 @@ export default function App() {
                     </div>
                   </div>
                 ))
-              )}
-
-              {missingWatchList.length > 0 && (
-                <div className="mt-3 rounded-xl bg-slate-800 p-3 text-xs text-slate-400">
-                  未進入今日漲幅前 50：
-                  <span className="ml-1 text-slate-300">
-                    {missingWatchList.join("、")}
-                  </span>
-                </div>
               )}
             </section>
 
