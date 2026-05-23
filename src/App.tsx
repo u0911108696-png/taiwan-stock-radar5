@@ -213,6 +213,24 @@ function buildIndustryGroups(stocks: Stock[]) {
     .sort((a, b) => b.strength - a.strength);
 }
 
+function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
+  const reasons: string[] = [];
+
+  if (stock.changePercent >= 9.8) reasons.push("漲幅接近漲停");
+  else if (stock.changePercent >= 7) reasons.push("漲幅超過 7%");
+  else if (stock.changePercent >= 5) reasons.push("漲幅超過 5%，屬於突破股");
+
+  if (volumeLots(stock.volume) >= 10000) reasons.push("成交量超過 1 萬張");
+  else if (volumeLots(stock.volume) >= 3000) reasons.push("成交量放大");
+
+  if (stockScore(stock) >= 85) reasons.push("強度分數達警報區");
+  if (strongIndustryNames.includes(stock.industry)) reasons.push("屬於今日強勢產業");
+
+  if (reasons.length === 0) reasons.push("目前屬於一般觀察");
+
+  return reasons;
+}
+
 function MiniLine() {
   return (
     <div className="mt-1 h-6 w-16">
@@ -258,7 +276,13 @@ function StockRow({
               <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
             </div>
 
-            <div className={compact ? "mt-1 text-xl font-black text-white" : "mt-1 text-2xl font-black text-white"}>
+            <div
+              className={
+                compact
+                  ? "mt-1 text-xl font-black text-white"
+                  : "mt-1 text-2xl font-black text-white"
+              }
+            >
               {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
             </div>
 
@@ -296,27 +320,50 @@ function StockRow({
 function StockDetail({
   stock,
   onBack,
+  isWatch,
+  onToggleWatch,
+  sameIndustryStocks,
+  alertReasons,
 }: {
   stock: Stock;
   onBack: () => void;
+  isWatch: boolean;
+  onToggleWatch: () => void;
+  sameIndustryStocks: Stock[];
+  alertReasons: string[];
 }) {
   const status = stockStatus(stock);
 
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
       <div className="mx-auto max-w-md px-4 py-5">
-        <button
-          onClick={onBack}
-          className="mb-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
-        >
-          ← 返回
-        </button>
+        <div className="mb-4 flex items-center justify-between">
+          <button
+            onClick={onBack}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
+          >
+            ← 返回
+          </button>
+
+          <button
+            onClick={onToggleWatch}
+            className={
+              isWatch
+                ? "rounded-xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200"
+                : "rounded-xl bg-red-500 px-4 py-2 text-sm font-black text-white"
+            }
+          >
+            {isWatch ? "移除自選" : "加入自選"}
+          </button>
+        </div>
 
         <section className="rounded-3xl bg-gradient-to-br from-slate-900 to-black p-5">
           <div className="flex items-start justify-between">
             <div>
               <div className="text-3xl font-black">{stock.name}</div>
-              <div className="mt-1 text-slate-400">{stock.code}｜{stock.industry}</div>
+              <div className="mt-1 text-slate-400">
+                {stock.code}｜{stock.industry}
+              </div>
             </div>
 
             <div className="rounded-xl bg-red-500 px-3 py-2 text-lg font-black">
@@ -365,9 +412,57 @@ function StockDetail({
             </div>
 
             <div className="rounded-2xl bg-slate-900 p-4">
-              <div className="text-sm text-slate-400">產業</div>
-              <div className="mt-1 text-2xl font-black">{stock.industry}</div>
+              <div className="text-sm text-slate-400">自選</div>
+              <div className="mt-1 text-2xl font-black">
+                {isWatch ? "已加入" : "未加入"}
+              </div>
             </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">警報原因</div>
+
+            <div className="space-y-2">
+              {alertReasons.map((reason) => (
+                <div
+                  key={reason}
+                  className="rounded-xl bg-black/40 px-3 py-2 text-sm font-bold text-slate-200"
+                >
+                  ✅ {reason}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">
+              同產業強勢股｜{stock.industry}
+            </div>
+
+            {sameIndustryStocks.length === 0 ? (
+              <div className="text-sm text-slate-400">目前沒有其他同產業強勢股</div>
+            ) : (
+              sameIndustryStocks.map((s, index) => (
+                <div
+                  key={s.code}
+                  className="mb-2 flex items-center justify-between rounded-xl bg-black/40 px-3 py-2"
+                >
+                  <div>
+                    <div className="font-black">
+                      {index + 1}. {s.name}{" "}
+                      <span className="text-xs text-slate-400">{s.code}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      即時價 {s.price.toFixed(s.price >= 100 ? 0 : 2)}
+                    </div>
+                  </div>
+
+                  <div className="font-black text-red-400">
+                    +{s.changePercent.toFixed(2)}%
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
@@ -487,6 +582,14 @@ export default function App() {
     saveWatchCodes(defaultWatchCodes);
   }
 
+  function toggleSelectedStockWatch(stock: Stock) {
+    if (watchCodes.includes(stock.code)) {
+      removeWatchCode(stock.code);
+    } else {
+      saveWatchCodes([...watchCodes, stock.code]);
+    }
+  }
+
   useEffect(() => {
     const savedCodes = loadSavedWatchCodes();
     setWatchCodes(savedCodes);
@@ -514,6 +617,7 @@ export default function App() {
   );
 
   const topIndustries = mainIndustryGroups.slice(0, 5);
+  const topIndustryNames = topIndustries.map((g) => g.industry);
 
   const strongStocks = stocks.filter((s) => stockStatus(s) === "強勢");
   const watchStocks = stocks.filter((s) => stockStatus(s) === "觀察");
@@ -541,10 +645,21 @@ export default function App() {
   ];
 
   if (selectedStock) {
+    const sameIndustryStocks = stocks
+      .filter((s) => s.industry === selectedStock.industry && s.code !== selectedStock.code)
+      .sort((a, b) => b.changePercent - a.changePercent)
+      .slice(0, 5);
+
+    const alertReasons = getAlertReasons(selectedStock, topIndustryNames);
+
     return (
       <StockDetail
         stock={selectedStock}
         onBack={() => setSelectedStock(null)}
+        isWatch={watchCodes.includes(selectedStock.code)}
+        onToggleWatch={() => toggleSelectedStockWatch(selectedStock)}
+        sameIndustryStocks={sameIndustryStocks}
+        alertReasons={alertReasons}
       />
     );
   }
