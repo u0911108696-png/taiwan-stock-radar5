@@ -20,7 +20,8 @@ type FilterKey =
   | "breakout"
   | "alert"
   | "lowVolume"
-  | "openStrong";
+  | "openStrong"
+  | "highOpenContinue";
 type ModeKey = "open" | "normal";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -266,6 +267,14 @@ function volumeLots(volume: number) {
   return Math.round(volume / 1000);
 }
 
+function isHighOpenContinue(stock: Stock) {
+  return (
+    stock.openPremiumPercent !== null &&
+    stock.openPremiumPercent >= 3 &&
+    stock.changePercent >= 5
+  );
+}
+
 function stockScore(stock: Stock) {
   let score = 50;
 
@@ -283,6 +292,8 @@ function stockScore(stock: Stock) {
     else if (stock.openPremiumPercent >= 3) score += 5;
     else if (stock.openPremiumPercent <= -3) score -= 5;
   }
+
+  if (isHighOpenContinue(stock)) score += 8;
 
   return Math.max(0, Math.min(99, score));
 }
@@ -324,7 +335,9 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
 
   if (stock.changePercent >= 5) tags.push("突破");
 
-  if (stock.openPremiumPercent !== null) {
+  if (isHighOpenContinue(stock)) {
+    tags.push("高開續強");
+  } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) tags.push("高開");
     else if (stock.openPremiumPercent >= 3) tags.push("開盤強");
   }
@@ -366,6 +379,10 @@ function filterByQuick(list: Stock[], filterKey: FilterKey) {
     return list.filter((s) => {
       return s.openPremiumPercent !== null && s.openPremiumPercent >= 3;
     });
+  }
+
+  if (filterKey === "highOpenContinue") {
+    return list.filter(isHighOpenContinue);
   }
 
   return list;
@@ -456,7 +473,9 @@ function getDataCheckStatus(
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
 
-  if (stock.openPremiumPercent !== null) {
+  if (isHighOpenContinue(stock)) {
+    advice.push("🚀 高開續強：開盤溢價率超過 3%，目前漲幅也超過 5%");
+  } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) {
       advice.push("🚀 開盤高溢價：開盤就強，但也要小心追高風險");
     } else if (stock.openPremiumPercent >= 3) {
@@ -499,7 +518,9 @@ function getTradeAdvice(stock: Stock) {
 function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
 
-  if (stock.openPremiumPercent !== null) {
+  if (isHighOpenContinue(stock)) {
+    reasons.push("高開續強：開盤溢價率 ≥ 3%，目前漲幅 ≥ 5%");
+  } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) reasons.push("開盤溢價率超過 5%");
     else if (stock.openPremiumPercent >= 3) reasons.push("開盤溢價率超過 3%");
   }
@@ -551,13 +572,15 @@ function AlertTags({ tags }: { tags: string[] }) {
           className={
             tag === "漲停附近" || tag === "急漲"
               ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
-                ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
-                : tag === "主流產業"
-                  ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                  : tag === "強度高"
-                    ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                    : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+              : tag === "高開續強"
+                ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                  ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "主流產業"
+                    ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                    : tag === "強度高"
+                      ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                      : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
@@ -1296,6 +1319,7 @@ export default function App() {
     { key: "alert", label: "警報" },
     { key: "lowVolume", label: "低量" },
     { key: "openStrong", label: "開盤強" },
+    { key: "highOpenContinue", label: "高開續強" },
   ];
 
   if (selectedStock) {
@@ -1366,6 +1390,25 @@ export default function App() {
           }}
           onSelectStock={setSelectedStock}
         />
+
+        <div
+          className={
+            dataCheck.isGood
+              ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
+              : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
+          }
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">{dataCheck.title}</div>
+              <div className="mt-1 text-xs font-bold">{dataCheck.text}</div>
+            </div>
+
+            <div className="text-right text-xs font-black">
+              {dataCheck.okCount}/5
+            </div>
+          </div>
+        </div>
 
         <div className="mb-3 grid grid-cols-3 gap-2">
           <button
@@ -1475,6 +1518,12 @@ export default function App() {
           </div>
         )}
 
+        {filterKey === "highOpenContinue" && (
+          <div className="mb-3 rounded-2xl border border-lime-900 bg-lime-950/40 p-3 text-sm font-bold text-lime-100">
+            高開續強：只顯示開盤溢價率 ≥ 3%，且目前漲幅 ≥ 5% 的股票。
+          </div>
+        )}
+
         {loading && (
           <div className="mb-3 rounded-2xl bg-slate-900 p-3 text-center">
             資料載入中...
@@ -1510,68 +1559,74 @@ export default function App() {
           <section>
             <h2 className="mb-3 text-lg font-black">產業排行 TOP 10</h2>
 
-            {filteredIndustryGroups.slice(0, 10).map((group, index) => {
-              const isOpen =
-                expandedIndustry === group.industry ||
-                Boolean(searchText) ||
-                filterKey !== "all";
+            {filteredIndustryGroups.length === 0 ? (
+              <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
+                目前沒有符合條件的產業或股票
+              </div>
+            ) : (
+              filteredIndustryGroups.slice(0, 10).map((group, index) => {
+                const isOpen =
+                  expandedIndustry === group.industry ||
+                  Boolean(searchText) ||
+                  filterKey !== "all";
 
-              return (
-                <div
-                  key={group.industry}
-                  className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
-                >
-                  <button
-                    onClick={() =>
-                      setExpandedIndustry(
-                        isOpen && !searchText && filterKey === "all" ? "" : group.industry
-                      )
-                    }
-                    className="w-full text-left"
+                return (
+                  <div
+                    key={group.industry}
+                    className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="text-xl font-black text-red-400">{index + 1}</div>
+                    <button
+                      onClick={() =>
+                        setExpandedIndustry(
+                          isOpen && !searchText && filterKey === "all" ? "" : group.industry
+                        )
+                      }
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="text-xl font-black text-red-400">{index + 1}</div>
 
-                        <div>
-                          <div className="text-2xl font-black text-white">
-                            {group.industry}
+                          <div>
+                            <div className="text-2xl font-black text-white">
+                              {group.industry}
+                            </div>
+                            <div className="mt-1 text-xs text-slate-400">
+                              平均 +{group.avgChange}%｜強度 {group.strength}
+                            </div>
                           </div>
-                          <div className="mt-1 text-xs text-slate-400">
-                            平均 +{group.avgChange}%｜強度 {group.strength}
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-2xl font-black text-red-400">
+                            {group.total}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            檔 {isOpen ? "▲" : "▼"}
                           </div>
                         </div>
                       </div>
+                    </button>
 
-                      <div className="text-right">
-                        <div className="text-2xl font-black text-red-400">
-                          {group.total}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          檔 {isOpen ? "▲" : "▼"}
-                        </div>
+                    {isOpen && (
+                      <div className="mt-3 rounded-2xl bg-black/40 p-2">
+                        {group.stocks.map((stock, stockIndex) => (
+                          <StockRow
+                            key={stock.code}
+                            stock={stock}
+                            rank={stockIndex + 1}
+                            compact
+                            badge={getIndustryRole(stock, group.stocks)}
+                            alertTags={getAlertTags(stock, topIndustryNames)}
+                            onClick={() => setSelectedStock(stock)}
+                          />
+                        ))}
                       </div>
-                    </div>
-                  </button>
-
-                  {isOpen && (
-                    <div className="mt-3 rounded-2xl bg-black/40 p-2">
-                      {group.stocks.map((stock, stockIndex) => (
-                        <StockRow
-                          key={stock.code}
-                          stock={stock}
-                          rank={stockIndex + 1}
-                          compact
-                          badge={getIndustryRole(stock, group.stocks)}
-                          alertTags={getAlertTags(stock, topIndustryNames)}
-                          onClick={() => setSelectedStock(stock)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })
+            )}
           </section>
         ) : (
           <section>
