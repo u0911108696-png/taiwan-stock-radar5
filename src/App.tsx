@@ -12,6 +12,7 @@ type Stock = {
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score";
 type FilterKey = "all" | "strong" | "breakout" | "alert" | "lowVolume";
+type ModeKey = "open" | "normal";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -543,6 +544,7 @@ export default function App() {
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("change");
   const [filterKey, setFilterKey] = useState<FilterKey>("all");
+  const [mode, setMode] = useState<ModeKey>("normal");
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -635,6 +637,22 @@ export default function App() {
     } else {
       saveWatchCodes([...watchCodes, stock.code]);
     }
+  }
+
+  function applyOpenMode() {
+    setMode("open");
+    setTab("alert");
+    setFilterKey("alert");
+    setSortKey("score");
+    setSearchText("");
+  }
+
+  function applyNormalMode() {
+    setMode("normal");
+    setTab("top50");
+    setFilterKey("all");
+    setSortKey("change");
+    setSearchText("");
   }
 
   function filterStocksBySearch(list: Stock[]) {
@@ -810,6 +828,30 @@ export default function App() {
           </div>
         </header>
 
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            onClick={applyOpenMode}
+            className={
+              mode === "open"
+                ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            開盤模式
+          </button>
+
+          <button
+            onClick={applyNormalMode}
+            className={
+              mode === "normal"
+                ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            盤中模式
+          </button>
+        </div>
+
         <div className="mb-3">
           <div className="flex gap-2">
             <input
@@ -866,7 +908,10 @@ export default function App() {
           {tabs.map((item) => (
             <button
               key={item.key}
-              onClick={() => setTab(item.key)}
+              onClick={() => {
+                setMode("normal");
+                setTab(item.key);
+              }}
               className={
                 tab === item.key
                   ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
@@ -877,6 +922,12 @@ export default function App() {
             </button>
           ))}
         </div>
+
+        {mode === "open" && (
+          <div className="mb-3 rounded-2xl border border-red-900 bg-red-950/50 p-3 text-sm font-bold text-red-100">
+            開盤模式：目前只看警報股，並依強度排序。
+          </div>
+        )}
 
         {loading && (
           <div className="mb-3 rounded-2xl bg-slate-900 p-3 text-center">
@@ -1131,6 +1182,7 @@ export default function App() {
               key={item.key}
               onClick={() => {
                 setSelectedStock(null);
+                setMode("normal");
                 setTab(item.key);
               }}
               className={
