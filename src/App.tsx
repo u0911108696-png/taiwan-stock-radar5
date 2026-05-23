@@ -221,66 +221,111 @@ function buildIndustryGroups(stocks: Stock[]) {
     .sort((a, b) => b.strength - a.strength);
 }
 
-function StockCard({ stock, rank }: { stock: Stock; rank?: number }) {
+function MiniLine() {
+  return (
+    <div className="mt-1 h-8 w-20">
+      <svg viewBox="0 0 100 36" className="h-full w-full">
+        <polyline
+          points="4,29 18,27 32,19 46,19 58,17 70,24 82,12 96,14"
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
+
+function SmallStockCard({ stock, rank }: { stock: Stock; rank: number }) {
   const status = stockStatus(stock);
 
   return (
-    <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-sm">
+    <div className="mb-3 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-black p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {rank && (
-              <div className="text-lg font-black text-red-400">{rank}</div>
-            )}
+          <div className="flex items-center gap-3">
+            <div className="text-2xl font-black text-red-500">{rank}</div>
 
             <div>
-              <div className="text-lg font-black text-white">
+              <div className="text-xl font-black text-white">
                 {stock.name}
-                <span className="ml-2 text-sm text-slate-400">{stock.code}</span>
+                <span className="ml-2 text-sm font-bold text-slate-400">
+                  {stock.code}
+                </span>
               </div>
 
-              <div className="mt-1 text-sm text-slate-400">
+              <div className="mt-2 text-3xl font-black text-white">
+                {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
+              </div>
+
+              <div className="mt-1 text-sm font-bold text-slate-400">
                 {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
               </div>
             </div>
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
+        <div className="shrink-0 text-right">
+          <div className="rounded-lg bg-red-500 px-3 py-2 text-sm font-black text-white">
             {stock.changePercent >= 0 ? "+" : ""}
             {stock.changePercent.toFixed(2)}%
           </div>
 
+          <MiniLine />
+
           <div
             className={
               status === "強勢"
-                ? "mt-2 text-xs font-bold text-green-400"
+                ? "mt-1 text-xs font-bold text-green-400"
                 : status === "突破"
-                  ? "mt-2 text-xs font-bold text-yellow-400"
+                  ? "mt-1 text-xs font-bold text-yellow-400"
                   : status === "轉弱"
-                    ? "mt-2 text-xs font-bold text-slate-400"
-                    : "mt-2 text-xs font-bold text-orange-300"
+                    ? "mt-1 text-xs font-bold text-slate-400"
+                    : "mt-1 text-xs font-bold text-orange-300"
             }
           >
             {status}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
 
-      <div className="mt-4 flex items-end justify-between">
-        <div>
-          <div className="text-xs font-bold text-slate-500">即時價</div>
-          <div className="text-3xl font-black text-white">
-            {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
+function CompactStockRow({ stock, rank }: { stock: Stock; rank: number }) {
+  const status = stockStatus(stock);
+
+  return (
+    <div className="mb-2 rounded-xl border border-slate-800 bg-slate-900 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="text-xl font-black text-red-500">{rank}</div>
+
+          <div className="min-w-0">
+            <div className="truncate text-base font-black text-white">
+              {stock.name}
+              <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+            </div>
+
+            <div className="mt-1 text-lg font-black text-white">
+              {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
+            </div>
+
+            <div className="mt-1 text-xs font-bold text-slate-500">
+              {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
+            </div>
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="text-xs font-bold text-slate-500">強度</div>
-          <div className="text-2xl font-black text-red-400">
-            {stockScore(stock)}
+        <div className="shrink-0 text-right">
+          <div className="text-sm font-black text-red-400">
+            {stock.changePercent >= 0 ? "+" : ""}
+            {stock.changePercent.toFixed(2)}%
           </div>
+          <MiniLine />
+          <div className="text-xs font-bold text-yellow-400">{status}</div>
         </div>
       </div>
     </div>
@@ -409,7 +454,8 @@ export default function App() {
     [industryGroups]
   );
 
-  const strongestIndustry = mainIndustryGroups[0];
+  const topIndustries = mainIndustryGroups.slice(0, 5);
+  const strongestIndustry = topIndustries[0];
 
   const strongStocks = stocks.filter((s) => stockStatus(s) === "強勢");
   const watchStocks = stocks.filter((s) => stockStatus(s) === "觀察");
@@ -487,15 +533,40 @@ export default function App() {
           </div>
         )}
 
-        {strongestIndustry && (
-          <section className="mb-4 rounded-2xl bg-gradient-to-br from-red-600 to-red-800 p-5 shadow-lg shadow-red-950/40">
-            <div className="text-sm font-bold text-red-100">👑 今日最強主流</div>
-            <div className="mt-3 flex items-end justify-between">
-              <div className="text-5xl font-black">{strongestIndustry.industry}</div>
-              <div className="text-2xl font-black">{strongestIndustry.total} 檔</div>
+        {tab === "top50" && topIndustries.length > 0 && (
+          <section className="mb-5 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-5 shadow-lg shadow-red-950/40">
+            <div className="mb-4 flex items-center justify-between">
+              <div className="text-lg font-black text-white">
+                👑 今日最強主流 TOP 5
+              </div>
+              <div className="text-2xl">🏆</div>
             </div>
-            <div className="mt-3 text-lg font-black text-white">
-              平均漲幅 +{strongestIndustry.avgChange}%
+
+            <div className="space-y-3">
+              {topIndustries.map((item, index) => (
+                <div
+                  key={item.industry}
+                  className="flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-6 text-3xl font-black text-orange-300">
+                      {index + 1}
+                    </div>
+                    <div className="text-2xl font-black text-white">
+                      {item.industry}
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-base font-black text-white">
+                      {item.total}檔
+                    </div>
+                    <div className="text-sm font-black text-red-100">
+                      平均 +{item.avgChange}%
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </section>
         )}
@@ -546,28 +617,33 @@ export default function App() {
 
         {tab === "industry" ? (
           <section>
-            <h2 className="mb-3 text-xl font-black">產業排行</h2>
+            <h2 className="mb-3 text-xl font-black">產業排行 TOP 10</h2>
 
-            {mainIndustryGroups.map((group, index) => (
+            {mainIndustryGroups.slice(0, 10).map((group, index) => (
               <div
                 key={group.industry}
-                className="mb-3 rounded-2xl bg-slate-900 p-4"
+                className="mb-3 rounded-2xl border border-slate-800 bg-slate-900 p-4"
               >
                 <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-bold text-slate-500">#{index + 1}</div>
-                    <div className="text-3xl font-black">{group.industry}</div>
-                    <div className="mt-1 text-sm font-bold text-slate-400">
-                      平均漲幅{" "}
-                      <span className="text-red-400">+{group.avgChange}%</span>
+                  <div className="flex items-center gap-3">
+                    <div className="text-2xl font-black text-red-400">
+                      {index + 1}
+                    </div>
+                    <div>
+                      <div className="text-2xl font-black text-white">
+                        {group.industry}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-400">
+                        平均 +{group.avgChange}%｜強度 {group.strength}
+                      </div>
                     </div>
                   </div>
 
                   <div className="text-right">
-                    <div className="text-3xl font-black text-red-400">
+                    <div className="text-2xl font-black text-red-400">
                       {group.total}
                     </div>
-                    <div className="text-sm font-bold text-slate-400">檔</div>
+                    <div className="text-sm text-slate-400">檔</div>
                   </div>
                 </div>
               </div>
@@ -577,14 +653,14 @@ export default function App() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-xl font-black">
-                {tab === "top50" && "漲幅排行 TOP 50"}
+                {tab === "top50" && "漲幅排行 TOP 5"}
                 {tab === "watch" && "自選股"}
                 {tab === "breakout" && "突破股"}
                 {tab === "alert" && "警報股"}
               </h2>
 
               <span className="text-sm font-bold text-slate-400">
-                {tabStocks.length} 檔
+                {tab === "top50" ? "前 5 名" : `${tabStocks.length} 檔`}
               </span>
             </div>
 
@@ -592,9 +668,15 @@ export default function App() {
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
                 目前沒有符合條件的股票
               </div>
+            ) : tab === "top50" ? (
+              tabStocks
+                .slice(0, 5)
+                .map((stock, index) => (
+                  <SmallStockCard key={stock.code} stock={stock} rank={index + 1} />
+                ))
             ) : (
               tabStocks.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} />
+                <CompactStockRow key={stock.code} stock={stock} rank={index + 1} />
               ))
             )}
           </section>
