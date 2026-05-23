@@ -195,6 +195,7 @@ function getWatchStatus(stock: Stock) {
     return {
       text: "🟢 強勢",
       style: "text-green-300",
+      group: "strong",
     };
   }
 
@@ -202,12 +203,14 @@ function getWatchStatus(stock: Stock) {
     return {
       text: "🟡 觀察",
       style: "text-yellow-300",
+      group: "watch",
     };
   }
 
   return {
     text: "🔴 轉弱",
     style: "text-red-300",
+    group: "weak",
   };
 }
 
@@ -323,6 +326,14 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const watchAlerts = useMemo(() => {
+    const strong = watchListStocks.filter((s) => getWatchStatus(s).group === "strong");
+    const watch = watchListStocks.filter((s) => getWatchStatus(s).group === "watch");
+    const weak = watchListStocks.filter((s) => getWatchStatus(s).group === "weak");
+
+    return { strong, watch, weak };
+  }, [watchListStocks]);
+
   const industryGroups = useMemo(() => {
     return buildIndustryGroups(stocks);
   }, [stocks]);
@@ -363,6 +374,11 @@ export default function App() {
   const breakoutStocks = filteredStocks
     .filter((s) => s.changePercent >= 5)
     .slice(0, 10);
+
+  const showNames = (items: Stock[]) => {
+    if (items.length === 0) return "無";
+    return items.map((s) => `${s.code} ${s.name}`).join("、");
+  };
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -416,6 +432,39 @@ export default function App() {
                 </div>
               </section>
             )}
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">今日觀察警報</h2>
+
+              <div className="space-y-3 text-sm">
+                <div className="rounded-xl bg-green-500/10 p-3">
+                  <div className="font-bold text-green-300">
+                    🟢 強勢｜{watchAlerts.strong.length} 檔
+                  </div>
+                  <div className="mt-1 text-slate-300">
+                    {showNames(watchAlerts.strong)}
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-yellow-500/10 p-3">
+                  <div className="font-bold text-yellow-300">
+                    🟡 觀察｜{watchAlerts.watch.length} 檔
+                  </div>
+                  <div className="mt-1 text-slate-300">
+                    {showNames(watchAlerts.watch)}
+                  </div>
+                </div>
+
+                <div className="rounded-xl bg-red-500/10 p-3">
+                  <div className="font-bold text-red-300">
+                    🔴 轉弱｜{watchAlerts.weak.length} 檔
+                  </div>
+                  <div className="mt-1 text-slate-300">
+                    {showNames(watchAlerts.weak)}
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">我的觀察名單</h2>
