@@ -160,11 +160,16 @@ function isLowVolume(stock: Stock) {
   return stock.volume > 0 && stock.volume < 300000;
 }
 
+function isVolumeHot(stock: Stock) {
+  return stock.volume >= 3000000;
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
+  const [nextRefresh, setNextRefresh] = useState(60);
 
   async function loadStocks() {
     try {
@@ -216,6 +221,7 @@ export default function App() {
 
       setStocks(list);
       setUpdatedAt(formatTime(new Date()));
+      setNextRefresh(60);
     } catch (err: any) {
       setError(err.message || "資料載入失敗");
     } finally {
@@ -225,6 +231,21 @@ export default function App() {
 
   useEffect(() => {
     loadStocks();
+  }, []);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNextRefresh((prev) => {
+        if (prev <= 1) {
+          loadStocks();
+          return 60;
+        }
+
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
   }, []);
 
   const industryRanking = useMemo(() => {
@@ -241,9 +262,14 @@ export default function App() {
 
   const topIndustries = industryRanking.slice(0, 3);
 
-  const topIndustryStocks = useMemo(() => {
-    const names = topIndustries.map((i) => i.industry);
-    return stocks.filter((s) => names.includes(s.industry));
+  const groupedTopIndustryStocks = useMemo(() => {
+    return topIndustries.map((item) => {
+      return {
+        industry: item.industry,
+        total: item.total,
+        stocks: stocks.filter((s) => s.industry === item.industry),
+      };
+    });
   }, [stocks, topIndustries]);
 
   const breakoutStocks = stocks.filter((s) => s.changePercent >= 5).slice(0, 10);
@@ -253,15 +279,15 @@ export default function App() {
       <div className="mx-auto max-w-md px-4 py-5">
         <header className="mb-5">
           <h1 className="text-2xl font-bold">台股即時雷達</h1>
+
           <p className="mt-1 text-sm text-slate-400">
             今日漲幅排行前 50 名 / 產業熱度 / 剛突破股票
           </p>
 
-          {updatedAt && (
-            <p className="mt-2 text-xs text-slate-500">
-              資料更新時間：{updatedAt}
-            </p>
-          )}
+          <div className="mt-3 rounded-xl bg-slate-900 p-3 text-xs text-slate-400">
+            <div>資料更新時間：{updatedAt || "尚未更新"}</div>
+            <div className="mt-1">自動更新倒數：{nextRefresh} 秒</div>
+          </div>
         </header>
 
         <button
@@ -287,6 +313,7 @@ export default function App() {
           <>
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">前三大熱門產業</h2>
+
               <div className="grid grid-cols-3 gap-2">
                 {topIndustries.map((item) => (
                   <div
@@ -303,7 +330,69 @@ export default function App() {
             </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">前三大產業分組</h2>
+
+              {groupedTopIndustryStocks.map((group) => (
+                <div key={group.industry} className="mb-4">
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="font-bold text-yellow-300">
+                      {group.industry}
+                    </h3>
+                    <span className="text-xs text-slate-400">
+                      {group.total} 檔
+                    </span>
+                  </div>
+
+                  {group.stocks.map((s) => (
+                    <div
+                      key={s.code}
+                      className="mb-2 rounded-xl bg-slate-800 px-3 py-2"
+                    >
+                      <div className="flex justify-between">
+                        <div>
+                          <div className="font-bold">
+                            {s.code} {s.name}
+                          </div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            成交價 {s.price}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="font-bold text-red-400">
+                            +{s.changePercent}%
+                          </div>
+
+                          {getStockTag(s) && (
+                            <div className="mt-1 text-xs text-yellow-300">
+                              {getStockTag(s)}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                        {isVolumeHot(s) && (
+                          <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
+                            量能放大
+                          </span>
+                        )}
+
+                        {isLowVolume(s) && (
+                          <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
+                            低成交量
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </section>
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">產業熱度排行</h2>
+
               {industryRanking.map((item, index) => (
                 <div
                   key={item.industry}
@@ -315,42 +404,6 @@ export default function App() {
                   <span className="font-bold text-red-400">
                     {item.total} 檔
                   </span>
-                </div>
-              ))}
-            </section>
-
-            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">前三大產業精選股</h2>
-
-              {topIndustryStocks.map((s) => (
-                <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
-                  <div className="flex justify-between">
-                    <div>
-                      <div className="font-bold">
-                        {s.code} {s.name}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-400">
-                        {s.industry} / 成交價 {s.price}
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="font-bold text-red-400">
-                        +{s.changePercent}%
-                      </div>
-                      {getStockTag(s) && (
-                        <div className="mt-1 text-xs text-yellow-300">
-                          {getStockTag(s)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {isLowVolume(s) && (
-                    <div className="mt-2 text-xs text-orange-300">
-                      ⚠️ 成交量偏低，追價要小心
-                    </div>
-                  )}
                 </div>
               ))}
             </section>
@@ -376,6 +429,7 @@ export default function App() {
                         +{s.changePercent}%
                       </span>
                     </div>
+
                     <div className="mt-1 text-sm text-slate-400">
                       {s.industry} / 成交價 {s.price}
                     </div>
@@ -394,6 +448,7 @@ export default function App() {
                       <div className="font-bold">
                         #{index + 1} {s.code} {s.name}
                       </div>
+
                       <div className="mt-1 text-sm text-slate-400">
                         {s.industry}
                       </div>
@@ -403,6 +458,7 @@ export default function App() {
                       <div className="font-bold text-red-400">
                         +{s.changePercent}%
                       </div>
+
                       <div className="mt-1 text-sm text-slate-400">
                         {s.price}
                       </div>
@@ -413,17 +469,25 @@ export default function App() {
                     成交量：{s.volume.toLocaleString()}
                   </div>
 
-                  {getStockTag(s) && (
-                    <div className="mt-2 text-xs text-yellow-300">
-                      {getStockTag(s)}
-                    </div>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                    {getStockTag(s) && (
+                      <span className="rounded-full bg-yellow-500/20 px-2 py-1 text-yellow-300">
+                        {getStockTag(s)}
+                      </span>
+                    )}
 
-                  {isLowVolume(s) && (
-                    <div className="mt-1 text-xs text-orange-300">
-                      ⚠️ 成交量偏低
-                    </div>
-                  )}
+                    {isVolumeHot(s) && (
+                      <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
+                        量能放大
+                      </span>
+                    )}
+
+                    {isLowVolume(s) && (
+                      <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
+                        低成交量
+                      </span>
+                    )}
+                  </div>
                 </div>
               ))}
             </section>
