@@ -21,7 +21,8 @@ type FilterKey =
   | "alert"
   | "lowVolume"
   | "openStrong"
-  | "highOpenContinue";
+  | "highOpenContinue"
+  | "mainContinue";
 type ModeKey = "open" | "normal" | "strong910";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -275,6 +276,10 @@ function isHighOpenContinue(stock: Stock) {
   );
 }
 
+function isMainContinue(stock: Stock, strongIndustryNames: string[]) {
+  return isHighOpenContinue(stock) && strongIndustryNames.includes(stock.industry);
+}
+
 function stockScore(stock: Stock) {
   let score = 50;
 
@@ -335,7 +340,9 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
 
   if (stock.changePercent >= 5) tags.push("突破");
 
-  if (isHighOpenContinue(stock)) {
+  if (isMainContinue(stock, strongIndustryNames)) {
+    tags.push("主流續強");
+  } else if (isHighOpenContinue(stock)) {
     tags.push("高開續強");
   } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) tags.push("高開");
@@ -369,7 +376,11 @@ function sortStocks(list: Stock[], sortKey: SortKey) {
   return copied.sort((a, b) => b.changePercent - a.changePercent);
 }
 
-function filterByQuick(list: Stock[], filterKey: FilterKey) {
+function filterByQuick(
+  list: Stock[],
+  filterKey: FilterKey,
+  strongIndustryNames: string[] = []
+) {
   if (filterKey === "strong") return list.filter((s) => s.changePercent >= 9.8);
   if (filterKey === "breakout") return list.filter((s) => s.changePercent >= 5);
   if (filterKey === "alert") return list.filter(isAlertStock);
@@ -383,6 +394,10 @@ function filterByQuick(list: Stock[], filterKey: FilterKey) {
 
   if (filterKey === "highOpenContinue") {
     return list.filter(isHighOpenContinue);
+  }
+
+  if (filterKey === "mainContinue") {
+    return list.filter((s) => isMainContinue(s, strongIndustryNames));
   }
 
   return list;
@@ -518,7 +533,9 @@ function getTradeAdvice(stock: Stock) {
 function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
 
-  if (isHighOpenContinue(stock)) {
+  if (isMainContinue(stock, strongIndustryNames)) {
+    reasons.push("主流續強：高開續強，且屬於今日最強主流前 5 名產業");
+  } else if (isHighOpenContinue(stock)) {
     reasons.push("高開續強：開盤溢價率 ≥ 3%，目前漲幅 ≥ 5%");
   } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) reasons.push("開盤溢價率超過 5%");
@@ -572,15 +589,17 @@ function AlertTags({ tags }: { tags: string[] }) {
           className={
             tag === "漲停附近" || tag === "急漲"
               ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "高開續強"
-                ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
-                : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
-                  ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
-                  : tag === "主流產業"
-                    ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                    : tag === "強度高"
-                      ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                      : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+              : tag === "主流續強"
+                ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
+                : tag === "高開續強"
+                  ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                    ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                    : tag === "主流產業"
+                      ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                      : tag === "強度高"
+                        ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                        : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
@@ -1173,7 +1192,7 @@ export default function App() {
   function applyStrong910Mode() {
     setMode("strong910");
     setTab("top50");
-    setFilterKey("highOpenContinue");
+    setFilterKey("mainContinue");
     setSortKey("openPremium");
     setSearchText("");
     setShowAdvanced(true);
@@ -1268,14 +1287,14 @@ export default function App() {
   }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
 
   const filteredTabStocks = useMemo(() => {
-    return filterStocksBySearch(filterByQuick(tabStocks, filterKey));
-  }, [tabStocks, searchText, filterKey]);
+    return filterStocksBySearch(filterByQuick(tabStocks, filterKey, topIndustryNames));
+  }, [tabStocks, searchText, filterKey, topIndustryNames]);
 
   const filteredIndustryGroups = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
 
     const groups = mainIndustryGroups.map((group) => {
-      const filteredStocks = filterByQuick(group.stocks, filterKey);
+      const filteredStocks = filterByQuick(group.stocks, filterKey, topIndustryNames);
       const matchIndustry = group.industry.toLowerCase().includes(keyword);
 
       if (!keyword) {
@@ -1305,7 +1324,7 @@ export default function App() {
       if (keyword && group.industry.toLowerCase().includes(keyword)) return true;
       return group.stocks.length > 0;
     });
-  }, [mainIndustryGroups, searchText, filterKey]);
+  }, [mainIndustryGroups, searchText, filterKey, topIndustryNames]);
 
   const tabs: { key: TabKey; label: string; icon: string }[] = [
     { key: "top50", label: "50強", icon: "📊" },
@@ -1330,6 +1349,7 @@ export default function App() {
     { key: "lowVolume", label: "低量" },
     { key: "openStrong", label: "開盤強" },
     { key: "highOpenContinue", label: "高開續強" },
+    { key: "mainContinue", label: "主流續強" },
   ];
 
   if (selectedStock) {
@@ -1539,8 +1559,14 @@ export default function App() {
         )}
 
         {mode === "strong910" && (
-          <div className="mb-3 rounded-2xl border border-lime-900 bg-lime-950/40 p-3 text-sm font-bold text-lime-100">
-            9:10 最強清單：高開續強 + 開盤溢價排序。
+          <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
+            9:10 最強清單：主流續強 + 開盤溢價排序。
+          </div>
+        )}
+
+        {filterKey === "mainContinue" && (
+          <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
+            主流續強：高開續強，且屬於今日最強主流前 5 名產業。
           </div>
         )}
 
