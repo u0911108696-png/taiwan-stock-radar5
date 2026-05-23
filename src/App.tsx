@@ -14,41 +14,109 @@ type SortKey = "change" | "volume" | "score";
 type FilterKey = "all" | "strong" | "breakout" | "alert" | "lowVolume";
 type ModeKey = "open" | "normal";
 
+type DataCheck = {
+  isGood: boolean;
+  okCount: number;
+  title: string;
+  text: string;
+  items: {
+    label: string;
+    ok: boolean;
+    value: string;
+  }[];
+};
+
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
 const industryMap: Record<string, string> = {
-  "2911": "百貨", "3042": "PCB", "3711": "半導體", "3714": "光電",
-  "6168": "光電", "8374": "電機機械", "2356": "電腦週邊", "3481": "面板",
-  "4722": "化工", "6405": "光電", "6278": "光電",
+  "2911": "百貨",
+  "3042": "PCB",
+  "3711": "半導體",
+  "3714": "光電",
+  "6168": "光電",
+  "8374": "電機機械",
+  "2356": "電腦週邊",
+  "3481": "面板",
+  "4722": "化工",
+  "6405": "光電",
+  "6278": "光電",
 
-  "2330": "半導體", "2303": "半導體", "2454": "半導體", "3034": "半導體",
-  "3035": "半導體", "3443": "半導體", "2379": "半導體", "3661": "半導體",
+  "2330": "半導體",
+  "2303": "半導體",
+  "2454": "半導體",
+  "3034": "半導體",
+  "3035": "半導體",
+  "3443": "半導體",
+  "2379": "半導體",
+  "3661": "半導體",
   "2408": "半導體",
 
-  "2317": "電子代工", "4938": "電子代工", "2354": "電子代工",
-  "2382": "電腦週邊", "2357": "電腦週邊", "3231": "電腦週邊",
-  "2301": "電腦週邊", "6669": "電腦週邊", "3017": "電腦週邊",
+  "2317": "電子代工",
+  "4938": "電子代工",
+  "2354": "電子代工",
+  "2382": "電腦週邊",
+  "2357": "電腦週邊",
+  "3231": "電腦週邊",
+  "2301": "電腦週邊",
+  "6669": "電腦週邊",
+  "3017": "電腦週邊",
 
-  "2308": "電子零組件", "2327": "電子零組件", "3037": "電子零組件",
-  "8046": "電子零組件", "2313": "PCB", "2367": "PCB", "4958": "PCB",
+  "2308": "電子零組件",
+  "2327": "電子零組件",
+  "3037": "電子零組件",
+  "8046": "電子零組件",
+  "2313": "PCB",
+  "2367": "PCB",
+  "4958": "PCB",
 
-  "3008": "光電", "2409": "面板", "3406": "光電",
+  "3008": "光電",
+  "2409": "面板",
+  "3406": "光電",
 
-  "2881": "金融", "2882": "金融", "2884": "金融", "2886": "金融",
-  "2891": "金融", "2892": "金融", "5871": "金融", "5876": "金融",
+  "2881": "金融",
+  "2882": "金融",
+  "2884": "金融",
+  "2886": "金融",
+  "2891": "金融",
+  "2892": "金融",
+  "5871": "金融",
+  "5876": "金融",
 
-  "2603": "航運", "2609": "航運", "2615": "航運", "2618": "航空",
+  "2603": "航運",
+  "2609": "航運",
+  "2615": "航運",
+  "2618": "航空",
 
-  "1301": "塑化", "1303": "塑化", "6505": "塑化",
-  "1717": "化工", "1722": "化工",
+  "1301": "塑化",
+  "1303": "塑化",
+  "6505": "塑化",
+  "1717": "化工",
+  "1722": "化工",
 
-  "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
-  "1101": "水泥", "1102": "水泥",
-  "2201": "汽車", "2207": "汽車", "2227": "汽車",
-  "1216": "食品", "1227": "食品",
-  "1707": "生技", "1760": "生技", "1783": "生技",
-  "2912": "百貨", "5903": "百貨",
-  "9904": "消費", "9907": "消費", "9914": "消費", "9926": "消費",
+  "2002": "鋼鐵",
+  "2014": "鋼鐵",
+  "2027": "鋼鐵",
+
+  "1101": "水泥",
+  "1102": "水泥",
+
+  "2201": "汽車",
+  "2207": "汽車",
+  "2227": "汽車",
+
+  "1216": "食品",
+  "1227": "食品",
+
+  "1707": "生技",
+  "1760": "生技",
+  "1783": "生技",
+
+  "2912": "百貨",
+  "5903": "百貨",
+  "9904": "消費",
+  "9907": "消費",
+  "9914": "消費",
+  "9926": "消費",
 };
 
 function getIndustry(code: string) {
@@ -135,6 +203,7 @@ function normalizeStock(item: any): Stock {
   if (!Number.isFinite(changePercent) || changePercent === 0) {
     const change = Number(String(item.Change ?? "0").replaceAll(",", ""));
     const previous = price - change;
+
     changePercent =
       previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
   }
@@ -248,7 +317,7 @@ function getDataCheckStatus(
   stocks: Stock[],
   watchListStocks: Stock[],
   lastSuccessAt: string
-) {
+): DataCheck {
   const hasRanking = stocks.length > 0;
   const hasWatchList = watchListStocks.length > 0;
   const hasPrice = stocks.some((s) => s.price > 0);
@@ -378,7 +447,13 @@ function StockRow({
               <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
             </div>
 
-            <div className={compact ? "mt-1 text-xl font-black text-white" : "mt-1 text-2xl font-black text-white"}>
+            <div
+              className={
+                compact
+                  ? "mt-1 text-xl font-black text-white"
+                  : "mt-1 text-2xl font-black text-white"
+              }
+            >
               {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
             </div>
 
@@ -422,6 +497,10 @@ function StockDetail({
   onToggleWatch,
   sameIndustryStocks,
   alertReasons,
+  dataCheck,
+  lastSuccessAt,
+  lastFailReason,
+  lastFailAt,
 }: {
   stock: Stock;
   onBack: () => void;
@@ -429,6 +508,10 @@ function StockDetail({
   onToggleWatch: () => void;
   sameIndustryStocks: Stock[];
   alertReasons: string[];
+  dataCheck: DataCheck;
+  lastSuccessAt: string;
+  lastFailReason: string;
+  lastFailAt: string;
 }) {
   const status = stockStatus(stock);
   const links = getStockLinks(stock.code);
@@ -455,6 +538,35 @@ function StockDetail({
           >
             {isWatch ? "移除自選" : "加入自選"}
           </button>
+        </div>
+
+        <div
+          className={
+            dataCheck.isGood
+              ? "mb-4 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
+              : "mb-4 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
+          }
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">
+                {dataCheck.isGood ? "✅ 個股資料狀態正常" : "⚠️ 個股資料可能異常"}
+              </div>
+              <div className="mt-1 text-xs font-bold">
+                使用最後成功更新資料：{lastSuccessAt || "尚未成功"}
+              </div>
+            </div>
+
+            <div className="text-xs font-black">{dataCheck.okCount}/5</div>
+          </div>
+
+          {lastFailReason && (
+            <div className="mt-2 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold text-yellow-100">
+              ⚠️ 最近一次更新失敗，仍顯示上一次成功資料。
+              <br />
+              失敗時間：{lastFailAt}｜原因：{lastFailReason}
+            </div>
+          )}
         </div>
 
         <section className="rounded-3xl bg-gradient-to-br from-slate-900 to-black p-5">
@@ -772,6 +884,7 @@ export default function App() {
           loadStocks(watchCodes);
           return 60;
         }
+
         return prev - 1;
       });
     }, 1000);
@@ -810,6 +923,7 @@ export default function App() {
     if (tab === "watch") return sortedWatchListStocks;
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
+
     return sortedStocks;
   }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
 
@@ -891,6 +1005,10 @@ export default function App() {
         onToggleWatch={() => toggleSelectedStockWatch(selectedStock)}
         sameIndustryStocks={sameIndustryStocks}
         alertReasons={alertReasons}
+        dataCheck={dataCheck}
+        lastSuccessAt={lastSuccessAt}
+        lastFailReason={lastFailReason}
+        lastFailAt={lastFailAt}
       />
     );
   }
