@@ -17,6 +17,16 @@ type IndustryGroup = {
   stocks: Stock[];
 };
 
+const watchListCodes = [
+  "2330",
+  "3042",
+  "3714",
+  "3481",
+  "2356",
+  "6168",
+  "6405"
+];
+
 const industryMap: Record<string, string> = {
   "2911": "百貨",
   "3042": "PCB",
@@ -285,6 +295,18 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
+  const watchListStocks = useMemo(() => {
+    return watchListCodes
+      .map((code) => stocks.find((s) => s.code === code))
+      .filter(Boolean) as Stock[];
+  }, [stocks]);
+
+  const missingWatchList = useMemo(() => {
+    return watchListCodes.filter(
+      (code) => !watchListStocks.some((s) => s.code === code)
+    );
+  }, [watchListStocks]);
+
   const industryGroups = useMemo(() => {
     return buildIndustryGroups(stocks);
   }, [stocks]);
@@ -378,6 +400,56 @@ export default function App() {
                 </div>
               </section>
             )}
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">我的觀察名單</h2>
+
+              {watchListStocks.length === 0 ? (
+                <div className="rounded-xl bg-slate-800 p-3 text-sm text-slate-400">
+                  觀察名單目前沒有出現在今日漲幅前 50。下面會列出未進榜代號。
+                </div>
+              ) : (
+                watchListStocks.map((s) => (
+                  <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
+                    <div className="flex justify-between">
+                      <div>
+                        <div className="font-bold">
+                          {s.code} {s.name}
+                        </div>
+                        <div className="mt-1 text-sm text-slate-400">
+                          {s.industry} / 成交價 {s.price}
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="font-bold text-red-400">
+                          +{s.changePercent}%
+                        </div>
+
+                        {getStockTag(s) && (
+                          <div className="mt-1 text-xs text-yellow-300">
+                            {getStockTag(s)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-2 text-xs text-slate-500">
+                      成交量：{s.volume.toLocaleString()}
+                    </div>
+                  </div>
+                ))
+              )}
+
+              {missingWatchList.length > 0 && (
+                <div className="mt-3 rounded-xl bg-slate-800 p-3 text-xs text-slate-400">
+                  未進入今日漲幅前 50：
+                  <span className="ml-1 text-slate-300">
+                    {missingWatchList.join("、")}
+                  </span>
+                </div>
+              )}
+            </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">快速篩選</h2>
@@ -515,20 +587,6 @@ export default function App() {
                             </div>
                           )}
                         </div>
-                      </div>
-
-                      <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                        {isVolumeHot(s) && (
-                          <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
-                            量能放大
-                          </span>
-                        )}
-
-                        {isLowVolume(s) && (
-                          <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
-                            低成交量
-                          </span>
-                        )}
                       </div>
                     </div>
                   ))}
