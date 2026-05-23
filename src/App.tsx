@@ -10,6 +10,7 @@ type Stock = {
 };
 
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
+type SortKey = "change" | "volume" | "score";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -168,6 +169,20 @@ function stockStatus(stock: Stock) {
   return "轉弱";
 }
 
+function sortStocks(list: Stock[], sortKey: SortKey) {
+  const copied = [...list];
+
+  if (sortKey === "volume") {
+    return copied.sort((a, b) => b.volume - a.volume);
+  }
+
+  if (sortKey === "score") {
+    return copied.sort((a, b) => stockScore(b) - stockScore(a));
+  }
+
+  return copied.sort((a, b) => b.changePercent - a.changePercent);
+}
+
 function loadSavedWatchCodes() {
   try {
     const saved = localStorage.getItem("watchCodes");
@@ -186,7 +201,7 @@ function loadSavedWatchCodes() {
   }
 }
 
-function buildIndustryGroups(stocks: Stock[]) {
+function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
   const map: Record<string, Stock[]> = {};
 
   stocks.forEach((s) => {
@@ -207,7 +222,7 @@ function buildIndustryGroups(stocks: Stock[]) {
         total: groupStocks.length,
         avgChange: Number(avgChange.toFixed(2)),
         strength,
-        stocks: groupStocks.sort((a, b) => b.changePercent - a.changePercent),
+        stocks: sortStocks(groupStocks, sortKey),
       };
     })
     .sort((a, b) => b.strength - a.strength);
@@ -497,6 +512,7 @@ export default function App() {
   const [expandedIndustry, setExpandedIndustry] = useState<string>("");
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [searchText, setSearchText] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("change");
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -625,7 +641,17 @@ export default function App() {
     return () => clearInterval(timer);
   }, [watchCodes]);
 
-  const industryGroups = useMemo(() => buildIndustryGroups(stocks), [stocks]);
+  const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
+  const sortedWatchListStocks = useMemo(
+    () => sortStocks(watchListStocks, sortKey),
+    [watchListStocks, sortKey]
+  );
+
+  const industryGroups = useMemo(
+    () => buildIndustryGroups(sortedStocks, sortKey),
+    [sortedStocks, sortKey]
+  );
+
   const mainIndustryGroups = useMemo(
     () => industryGroups.filter((g) => g.industry !== "其他"),
     [industryGroups]
@@ -634,22 +660,24 @@ export default function App() {
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((g) => g.industry);
 
-  const strongStocks = stocks.filter((s) => stockStatus(s) === "強勢");
-  const watchStocks = stocks.filter((s) => stockStatus(s) === "觀察");
-  const alertStocks = stocks
-    .filter((s) => s.changePercent >= 7 || stockScore(s) >= 85 || volumeLots(s.volume) >= 10000)
-    .sort((a, b) => stockScore(b) - stockScore(a));
+  const strongStocks = sortedStocks.filter((s) => stockStatus(s) === "強勢");
+  const watchStocks = sortedStocks.filter((s) => stockStatus(s) === "觀察");
+
+  const alertStocks = sortStocks(
+    stocks.filter((s) => s.changePercent >= 7 || stockScore(s) >= 85 || volumeLots(s.volume) >= 10000),
+    sortKey
+  );
 
   const lowVolumeStocks = stocks.filter((s) => s.volume > 0 && s.volume < 300000);
-  const breakoutStocks = stocks.filter((s) => s.changePercent >= 5);
+  const breakoutStocks = sortStocks(stocks.filter((s) => s.changePercent >= 5), sortKey);
 
   const tabStocks = useMemo(() => {
-    if (tab === "top50") return stocks;
-    if (tab === "watch") return watchListStocks;
+    if (tab === "top50") return sortedStocks;
+    if (tab === "watch") return sortedWatchListStocks;
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
-    return stocks;
-  }, [tab, stocks, watchListStocks, breakoutStocks, alertStocks]);
+    return sortedStocks;
+  }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
 
   const filteredTabStocks = useMemo(() => {
     return filterStocks(tabStocks);
@@ -691,11 +719,17 @@ export default function App() {
     { key: "alert", label: "警報", icon: "🔔" },
   ];
 
+  const sortButtons: { key: SortKey; label: string }[] = [
+    { key: "change", label: "漲幅" },
+    { key: "volume", label: "成交量" },
+    { key: "score", label: "強度" },
+  ];
+
   if (selectedStock) {
-    const sameIndustryStocks = stocks
-      .filter((s) => s.industry === selectedStock.industry && s.code !== selectedStock.code)
-      .sort((a, b) => b.changePercent - a.changePercent)
-      .slice(0, 5);
+    const sameIndustryStocks = sortStocks(
+      stocks.filter((s) => s.industry === selectedStock.industry && s.code !== selectedStock.code),
+      sortKey
+    ).slice(0, 5);
 
     const alertReasons = getAlertReasons(selectedStock, topIndustryNames);
 
@@ -758,6 +792,22 @@ export default function App() {
               搜尋：{searchText}
             </div>
           )}
+        </div>
+
+        <div className="mb-3 flex gap-2 overflow-x-auto">
+          {sortButtons.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setSortKey(item.key)}
+              className={
+                sortKey === item.key
+                  ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white"
+                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+              }
+            >
+              {item.label}排序
+            </button>
+          ))}
         </div>
 
         <div className="mb-3 flex gap-2 overflow-x-auto">
