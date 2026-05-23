@@ -9,14 +9,6 @@ type Stock = {
   industry: string;
 };
 
-type IndustryGroup = {
-  industry: string;
-  total: number;
-  avgChange: number;
-  strength: number;
-  stocks: Stock[];
-};
-
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -342,6 +334,7 @@ export default function App() {
   const [updatedAt, setUpdatedAt] = useState("");
   const [nextRefresh, setNextRefresh] = useState(60);
   const [tab, setTab] = useState<TabKey>("top50");
+  const [expandedIndustry, setExpandedIndustry] = useState<string>("");
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -618,35 +611,64 @@ export default function App() {
           <section>
             <h2 className="mb-3 text-xl font-black">產業排行 TOP 10</h2>
 
-            {mainIndustryGroups.slice(0, 10).map((group, index) => (
-              <div
-                key={group.industry}
-                className="mb-3 rounded-2xl border border-slate-800 bg-slate-900 p-4"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="text-2xl font-black text-red-400">
-                      {index + 1}
-                    </div>
-                    <div>
-                      <div className="text-2xl font-black text-white">
-                        {group.industry}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-400">
-                        平均 +{group.avgChange}%｜強度 {group.strength}
-                      </div>
-                    </div>
-                  </div>
+            {mainIndustryGroups.slice(0, 10).map((group, index) => {
+              const isOpen = expandedIndustry === group.industry;
 
-                  <div className="text-right">
-                    <div className="text-2xl font-black text-red-400">
-                      {group.total}
+              return (
+                <div
+                  key={group.industry}
+                  className="mb-3 rounded-2xl border border-slate-800 bg-slate-900 p-4"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedIndustry(isOpen ? "" : group.industry)
+                    }
+                    className="w-full text-left"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="text-2xl font-black text-red-400">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <div className="text-2xl font-black text-white">
+                            {group.industry}
+                          </div>
+                          <div className="mt-1 text-sm text-slate-400">
+                            平均 +{group.avgChange}%｜強度 {group.strength}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="text-right">
+                        <div className="text-2xl font-black text-red-400">
+                          {group.total}
+                        </div>
+                        <div className="text-sm text-slate-400">
+                          檔 {isOpen ? "▲" : "▼"}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-sm text-slate-400">檔</div>
-                  </div>
+                  </button>
+
+                  {isOpen && (
+                    <div className="mt-4 rounded-2xl bg-black/40 p-3">
+                      <div className="mb-2 text-sm font-black text-slate-300">
+                        {group.industry} 個股明細
+                      </div>
+
+                      {group.stocks.map((stock, stockIndex) => (
+                        <CompactStockRow
+                          key={stock.code}
+                          stock={stock}
+                          rank={stockIndex + 1}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </section>
         ) : (
           <section>
