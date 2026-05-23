@@ -265,6 +265,10 @@ function isAlertStock(stock: Stock) {
   );
 }
 
+function isLowVolumeStrongStock(stock: Stock) {
+  return stock.changePercent >= 5 && volumeLots(stock.volume) < 10000;
+}
+
 function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   const tags: string[] = [];
 
@@ -276,11 +280,13 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
   else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
 
+  if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
+
   if (stockScore(stock) >= 85) tags.push("強度高");
 
   if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
 
-  return Array.from(new Set(tags)).slice(0, 4);
+  return Array.from(new Set(tags)).slice(0, 5);
 }
 
 function sortStocks(list: Stock[], sortKey: SortKey) {
@@ -404,6 +410,10 @@ function getTradeAdvice(stock: Stock) {
     advice.push("⚠️ 注意風險：不要急著追，等轉強訊號再看");
   }
 
+  if (isLowVolumeStrongStock(stock)) {
+    advice.push("🚨 低量強漲：漲幅超過 5%，但成交量低於 10,000 張");
+  }
+
   if (volumeLots(stock.volume) < 300) {
     advice.push("⚠️ 成交量偏低：流動性較差，進出要小心");
   }
@@ -421,6 +431,8 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   if (stock.changePercent >= 9.8) reasons.push("漲幅接近漲停");
   else if (stock.changePercent >= 7) reasons.push("漲幅超過 7%");
   else if (stock.changePercent >= 5) reasons.push("漲幅超過 5%，屬於突破股");
+
+  if (isLowVolumeStrongStock(stock)) reasons.push("低量強漲：漲幅超過 5%，成交量低於 10,000 張");
 
   if (volumeLots(stock.volume) >= 10000) reasons.push("成交量超過 1 萬張");
   else if (volumeLots(stock.volume) >= 3000) reasons.push("成交量放大");
@@ -461,16 +473,85 @@ function AlertTags({ tags }: { tags: string[] }) {
           className={
             tag === "漲停附近" || tag === "急漲"
               ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "主流產業"
-                ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                : tag === "強度高"
-                  ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                  : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+              : tag === "低量強漲"
+                ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                : tag === "主流產業"
+                  ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                  : tag === "強度高"
+                    ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                    : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
         </span>
       ))}
+    </div>
+  );
+}
+
+function LowVolumeStrongNotice({
+  stocks,
+  onClose,
+  onSelectStock,
+}: {
+  stocks: Stock[];
+  onClose: () => void;
+  onSelectStock: (stock: Stock) => void;
+}) {
+  if (stocks.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg">
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <div>
+          <div className="text-sm font-black">🚨 低量強漲提醒</div>
+          <div className="mt-1 text-xs font-bold">
+            漲幅 ≥ 5%，成交量低於 10,000 張。可點股票查看個股資料。
+          </div>
+        </div>
+
+        <button
+          onClick={onClose}
+          className="rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-yellow-100"
+        >
+          關閉
+        </button>
+      </div>
+
+      <div className="space-y-2">
+        {stocks.slice(0, 3).map((stock) => (
+          <button
+            key={stock.code}
+            onClick={() => onSelectStock(stock)}
+            className="flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left active:scale-[0.99]"
+          >
+            <div>
+              <div className="font-black text-white">
+                {stock.name}
+                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+              </div>
+              <div className="mt-1 text-xs font-bold text-yellow-100">
+                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
+                +{stock.changePercent.toFixed(2)}%
+              </div>
+              <div className="mt-1 text-xs font-bold text-yellow-100">
+                點我查看
+              </div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {stocks.length > 3 && (
+        <div className="mt-2 text-xs font-bold text-yellow-200">
+          還有 {stocks.length - 3} 檔符合條件，可到「突破」或「9:10快篩」查看。
+        </div>
+      )}
     </div>
   );
 }
@@ -827,6 +908,7 @@ export default function App() {
   const [filterKey, setFilterKey] = useState<FilterKey>("all");
   const [mode, setMode] = useState<ModeKey>("normal");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [dismissedLowVolumeCodes, setDismissedLowVolumeCodes] = useState<string[]>([]);
 
   async function loadStocks(codes = watchCodes, manual = false) {
     try {
@@ -1012,6 +1094,13 @@ export default function App() {
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((g) => g.industry);
 
+  const lowVolumeStrongStocks = useMemo(() => {
+    return sortStocks(
+      stocks.filter((s) => isLowVolumeStrongStock(s) && !dismissedLowVolumeCodes.includes(s.code)),
+      "score"
+    );
+  }, [stocks, dismissedLowVolumeCodes]);
+
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const breakoutStocks = sortStocks(stocks.filter((s) => s.changePercent >= 5), sortKey);
 
@@ -1144,6 +1233,12 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <LowVolumeStrongNotice
+          stocks={lowVolumeStrongStocks}
+          onClose={() => setDismissedLowVolumeCodes(lowVolumeStrongStocks.map((s) => s.code))}
+          onSelectStock={setSelectedStock}
+        />
 
         <div
           className={
