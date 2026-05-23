@@ -205,6 +205,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
   const [nextRefresh, setNextRefresh] = useState(60);
+  const [selectedIndustry, setSelectedIndustry] = useState("全部");
 
   async function loadStocks() {
     try {
@@ -297,7 +298,20 @@ export default function App() {
 
   const topIndustries = mainIndustryGroups.slice(0, 3);
   const strongestIndustry = topIndustries[0];
-  const breakoutStocks = stocks.filter((s) => s.changePercent >= 5).slice(0, 10);
+
+  const filterButtons = useMemo(() => {
+    const topNames = topIndustries.map((g) => g.industry);
+    return ["全部", ...topNames, "其他"];
+  }, [topIndustries]);
+
+  const filteredStocks = useMemo(() => {
+    if (selectedIndustry === "全部") return stocks;
+    return stocks.filter((s) => s.industry === selectedIndustry);
+  }, [stocks, selectedIndustry]);
+
+  const breakoutStocks = filteredStocks
+    .filter((s) => s.changePercent >= 5)
+    .slice(0, 10);
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
@@ -353,6 +367,30 @@ export default function App() {
             )}
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
+              <h2 className="mb-3 text-lg font-bold">快速篩選</h2>
+
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {filterButtons.map((name) => (
+                  <button
+                    key={name}
+                    onClick={() => setSelectedIndustry(name)}
+                    className={
+                      selectedIndustry === name
+                        ? "whitespace-nowrap rounded-full bg-red-500 px-4 py-2 text-sm font-bold text-white"
+                        : "whitespace-nowrap rounded-full bg-slate-800 px-4 py-2 text-sm text-slate-300"
+                    }
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+
+              <div className="mt-3 text-xs text-slate-400">
+                目前顯示：{selectedIndustry} / {filteredStocks.length} 檔
+              </div>
+            </section>
+
+            <section className="mb-5 rounded-2xl bg-slate-900 p-4">
               <h2 className="mb-3 text-lg font-bold">前三大主流產業</h2>
 
               {topIndustries.length === 0 ? (
@@ -362,9 +400,10 @@ export default function App() {
               ) : (
                 <div className="grid grid-cols-1 gap-3">
                   {topIndustries.map((item, index) => (
-                    <div
+                    <button
                       key={item.industry}
-                      className="rounded-2xl bg-slate-800 p-4"
+                      onClick={() => setSelectedIndustry(item.industry)}
+                      className="rounded-2xl bg-slate-800 p-4 text-left"
                     >
                       <div className="flex items-center justify-between">
                         <div>
@@ -385,7 +424,7 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -399,7 +438,10 @@ export default function App() {
                   key={group.industry}
                   className="mb-4 rounded-2xl bg-slate-800 p-3"
                 >
-                  <div className="mb-3 flex items-center justify-between">
+                  <button
+                    onClick={() => setSelectedIndustry(group.industry)}
+                    className="mb-3 flex w-full items-center justify-between text-left"
+                  >
                     <div>
                       <div className="text-lg font-bold text-yellow-300">
                         {group.industry}
@@ -413,9 +455,9 @@ export default function App() {
                     <div className="text-sm font-bold text-red-400">
                       {group.total} 檔
                     </div>
-                  </div>
+                  </button>
 
-                  {group.stocks.map((s) => (
+                  {group.stocks.slice(0, 5).map((s) => (
                     <div
                       key={s.code}
                       className="mb-2 rounded-xl bg-slate-900 px-3 py-2"
@@ -462,7 +504,10 @@ export default function App() {
               ))}
 
               {otherGroup && (
-                <div className="mt-4 rounded-2xl bg-slate-800 p-3">
+                <button
+                  onClick={() => setSelectedIndustry("其他")}
+                  className="mt-4 w-full rounded-2xl bg-slate-800 p-3 text-left"
+                >
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-lg font-bold text-slate-300">
@@ -477,12 +522,14 @@ export default function App() {
                       {otherGroup.total} 檔
                     </div>
                   </div>
-                </div>
+                </button>
               )}
             </section>
 
             <section className="mb-5 rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">剛突破股票</h2>
+              <h2 className="mb-3 text-lg font-bold">
+                剛突破股票｜{selectedIndustry}
+              </h2>
 
               {breakoutStocks.length === 0 ? (
                 <p className="text-sm text-slate-400">
@@ -512,9 +559,11 @@ export default function App() {
             </section>
 
             <section className="rounded-2xl bg-slate-900 p-4">
-              <h2 className="mb-3 text-lg font-bold">今日漲幅排行前 50</h2>
+              <h2 className="mb-3 text-lg font-bold">
+                漲幅排行｜{selectedIndustry}
+              </h2>
 
-              {stocks.map((s, index) => (
+              {filteredStocks.map((s, index) => (
                 <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
                   <div className="flex justify-between">
                     <div>
