@@ -206,6 +206,7 @@ export default function App() {
   const [updatedAt, setUpdatedAt] = useState("");
   const [nextRefresh, setNextRefresh] = useState(60);
   const [selectedIndustry, setSelectedIndustry] = useState("全部");
+  const [searchText, setSearchText] = useState("");
 
   async function loadStocks() {
     try {
@@ -305,9 +306,21 @@ export default function App() {
   }, [topIndustries]);
 
   const filteredStocks = useMemo(() => {
-    if (selectedIndustry === "全部") return stocks;
-    return stocks.filter((s) => s.industry === selectedIndustry);
-  }, [stocks, selectedIndustry]);
+    const keyword = searchText.trim().toLowerCase();
+
+    return stocks.filter((s) => {
+      const matchIndustry =
+        selectedIndustry === "全部" || s.industry === selectedIndustry;
+
+      const matchSearch =
+        !keyword ||
+        s.code.toLowerCase().includes(keyword) ||
+        s.name.toLowerCase().includes(keyword) ||
+        s.industry.toLowerCase().includes(keyword);
+
+      return matchIndustry && matchSearch;
+    });
+  }, [stocks, selectedIndustry, searchText]);
 
   const breakoutStocks = filteredStocks
     .filter((s) => s.changePercent >= 5)
@@ -385,8 +398,27 @@ export default function App() {
                 ))}
               </div>
 
+              <div className="mt-4 flex gap-2">
+                <input
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  placeholder="搜尋代號 / 名稱 / 產業"
+                  className="min-w-0 flex-1 rounded-xl bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
+                />
+
+                {searchText && (
+                  <button
+                    onClick={() => setSearchText("")}
+                    className="rounded-xl bg-slate-700 px-3 text-sm text-slate-200"
+                  >
+                    清除
+                  </button>
+                )}
+              </div>
+
               <div className="mt-3 text-xs text-slate-400">
                 目前顯示：{selectedIndustry} / {filteredStocks.length} 檔
+                {searchText ? ` / 搜尋：${searchText}` : ""}
               </div>
             </section>
 
@@ -563,55 +595,61 @@ export default function App() {
                 漲幅排行｜{selectedIndustry}
               </h2>
 
-              {filteredStocks.map((s, index) => (
-                <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
-                  <div className="flex justify-between">
-                    <div>
-                      <div className="font-bold">
-                        #{index + 1} {s.code} {s.name}
+              {filteredStocks.length === 0 ? (
+                <p className="text-sm text-slate-400">
+                  沒有符合搜尋條件的股票
+                </p>
+              ) : (
+                filteredStocks.map((s, index) => (
+                  <div key={s.code} className="mb-3 rounded-xl bg-slate-800 p-3">
+                    <div className="flex justify-between">
+                      <div>
+                        <div className="font-bold">
+                          #{index + 1} {s.code} {s.name}
+                        </div>
+
+                        <div className="mt-1 text-sm text-slate-400">
+                          {s.industry}
+                        </div>
                       </div>
 
-                      <div className="mt-1 text-sm text-slate-400">
-                        {s.industry}
+                      <div className="text-right">
+                        <div className="font-bold text-red-400">
+                          +{s.changePercent}%
+                        </div>
+
+                        <div className="mt-1 text-sm text-slate-400">
+                          {s.price}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <div className="font-bold text-red-400">
-                        +{s.changePercent}%
-                      </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      成交量：{s.volume.toLocaleString()}
+                    </div>
 
-                      <div className="mt-1 text-sm text-slate-400">
-                        {s.price}
-                      </div>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                      {getStockTag(s) && (
+                        <span className="rounded-full bg-yellow-500/20 px-2 py-1 text-yellow-300">
+                          {getStockTag(s)}
+                        </span>
+                      )}
+
+                      {isVolumeHot(s) && (
+                        <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
+                          量能放大
+                        </span>
+                      )}
+
+                      {isLowVolume(s) && (
+                        <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
+                          低成交量
+                        </span>
+                      )}
                     </div>
                   </div>
-
-                  <div className="mt-2 text-xs text-slate-500">
-                    成交量：{s.volume.toLocaleString()}
-                  </div>
-
-                  <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                    {getStockTag(s) && (
-                      <span className="rounded-full bg-yellow-500/20 px-2 py-1 text-yellow-300">
-                        {getStockTag(s)}
-                      </span>
-                    )}
-
-                    {isVolumeHot(s) && (
-                      <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-300">
-                        量能放大
-                      </span>
-                    )}
-
-                    {isLowVolume(s) && (
-                      <span className="rounded-full bg-orange-500/20 px-2 py-1 text-orange-300">
-                        低成交量
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </section>
           </>
         )}
