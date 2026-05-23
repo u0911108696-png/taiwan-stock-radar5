@@ -17,7 +17,7 @@ type IndustryGroup = {
   stocks: Stock[];
 };
 
-type TabKey = "top50" | "watch" | "alert" | "industry" | "breakout" | "main";
+type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -236,6 +236,13 @@ function volumeLots(volume: number) {
   return Math.round(volume / 1000);
 }
 
+function stockStatus(stock: Stock) {
+  if (stock.changePercent >= 9.8) return { text: "強勢", cls: "bg-green-100 text-green-700" };
+  if (stock.changePercent >= 5) return { text: "突破", cls: "bg-orange-100 text-orange-700" };
+  if (stock.changePercent >= 0) return { text: "觀察", cls: "bg-yellow-100 text-yellow-700" };
+  return { text: "轉弱", cls: "bg-slate-100 text-slate-600" };
+}
+
 function stockScore(stock: Stock) {
   let score = 50;
 
@@ -251,30 +258,6 @@ function stockScore(stock: Stock) {
   return Math.max(0, Math.min(99, score));
 }
 
-function getStrengthLabel(stock: Stock) {
-  const score = stockScore(stock);
-
-  if (score >= 90) return { text: "🔥 超強勢", color: "text-red-300 border-red-400/50 bg-red-500/10" };
-  if (score >= 80) return { text: "🚀 強勢", color: "text-cyan-300 border-cyan-400/50 bg-cyan-500/10" };
-  if (score >= 65) return { text: "🟢 轉強", color: "text-green-300 border-green-400/50 bg-green-500/10" };
-  if (score >= 50) return { text: "🟡 觀察", color: "text-yellow-300 border-yellow-400/50 bg-yellow-500/10" };
-  return { text: "🔴 轉弱", color: "text-red-300 border-red-400/50 bg-red-500/10" };
-}
-
-function getStockTags(stock: Stock) {
-  const tags: string[] = [];
-
-  if (stock.changePercent >= 9.8) tags.push("漲停強勢");
-  if (stock.changePercent >= 7) tags.push("漲幅 7%+");
-  if (stock.changePercent >= 5) tags.push("剛突破");
-  if (volumeLots(stock.volume) >= 10000) tags.push("巨量 1萬張+");
-  if (volumeLots(stock.volume) >= 3000) tags.push("量能放大");
-  if (stockScore(stock) >= 85) tags.push("強勢警報");
-  if (stock.volume > 0 && stock.volume < 300000) tags.push("低量小心");
-
-  return tags;
-}
-
 function openKLine(code: string) {
   const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
   window.open(
@@ -288,13 +271,13 @@ function StockLinks({ code }: { code: string }) {
   const twseCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
 
   return (
-    <div className="mt-3 flex gap-2">
+    <div className="mt-3 grid grid-cols-2 gap-2">
       <a
         onClick={(e) => e.stopPropagation()}
         href={`https://tw.tradingview.com/chart/?symbol=TWSE:${twseCode}`}
         target="_blank"
         rel="noreferrer"
-        className="flex-1 rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-3 py-2 text-center text-xs font-bold text-cyan-200"
+        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-xs font-bold text-slate-700"
       >
         看K線
       </a>
@@ -304,87 +287,81 @@ function StockLinks({ code }: { code: string }) {
         href={`https://tw.stock.yahoo.com/quote/${twseCode}.TW`}
         target="_blank"
         rel="noreferrer"
-        className="flex-1 rounded-xl border border-red-400/40 bg-red-500/20 px-3 py-2 text-center text-xs font-bold text-red-100"
+        className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-xs font-bold text-red-600"
       >
-        Yahoo股價
+        Yahoo 股價
       </a>
     </div>
   );
 }
 
-function RadarCard({ stock, rank }: { stock: Stock; rank?: number }) {
-  const score = stockScore(stock);
-  const label = getStrengthLabel(stock);
-  const tags = getStockTags(stock);
+function StockRow({ stock, rank, showLinks = true }: { stock: Stock; rank?: number; showLinks?: boolean }) {
+  const status = stockStatus(stock);
 
   return (
     <div
       onClick={() => openKLine(stock.code)}
-      className="mb-4 cursor-pointer rounded-3xl border border-cyan-400/10 bg-gradient-to-br from-slate-800 via-slate-900 to-slate-950 p-4 shadow-lg shadow-cyan-950/20 active:scale-[0.99]"
+      className="mb-3 cursor-pointer rounded-2xl border border-slate-100 bg-white p-4 shadow-sm active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
             {rank && (
-              <span className="text-sm font-bold text-slate-400">
-                #{String(rank).padStart(2, "0")}
-              </span>
+              <div className="grid h-7 w-7 place-items-center rounded-full bg-red-50 text-sm font-black text-red-500">
+                {rank}
+              </div>
             )}
 
-            <span className="text-xl font-black text-white">{stock.name}</span>
+            <div>
+              <div className="text-base font-black text-slate-900">
+                {stock.name}
+                <span className="ml-1 text-xs font-bold text-slate-400">
+                  {stock.code}
+                </span>
+              </div>
 
-            <span className={`rounded-lg border px-2 py-1 text-xs font-bold ${label.color}`}>
-              {label.text}
-            </span>
-          </div>
-
-          <div className="mt-1 text-sm text-slate-400">
-            {stock.code} ・ {stock.industry}
-          </div>
-        </div>
-
-        <div className="relative grid h-14 w-14 place-items-center rounded-full border-4 border-cyan-400/70 bg-cyan-400/10 text-lg font-black text-cyan-200">
-          {score}
-        </div>
-      </div>
-
-      <div className="mt-5 flex items-end justify-between">
-        <div>
-          <div className="text-4xl font-black tracking-wide text-white">
-            {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
-          </div>
-
-          <div
-            className={
-              stock.changePercent >= 0
-                ? "mt-1 text-lg font-black text-red-400"
-                : "mt-1 text-lg font-black text-green-400"
-            }
-          >
-            {stock.changePercent >= 0 ? "▲" : "▼"} {Math.abs(stock.changePercent).toFixed(2)}%
+              <div className="mt-1 text-xs text-slate-500">
+                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+            </div>
           </div>
         </div>
 
         <div className="text-right">
-          <div className="text-sm text-slate-400">成交量</div>
-          <div className="text-lg font-black text-white">
-            {volumeLots(stock.volume).toLocaleString()} 張
+          <div
+            className={
+              stock.changePercent >= 0
+                ? "text-sm font-black text-red-500"
+                : "text-sm font-black text-green-600"
+            }
+          >
+            {stock.changePercent >= 0 ? "+" : ""}
+            {stock.changePercent.toFixed(2)}%
+          </div>
+
+          <span className={`mt-2 inline-block rounded-full px-2 py-1 text-xs font-bold ${status.cls}`}>
+            {status.text}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-end justify-between">
+        <div>
+          <div className="text-xs font-bold text-slate-400">即時價</div>
+          <div className="text-2xl font-black text-slate-900">
+            {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-xs font-bold text-slate-400">強度</div>
+          <div className="text-xl font-black text-red-500">
+            {stockScore(stock)}
           </div>
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap gap-2">
-        {tags.slice(0, 5).map((tag) => (
-          <span
-            key={tag}
-            className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-2 py-1 text-xs font-bold text-cyan-200"
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      <StockLinks code={stock.code} />
+      {showLinks && <StockLinks code={stock.code} />}
     </div>
   );
 }
@@ -524,22 +501,13 @@ export default function App() {
     return stocks.filter((s) => s.changePercent >= 5).slice(0, 30);
   }, [stocks]);
 
-  const mainForceStocks = useMemo(() => {
-    return [...stocks].sort((a, b) => b.volume - a.volume).slice(0, 30);
-  }, [stocks]);
-
-  const instant20 = useMemo(() => {
-    return watchListStocks.length > 0 ? watchListStocks : stocks.slice(0, 20);
-  }, [watchListStocks, stocks]);
-
   const tabStocks = useMemo(() => {
     if (tab === "top50") return stocks;
-    if (tab === "watch") return instant20;
-    if (tab === "alert") return alertStocks;
+    if (tab === "watch") return watchListStocks;
     if (tab === "breakout") return breakoutStocks;
-    if (tab === "main") return mainForceStocks;
+    if (tab === "alert") return alertStocks;
     return stocks;
-  }, [tab, stocks, instant20, alertStocks, breakoutStocks, mainForceStocks]);
+  }, [tab, stocks, watchListStocks, breakoutStocks, alertStocks]);
 
   const filteredTabStocks = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -555,209 +523,247 @@ export default function App() {
     });
   }, [tabStocks, searchText]);
 
-  const strongCount = stocks.filter((s) => stockScore(s) >= 85).length;
+  const strongStocks = watchListStocks.filter((s) => stockStatus(s).text === "強勢");
+  const watchStocks = watchListStocks.filter((s) => stockStatus(s).text === "觀察");
+  const weakStocks = watchListStocks.filter((s) => stockStatus(s).text === "轉弱");
 
   const tabs: { key: TabKey; label: string; icon: string }[] = [
-    { key: "top50", label: "漲幅50強", icon: "📈" },
-    { key: "watch", label: "即時20", icon: "🛰️" },
-    { key: "alert", label: "警報50", icon: "🚨" },
-    { key: "industry", label: "強勢產業", icon: "🔥" },
-    { key: "breakout", label: "剛突破", icon: "⚡" },
-    { key: "main", label: "主力", icon: "💎" },
+    { key: "top50", label: "50強", icon: "🏠" },
+    { key: "watch", label: "自選", icon: "☆" },
+    { key: "industry", label: "產業", icon: "▮" },
+    { key: "breakout", label: "突破", icon: "⚡" },
+    { key: "alert", label: "警報", icon: "🔔" },
   ];
 
   return (
-    <div className="min-h-screen bg-[#030712] pb-24 text-white">
+    <div className="min-h-screen bg-slate-50 pb-24 text-slate-900">
       <div className="mx-auto max-w-md px-4 py-5">
         <header className="mb-4">
           <div className="flex items-center justify-between">
-            <h1 className="text-xl font-black tracking-wider text-white">
-              🔴 TW STRENGTH RADAR
-            </h1>
+            <div>
+              <h1 className="text-xl font-black text-slate-950">
+                台股即時雷達
+              </h1>
+              <div className="mt-1 text-xs font-medium text-slate-500">
+                更新 {updatedAt || "尚未更新"}｜下次 {nextRefresh}s
+              </div>
+            </div>
 
             <button
               onClick={() => loadStocks(watchCodes)}
-              className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200"
+              className="grid h-10 w-10 place-items-center rounded-full border border-slate-200 bg-white text-xl shadow-sm"
             >
-              掃描樣本 {stocks.length}
+              ↻
             </button>
-          </div>
-
-          <div className="mt-2 text-xs text-slate-400">
-            資料日 2026-05-23 ・ 更新{" "}
-            <span className="font-bold text-cyan-300">{updatedAt || "尚未更新"}</span> ・ 下次{" "}
-            <span className="font-bold text-cyan-300">{nextRefresh}s</span>
           </div>
         </header>
 
-        <div className="mb-4 flex gap-2 overflow-x-auto rounded-2xl border border-cyan-400/10 bg-slate-950/80 p-2">
+        <div className="mb-4 flex gap-2 overflow-x-auto">
           {tabs.map((item) => (
             <button
               key={item.key}
               onClick={() => setTab(item.key)}
               className={
                 tab === item.key
-                  ? "whitespace-nowrap rounded-xl bg-emerald-400 px-4 py-2 text-sm font-black text-slate-950"
-                  : "whitespace-nowrap rounded-xl bg-slate-900 px-4 py-2 text-sm font-bold text-slate-300"
+                  ? "whitespace-nowrap rounded-xl bg-red-500 px-4 py-2 text-sm font-black text-white shadow-sm"
+                  : "whitespace-nowrap rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600"
               }
             >
-              {item.icon} {item.label}
+              {item.label}
             </button>
           ))}
         </div>
 
-        <div className="mb-4 rounded-2xl border border-cyan-400/10 bg-slate-900 p-3">
-          <input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜尋代號 / 名稱 / 產業"
-            className="w-full rounded-xl bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-          />
-        </div>
-
-        <div className="mb-4 rounded-2xl border border-cyan-400/10 bg-slate-900 p-3">
-          <div className="mb-2 text-sm font-bold text-cyan-200">新增觀察股</div>
-
-          <div className="flex gap-2">
-            <input
-              value={newWatchCode}
-              onChange={(e) => setNewWatchCode(e.target.value)}
-              placeholder="輸入代號，例如 2454"
-              inputMode="numeric"
-              className="min-w-0 flex-1 rounded-xl bg-slate-800 px-4 py-3 text-sm text-white outline-none placeholder:text-slate-500"
-            />
-
-            <button
-              onClick={addWatchCode}
-              className="rounded-xl bg-red-500 px-4 text-sm font-black text-white"
-            >
-              加入
-            </button>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {watchCodes.map((code) => (
-              <div
-                key={code}
-                className="flex items-center gap-2 rounded-full bg-slate-800 px-3 py-2 text-sm"
-              >
-                <span>{code}</span>
-                <button onClick={() => removeWatchCode(code)} className="text-slate-400">
-                  ×
-                </button>
-              </div>
-            ))}
-
-            <button
-              onClick={resetWatchCodes}
-              className="rounded-full bg-slate-700 px-3 py-2 text-sm text-slate-300"
-            >
-              還原預設
-            </button>
-          </div>
-        </div>
-
         {loading && (
-          <div className="mb-4 rounded-2xl bg-slate-800 p-4 text-center">
+          <div className="mb-4 rounded-2xl bg-white p-4 text-center shadow-sm">
             資料載入中...
           </div>
         )}
 
         {error && (
-          <div className="mb-4 rounded-2xl bg-red-900 p-4 text-sm">
+          <div className="mb-4 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-600">
             錯誤：{error}
           </div>
         )}
 
         {strongestIndustry && (
-          <section className="mb-5 rounded-3xl border border-red-400/10 bg-gradient-to-br from-red-500/20 to-cyan-500/10 p-4">
-            <div className="text-sm font-bold text-yellow-300">今日最強主流</div>
-            <div className="mt-1 text-3xl font-black">{strongestIndustry.industry}</div>
-            <div className="mt-2 text-sm text-slate-300">
-              {strongestIndustry.total} 檔進榜｜平均 +{strongestIndustry.avgChange}%｜強度{" "}
-              {strongestIndustry.strength}
+          <section className="mb-4 rounded-2xl bg-gradient-to-br from-red-500 to-red-600 p-4 text-white shadow-sm">
+            <div className="text-sm font-bold text-red-100">🏆 今日最強主流</div>
+            <div className="mt-2 flex items-end justify-between">
+              <div className="text-4xl font-black">{strongestIndustry.industry}</div>
+              <div className="text-2xl font-black">{strongestIndustry.total} 檔</div>
+            </div>
+            <div className="mt-2 text-sm font-bold text-red-50">
+              平均漲幅 +{strongestIndustry.avgChange}%｜強度 {strongestIndustry.strength}
             </div>
           </section>
         )}
 
-        <section>
-          {tab === "industry" ? (
-            <>
-              <div className="mb-3 flex items-end justify-between">
-                <h2 className="text-2xl font-black">強勢產業</h2>
-                <span className="text-sm text-slate-400">依強度排序</span>
+        {tab === "watch" && (
+          <section className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-black">我的觀察名單</h2>
+              <button className="text-sm font-bold text-blue-600">編輯</button>
+            </div>
+
+            <div className="mb-4 grid grid-cols-3 gap-2">
+              <div className="rounded-xl bg-green-50 p-3 text-center">
+                <div className="font-black text-green-600">強勢</div>
+                <div className="text-xl font-black">{strongStocks.length}</div>
+                <div className="text-xs text-slate-500">檔</div>
               </div>
 
-              {mainIndustryGroups.map((group, index) => (
+              <div className="rounded-xl bg-yellow-50 p-3 text-center">
+                <div className="font-black text-yellow-600">觀察</div>
+                <div className="text-xl font-black">{watchStocks.length}</div>
+                <div className="text-xs text-slate-500">檔</div>
+              </div>
+
+              <div className="rounded-xl bg-red-50 p-3 text-center">
+                <div className="font-black text-red-600">轉弱</div>
+                <div className="text-xl font-black">{weakStocks.length}</div>
+                <div className="text-xs text-slate-500">檔</div>
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <input
+                value={newWatchCode}
+                onChange={(e) => setNewWatchCode(e.target.value)}
+                placeholder="輸入代號，例如 2454"
+                inputMode="numeric"
+                className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm outline-none"
+              />
+
+              <button
+                onClick={addWatchCode}
+                className="rounded-xl bg-red-500 px-4 text-sm font-black text-white"
+              >
+                加入
+              </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {watchCodes.map((code) => (
                 <div
-                  key={group.industry}
-                  className="mb-4 rounded-3xl border border-cyan-400/10 bg-slate-900 p-4"
+                  key={code}
+                  className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-sm font-bold"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm text-slate-400">#{index + 1}</div>
-                      <div className="text-3xl font-black text-white">{group.industry}</div>
-                      <div className="mt-1 text-sm text-slate-400">
-                        平均 +{group.avgChange}%｜強度 {group.strength}
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-3xl font-black text-red-400">
-                        {group.total}
-                      </div>
-                      <div className="text-sm text-slate-400">檔</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4">
-                    {group.stocks.slice(0, 3).map((s, i) => (
-                      <RadarCard key={s.code} stock={s} rank={i + 1} />
-                    ))}
-                  </div>
+                  <span>{code}</span>
+                  <button onClick={() => removeWatchCode(code)} className="text-slate-400">
+                    ×
+                  </button>
                 </div>
               ))}
-            </>
-          ) : (
-            <>
-              <div className="mb-3 flex items-end justify-between">
-                <h2 className="text-2xl font-black">
-                  {tabs.find((t) => t.key === tab)?.label}
-                </h2>
 
-                <span className="text-sm text-slate-400">
-                  強勢 {strongCount} 檔
-                </span>
-              </div>
+              <button
+                onClick={resetWatchCodes}
+                className="rounded-full bg-slate-200 px-3 py-2 text-sm font-bold text-slate-600"
+              >
+                還原預設
+              </button>
+            </div>
+          </section>
+        )}
 
-              {filteredTabStocks.length === 0 ? (
-                <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
-                  目前沒有符合條件的股票
+        {tab !== "industry" && (
+          <div className="mb-4 rounded-2xl bg-white p-3 shadow-sm">
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="搜尋代號 / 名稱 / 產業"
+              className="w-full rounded-xl bg-slate-100 px-4 py-3 text-sm outline-none"
+            />
+          </div>
+        )}
+
+        {tab === "industry" ? (
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-black">強勢產業</h2>
+              <span className="text-sm font-bold text-slate-400">依強度排序</span>
+            </div>
+
+            {mainIndustryGroups.map((group, index) => (
+              <div
+                key={group.industry}
+                className="mb-3 rounded-2xl bg-white p-4 shadow-sm"
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="grid h-7 w-7 place-items-center rounded-full bg-yellow-100 text-sm font-black text-yellow-700">
+                        {index + 1}
+                      </div>
+                      <div className="text-2xl font-black">{group.industry}</div>
+                    </div>
+
+                    <div className="mt-2 text-sm font-bold text-slate-500">
+                      平均漲幅{" "}
+                      <span className="text-red-500">+{group.avgChange}%</span>
+                    </div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className="text-2xl font-black text-slate-900">
+                      {group.total} 檔
+                    </div>
+                    <div className="text-sm font-bold text-red-500">
+                      強度 {group.strength}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                filteredTabStocks.map((stock, index) => (
-                  <RadarCard key={stock.code} stock={stock} rank={index + 1} />
-                ))
-              )}
-            </>
-          )}
-        </section>
+
+                <div className="mt-4">
+                  {group.stocks.slice(0, 3).map((s, i) => (
+                    <StockRow key={s.code} stock={s} rank={i + 1} showLinks={false} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        ) : (
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-xl font-black">
+                {tab === "top50" && "漲幅排行 TOP 50"}
+                {tab === "watch" && "自選股"}
+                {tab === "breakout" && "剛突破股票"}
+                {tab === "alert" && "強勢警報"}
+              </h2>
+
+              <span className="text-sm font-bold text-slate-400">
+                {filteredTabStocks.length} 檔
+              </span>
+            </div>
+
+            {filteredTabStocks.length === 0 ? (
+              <div className="rounded-2xl bg-white p-4 text-slate-500 shadow-sm">
+                目前沒有符合條件的股票
+              </div>
+            ) : (
+              filteredTabStocks.map((stock, index) => (
+                <StockRow key={stock.code} stock={stock} rank={index + 1} />
+              ))
+            )}
+          </section>
+        )}
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-cyan-400/10 bg-slate-950/95 px-2 py-2 backdrop-blur">
-        <div className="mx-auto grid max-w-md grid-cols-6 gap-1">
+      <nav className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white/95 px-2 py-2 backdrop-blur">
+        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
           {tabs.map((item) => (
             <button
               key={item.key}
               onClick={() => setTab(item.key)}
               className={
                 tab === item.key
-                  ? "rounded-xl bg-cyan-400/20 px-1 py-2 text-xs font-black text-cyan-200"
+                  ? "rounded-xl px-1 py-2 text-xs font-black text-red-500"
                   : "rounded-xl px-1 py-2 text-xs font-bold text-slate-400"
               }
             >
-              <div className="text-lg">{item.icon}</div>
-              <div>{item.label.replace("漲幅", "").replace("強勢", "")}</div>
+              <div className="text-xl">{item.icon}</div>
+              <div>{item.label}</div>
             </button>
           ))}
         </div>
