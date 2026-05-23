@@ -244,6 +244,44 @@ function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
     .sort((a, b) => b.strength - a.strength);
 }
 
+function getDataCheckStatus(
+  stocks: Stock[],
+  watchListStocks: Stock[],
+  lastSuccessAt: string
+) {
+  const hasRanking = stocks.length > 0;
+  const hasWatchList = watchListStocks.length > 0;
+  const hasPrice = stocks.some((s) => s.price > 0);
+  const hasVolume = stocks.some((s) => s.volume > 0);
+  const hasUpdated = Boolean(lastSuccessAt);
+
+  const okCount = [
+    hasRanking,
+    hasWatchList,
+    hasPrice,
+    hasVolume,
+    hasUpdated,
+  ].filter(Boolean).length;
+
+  const isGood = okCount >= 4;
+
+  return {
+    isGood,
+    okCount,
+    title: isGood ? "✅ 資料檢查正常" : "⚠️ 資料可能異常",
+    text: isGood
+      ? "漲幅排行、自選股、股價與成交量都有取得。"
+      : "部分資料可能沒有成功取得，請按立即更新或稍後再試。",
+    items: [
+      { label: "漲幅排行", ok: hasRanking, value: `${stocks.length} 檔` },
+      { label: "自選股", ok: hasWatchList, value: `${watchListStocks.length} 檔` },
+      { label: "股票價格", ok: hasPrice, value: hasPrice ? "有取得" : "未取得" },
+      { label: "成交量", ok: hasVolume, value: hasVolume ? "有取得" : "未取得" },
+      { label: "最後成功更新", ok: hasUpdated, value: lastSuccessAt || "尚未成功" },
+    ],
+  };
+}
+
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
 
@@ -636,7 +674,6 @@ export default function App() {
       setNextRefresh(60);
     } catch (err: any) {
       const message = err?.message || "資料載入失敗";
-
       setError(message);
       setLastFailAt(formatTime(new Date()));
       setLastFailReason(message);
@@ -743,6 +780,7 @@ export default function App() {
   }, [watchCodes]);
 
   const marketStatus = getMarketStatus();
+  const dataCheck = getDataCheckStatus(stocks, watchListStocks, lastSuccessAt);
 
   const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
 
@@ -890,6 +928,36 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <div
+          className={
+            dataCheck.isGood
+              ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
+              : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
+          }
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-black">{dataCheck.title}</div>
+              <div className="mt-1 text-xs font-bold">{dataCheck.text}</div>
+            </div>
+
+            <div className="text-right text-xs font-black">
+              {dataCheck.okCount}/5
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {dataCheck.items.map((item) => (
+              <div key={item.label} className="rounded-xl bg-black/30 px-3 py-2">
+                <div className="text-xs font-bold text-slate-300">
+                  {item.ok ? "✅" : "⚠️"} {item.label}
+                </div>
+                <div className="mt-1 text-sm font-black">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
 
         {lastFailReason && stocks.length > 0 && (
           <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-200">
