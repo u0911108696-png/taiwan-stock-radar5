@@ -244,6 +244,19 @@ function stockStatus(stock: Stock) {
   return "轉弱";
 }
 
+function getIndustryRole(stock: Stock, groupStocks: Stock[]) {
+  if (groupStocks.length === 0) return "";
+
+  const leader = [...groupStocks].sort(
+    (a, b) => b.changePercent - a.changePercent
+  )[0];
+
+  if (stock.code === leader.code) return "龍頭";
+  if (stock.changePercent >= 5) return "跟漲";
+
+  return "觀察";
+}
+
 function isAlertStock(stock: Stock) {
   return (
     stock.changePercent >= 7 ||
@@ -424,11 +437,13 @@ function StockRow({
   rank,
   onClick,
   compact = false,
+  badge = "",
 }: {
   stock: Stock;
   rank: number;
   onClick: () => void;
   compact?: boolean;
+  badge?: string;
 }) {
   const status = stockStatus(stock);
 
@@ -484,6 +499,20 @@ function StockRow({
           >
             {status}
           </div>
+
+          {badge && (
+            <div
+              className={
+                badge === "龍頭"
+                  ? "mt-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+                  : badge === "跟漲"
+                    ? "mt-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                    : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
+              }
+            >
+              {badge}
+            </div>
+          )}
         </div>
       </div>
     </button>
@@ -1368,6 +1397,7 @@ export default function App() {
                             stock={stock}
                             rank={stockIndex + 1}
                             compact
+                            badge={getIndustryRole(stock, group.stocks)}
                             onClick={() => setSelectedStock(stock)}
                           />
                         ))}
