@@ -11,6 +11,7 @@ type Stock = {
 
 type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score";
+type FilterKey = "all" | "strong" | "breakout" | "alert" | "lowVolume";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -169,6 +170,14 @@ function stockStatus(stock: Stock) {
   return "轉弱";
 }
 
+function isAlertStock(stock: Stock) {
+  return (
+    stock.changePercent >= 7 ||
+    stockScore(stock) >= 85 ||
+    volumeLots(stock.volume) >= 10000
+  );
+}
+
 function sortStocks(list: Stock[], sortKey: SortKey) {
   const copied = [...list];
 
@@ -181,6 +190,26 @@ function sortStocks(list: Stock[], sortKey: SortKey) {
   }
 
   return copied.sort((a, b) => b.changePercent - a.changePercent);
+}
+
+function filterByQuick(list: Stock[], filterKey: FilterKey) {
+  if (filterKey === "strong") {
+    return list.filter((s) => s.changePercent >= 9.8);
+  }
+
+  if (filterKey === "breakout") {
+    return list.filter((s) => s.changePercent >= 5);
+  }
+
+  if (filterKey === "alert") {
+    return list.filter(isAlertStock);
+  }
+
+  if (filterKey === "lowVolume") {
+    return list.filter((s) => s.volume > 0 && s.volume < 300000);
+  }
+
+  return list;
 }
 
 function loadSavedWatchCodes() {
@@ -513,6 +542,7 @@ export default function App() {
   const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("change");
+  const [filterKey, setFilterKey] = useState<FilterKey>("all");
 
   async function loadStocks(codes = watchCodes) {
     try {
@@ -607,7 +637,7 @@ export default function App() {
     }
   }
 
-  function filterStocks(list: Stock[]) {
+  function filterStocksBySearch(list: Stock[]) {
     const keyword = searchText.trim().toLowerCase();
 
     if (!keyword) return list;
@@ -663,11 +693,7 @@ export default function App() {
   const strongStocks = sortedStocks.filter((s) => stockStatus(s) === "強勢");
   const watchStocks = sortedStocks.filter((s) => stockStatus(s) === "觀察");
 
-  const alertStocks = sortStocks(
-    stocks.filter((s) => s.changePercent >= 7 || stockScore(s) >= 85 || volumeLots(s.volume) >= 10000),
-    sortKey
-  );
-
+  const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const lowVolumeStocks = stocks.filter((s) => s.volume > 0 && s.volume < 300000);
   const breakoutStocks = sortStocks(stocks.filter((s) => s.changePercent >= 5), sortKey);
 
@@ -680,36 +706,44 @@ export default function App() {
   }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
 
   const filteredTabStocks = useMemo(() => {
-    return filterStocks(tabStocks);
-  }, [tabStocks, searchText]);
+    return filterStocksBySearch(filterByQuick(tabStocks, filterKey));
+  }, [tabStocks, searchText, filterKey]);
 
   const filteredIndustryGroups = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
 
-    if (!keyword) return mainIndustryGroups;
+    const groups = mainIndustryGroups.map((group) => {
+      const filteredStocks = filterByQuick(group.stocks, filterKey);
+      const matchIndustry = group.industry.toLowerCase().includes(keyword);
 
-    return mainIndustryGroups
-      .map((group) => {
-        const matchIndustry = group.industry.toLowerCase().includes(keyword);
-
-        if (matchIndustry) return group;
-
-        const filteredStocks = group.stocks.filter((s) => {
-          return (
-            s.code.toLowerCase().includes(keyword) ||
-            s.name.toLowerCase().includes(keyword) ||
-            s.industry.toLowerCase().includes(keyword)
-          );
-        });
-
+      if (!keyword) {
         return {
           ...group,
           stocks: filteredStocks,
           total: filteredStocks.length,
         };
-      })
-      .filter((group) => group.industry.toLowerCase().includes(keyword) || group.stocks.length > 0);
-  }, [mainIndustryGroups, searchText]);
+      }
+
+      const searchedStocks = filteredStocks.filter((s) => {
+        return (
+          s.code.toLowerCase().includes(keyword) ||
+          s.name.toLowerCase().includes(keyword) ||
+          s.industry.toLowerCase().includes(keyword)
+        );
+      });
+
+      return {
+        ...group,
+        stocks: matchIndustry ? filteredStocks : searchedStocks,
+        total: matchIndustry ? filteredStocks.length : searchedStocks.length,
+      };
+    });
+
+    return groups.filter((group) => {
+      if (keyword && group.industry.toLowerCase().includes(keyword)) return true;
+      return group.stocks.length > 0;
+    });
+  }, [mainIndustryGroups, searchText, filterKey]);
 
   const tabs: { key: TabKey; label: string; icon: string }[] = [
     { key: "top50", label: "50強", icon: "📊" },
@@ -723,6 +757,14 @@ export default function App() {
     { key: "change", label: "漲幅" },
     { key: "volume", label: "成交量" },
     { key: "score", label: "強度" },
+  ];
+
+  const filterButtons: { key: FilterKey; label: string }[] = [
+    { key: "all", label: "全部" },
+    { key: "strong", label: "強勢" },
+    { key: "breakout", label: "突破" },
+    { key: "alert", label: "警報" },
+    { key: "lowVolume", label: "低量" },
   ];
 
   if (selectedStock) {
@@ -786,15 +828,9 @@ export default function App() {
               </button>
             )}
           </div>
-
-          {searchText && (
-            <div className="mt-2 text-xs font-bold text-slate-400">
-              搜尋：{searchText}
-            </div>
-          )}
         </div>
 
-        <div className="mb-3 flex gap-2 overflow-x-auto">
+        <div className="mb-2 flex gap-2 overflow-x-auto">
           {sortButtons.map((item) => (
             <button
               key={item.key}
@@ -806,6 +842,22 @@ export default function App() {
               }
             >
               {item.label}排序
+            </button>
+          ))}
+        </div>
+
+        <div className="mb-3 flex gap-2 overflow-x-auto">
+          {filterButtons.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => setFilterKey(item.key)}
+              className={
+                filterKey === item.key
+                  ? "whitespace-nowrap rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
+                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+              }
+            >
+              {item.label}
             </button>
           ))}
         </div>
@@ -838,7 +890,7 @@ export default function App() {
           </div>
         )}
 
-        {tab === "top50" && !searchText && topIndustries.length > 0 && (
+        {tab === "top50" && !searchText && filterKey === "all" && topIndustries.length > 0 && (
           <section className="mb-3 rounded-2xl bg-gradient-to-br from-red-600 to-red-900 p-3">
             <div className="mb-2 flex items-center justify-between">
               <div className="text-sm font-black text-white">
@@ -924,20 +976,20 @@ export default function App() {
           <section>
             <h2 className="mb-3 text-lg font-black">
               產業排行 TOP 10
-              {searchText && (
+              {(searchText || filterKey !== "all") && (
                 <span className="ml-2 text-xs text-slate-400">
-                  / 搜尋結果 {filteredIndustryGroups.length} 類
+                  / 結果 {filteredIndustryGroups.length} 類
                 </span>
               )}
             </h2>
 
             {filteredIndustryGroups.slice(0, 10).length === 0 ? (
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
-                沒有符合搜尋的產業或股票
+                沒有符合條件的產業或股票
               </div>
             ) : (
               filteredIndustryGroups.slice(0, 10).map((group, index) => {
-                const isOpen = expandedIndustry === group.industry || Boolean(searchText);
+                const isOpen = expandedIndustry === group.industry || Boolean(searchText) || filterKey !== "all";
 
                 return (
                   <div
@@ -946,7 +998,7 @@ export default function App() {
                   >
                     <button
                       onClick={() =>
-                        setExpandedIndustry(isOpen && !searchText ? "" : group.industry)
+                        setExpandedIndustry(isOpen && !searchText && filterKey === "all" ? "" : group.industry)
                       }
                       className="w-full text-left"
                     >
@@ -1015,7 +1067,7 @@ export default function App() {
 
             {filteredTabStocks.length === 0 ? (
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
-                目前沒有符合搜尋的股票
+                目前沒有符合條件的股票
               </div>
             ) : (
               filteredTabStocks.slice(0, 50).map((stock, index) => (
@@ -1031,7 +1083,7 @@ export default function App() {
           </section>
         )}
 
-        {tab === "top50" && !searchText && (
+        {tab === "top50" && !searchText && filterKey === "all" && (
           <section className="mt-4">
             <h2 className="mb-2 text-lg font-black">強勢指標統計</h2>
 
