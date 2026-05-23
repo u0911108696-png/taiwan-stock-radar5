@@ -43,15 +43,10 @@ const industryMap: Record<string, string> = {
   "1717": "化工", "1722": "化工",
 
   "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
-
   "1101": "水泥", "1102": "水泥",
-
   "2201": "汽車", "2207": "汽車", "2227": "汽車",
-
   "1216": "食品", "1227": "食品",
-
   "1707": "生技", "1760": "生技", "1783": "生技",
-
   "2912": "百貨", "5903": "百貨",
   "9904": "消費", "9907": "消費", "9914": "消費", "9926": "消費",
 };
@@ -140,7 +135,6 @@ function normalizeStock(item: any): Stock {
   if (!Number.isFinite(changePercent) || changePercent === 0) {
     const change = Number(String(item.Change ?? "0").replaceAll(",", ""));
     const previous = price - change;
-
     changePercent =
       previous > 0 ? Number(((change / previous) * 100).toFixed(2)) : 0;
   }
@@ -192,13 +186,8 @@ function isAlertStock(stock: Stock) {
 function sortStocks(list: Stock[], sortKey: SortKey) {
   const copied = [...list];
 
-  if (sortKey === "volume") {
-    return copied.sort((a, b) => b.volume - a.volume);
-  }
-
-  if (sortKey === "score") {
-    return copied.sort((a, b) => stockScore(b) - stockScore(a));
-  }
+  if (sortKey === "volume") return copied.sort((a, b) => b.volume - a.volume);
+  if (sortKey === "score") return copied.sort((a, b) => stockScore(b) - stockScore(a));
 
   return copied.sort((a, b) => b.changePercent - a.changePercent);
 }
@@ -351,13 +340,7 @@ function StockRow({
               <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
             </div>
 
-            <div
-              className={
-                compact
-                  ? "mt-1 text-xl font-black text-white"
-                  : "mt-1 text-2xl font-black text-white"
-              }
-            >
+            <div className={compact ? "mt-1 text-xl font-black text-white" : "mt-1 text-2xl font-black text-white"}>
               {stock.price.toFixed(stock.price >= 100 ? 0 : 2)}
             </div>
 
@@ -592,8 +575,11 @@ export default function App() {
   const [watchCodes, setWatchCodes] = useState<string[]>(defaultWatchCodes);
   const [newWatchCode, setNewWatchCode] = useState("");
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-  const [updatedAt, setUpdatedAt] = useState("");
+  const [lastSuccessAt, setLastSuccessAt] = useState("");
+  const [lastFailAt, setLastFailAt] = useState("");
+  const [lastFailReason, setLastFailReason] = useState("");
   const [nextRefresh, setNextRefresh] = useState(60);
   const [tab, setTab] = useState<TabKey>("top50");
   const [expandedIndustry, setExpandedIndustry] = useState<string>("");
@@ -604,10 +590,13 @@ export default function App() {
   const [mode, setMode] = useState<ModeKey>("normal");
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  async function loadStocks(codes = watchCodes) {
+  async function loadStocks(codes = watchCodes, manual = false) {
     try {
-      setLoading(true);
+      if (manual) setRefreshing(true);
+      if (stocks.length === 0) setLoading(true);
+
       setError("");
+      setLastFailReason("");
 
       const watchParam = codes.join(",");
       const res = await fetch(
@@ -637,14 +626,23 @@ export default function App() {
         .map(normalizeStock)
         .filter((s: Stock) => s.code && s.name && Number.isFinite(s.price) && s.price > 0);
 
+      if (rankedList.length === 0) {
+        throw new Error("API 有回應，但沒有取得有效股票資料");
+      }
+
       setStocks(rankedList);
       setWatchListStocks(watchList);
-      setUpdatedAt(formatTime(new Date()));
+      setLastSuccessAt(formatTime(new Date()));
       setNextRefresh(60);
     } catch (err: any) {
-      setError(err.message || "資料載入失敗");
+      const message = err?.message || "資料載入失敗";
+
+      setError(message);
+      setLastFailAt(formatTime(new Date()));
+      setLastFailReason(message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }
 
@@ -659,7 +657,7 @@ export default function App() {
 
     setWatchCodes(cleanCodes);
     localStorage.setItem("watchCodes", JSON.stringify(cleanCodes));
-    loadStocks(cleanCodes);
+    loadStocks(cleanCodes, true);
   }
 
   function addWatchCode() {
@@ -690,11 +688,8 @@ export default function App() {
   }
 
   function toggleSelectedStockWatch(stock: Stock) {
-    if (watchCodes.includes(stock.code)) {
-      removeWatchCode(stock.code);
-    } else {
-      saveWatchCodes([...watchCodes, stock.code]);
-    }
+    if (watchCodes.includes(stock.code)) removeWatchCode(stock.code);
+    else saveWatchCodes([...watchCodes, stock.code]);
   }
 
   function applyOpenMode() {
@@ -871,22 +866,39 @@ export default function App() {
         </div>
 
         <header className="mb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-xl font-black tracking-wide">台股即時雷達</h1>
               <div className="mt-1 text-xs font-bold text-slate-400">
-                更新 {updatedAt || "尚未更新"}｜下次 {nextRefresh}s
+                最後成功更新：{lastSuccessAt || "尚未成功"}
+              </div>
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                自動更新倒數：{nextRefresh}s
               </div>
             </div>
 
             <button
-              onClick={() => loadStocks(watchCodes)}
-              className="grid h-9 w-9 place-items-center rounded-full border border-slate-700 bg-slate-900 text-lg"
+              onClick={() => loadStocks(watchCodes, true)}
+              disabled={refreshing}
+              className={
+                refreshing
+                  ? "rounded-xl bg-slate-700 px-4 py-3 text-sm font-black text-slate-300"
+                  : "rounded-xl bg-red-500 px-4 py-3 text-sm font-black text-white"
+              }
             >
-              ↻
+              {refreshing ? "更新中" : "立即更新"}
             </button>
           </div>
         </header>
+
+        {lastFailReason && stocks.length > 0 && (
+          <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-200">
+            ⚠️ 本次更新失敗，仍顯示上一次成功資料。
+            <div className="mt-1 text-xs">
+              失敗時間：{lastFailAt}｜原因：{lastFailReason}
+            </div>
+          </div>
+        )}
 
         <div className="mb-3 grid grid-cols-2 gap-2">
           <button
@@ -1010,7 +1022,7 @@ export default function App() {
           </div>
         )}
 
-        {error && (
+        {error && stocks.length === 0 && (
           <div className="mb-3 rounded-2xl bg-red-950 p-3 text-sm font-bold text-red-200">
             錯誤：{error}
           </div>
