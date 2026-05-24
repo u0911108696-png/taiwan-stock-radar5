@@ -1121,7 +1121,10 @@ function StockDetail({
 
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
-      <div className="mx-auto max-w-md px-4 py-5">
+      <div
+  className="mx-auto max-w-md px-4 pb-5"
+  style={{ paddingTop: "calc(env(safe-area-inset-top) + 56px)" }}
+>
         <div className="mb-4 flex items-center justify-between">
           <button
             onClick={onBack}
