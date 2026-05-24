@@ -748,6 +748,32 @@ function NoticeBox({
   );
 }
 
+function ObserveSummary({
+  stock,
+  strongIndustryNames,
+}: {
+  stock: Stock;
+  strongIndustryNames: string[];
+}) {
+  const tags = getObserveTags(stock, strongIndustryNames);
+
+  if (tags.length === 0) return null;
+
+  return (
+    <div className="mt-5 rounded-2xl border border-green-900 bg-green-950/40 p-4">
+      <div className="mb-2 text-lg font-black text-green-100">
+        今日觀察標籤
+      </div>
+
+      <AlertTags tags={tags} />
+
+      <div className="mt-3 text-xs font-bold text-green-100">
+        這些標籤用來判斷這檔股票為什麼被列入今日觀察清單。
+      </div>
+    </div>
+  );
+}
+
 function StockRow({
   stock,
   rank,
@@ -850,6 +876,7 @@ function StockDetail({
   lastFailReason,
   lastFailAt,
   onSelectStock,
+  strongIndustryNames,
 }: {
   stock: Stock;
   onBack: () => void;
@@ -862,6 +889,7 @@ function StockDetail({
   lastFailReason: string;
   lastFailAt: string;
   onSelectStock: (stock: Stock) => void;
+  strongIndustryNames: string[];
 }) {
   const status = stockStatus(stock);
   const links = getStockLinks(stock.code);
@@ -940,8 +968,13 @@ function StockDetail({
           </div>
 
           <div className="mt-3">
-            <AlertTags tags={getAlertTags(stock, [])} />
+            <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
           </div>
+
+          <ObserveSummary
+            stock={stock}
+            strongIndustryNames={strongIndustryNames}
+          />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-slate-900 p-4">
@@ -1444,6 +1477,7 @@ export default function App() {
         lastFailReason={lastFailReason}
         lastFailAt={lastFailAt}
         onSelectStock={setSelectedStock}
+        strongIndustryNames={topIndustryNames}
       />
     );
   }
