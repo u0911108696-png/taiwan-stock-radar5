@@ -17,6 +17,7 @@ type Stock = {
 
 type RiskLevel = "low" | "medium" | "high";
 type BuyPointLevel = "watch" | "pullback" | "avoid" | "weak";
+type MarketPowerLevel = "strong" | "normal" | "weak";
 
 type TabKey =
   | "top50"
@@ -470,7 +471,6 @@ function stockStatus(stock: Stock) {
   if (stock.changePercent >= 0) return "觀察";
   return "轉弱";
 }
-
 function isAlertStock(stock: Stock) {
   return (
     stock.changePercent >= 7 ||
@@ -518,6 +518,41 @@ function getRisk(stock: Stock) {
     level: "low" as RiskLevel,
     title: "🟢 低風險觀察",
     text: "目前尚未明顯過熱，可先列入觀察，但仍要搭配大盤與產業強度。",
+  };
+}
+
+function getMarketPower(stocks: Stock[], industryGroups: { industry: string; total: number; avgChange: number; strength: number; stocks: Stock[] }[]) {
+  const strongCount = stocks.filter((stock) => stock.changePercent >= 5).length;
+  const alertCount = stocks.filter(isAlertStock).length;
+  const safeCount = stocks.filter(isSafeWatch).length;
+  const topIndustry = industryGroups[0];
+
+  if (strongCount >= 15 && alertCount >= 8 && topIndustry && topIndustry.total >= 4) {
+    return {
+      level: "strong" as MarketPowerLevel,
+      title: "✅ 大盤偏強",
+      text: "強勢股與警報股數量偏多，可以優先看主流產業、主流續強與突破股。",
+      action: "策略：可積極觀察主流股，但仍避免追高過熱股。",
+      color: "border-green-500 bg-green-950/60 text-green-100",
+    };
+  }
+
+  if (strongCount <= 5 || alertCount <= 2) {
+    return {
+      level: "weak" as MarketPowerLevel,
+      title: "🔴 大盤偏弱",
+      text: "強勢股數量不足，代表盤面動能較弱，不適合亂追高。",
+      action: "策略：只看自選股、安全觀察與低風險標的。",
+      color: "border-red-500 bg-red-950/60 text-red-100",
+    };
+  }
+
+  return {
+    level: "normal" as MarketPowerLevel,
+    title: "⚠️ 大盤震盪",
+    text: "盤面有強勢股，但還沒有全面擴散，適合保守篩選。",
+    action: "策略：優先看安全觀察、明日觀察、主流產業前幾名。",
+    color: "border-yellow-500 bg-yellow-950/60 text-yellow-100",
   };
 }
 
@@ -843,6 +878,45 @@ function AlertTags({ tags }: { tags: string[] }) {
   );
 }
 
+function MarketPowerBox({
+  marketPower,
+  strongCount,
+  alertCount,
+  safeCount,
+}: {
+  marketPower: ReturnType<typeof getMarketPower>;
+  strongCount: number;
+  alertCount: number;
+  safeCount: number;
+}) {
+  return (
+    <div className={`mb-3 rounded-2xl border p-3 ${marketPower.color}`}>
+      <div className="text-sm font-black">{marketPower.title}</div>
+      <div className="mt-1 text-xs font-bold">{marketPower.text}</div>
+      <div className="mt-2 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
+        {marketPower.action}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          突破股
+          <div className="mt-1 text-lg">{strongCount}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          警報股
+          <div className="mt-1 text-lg">{alertCount}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          安全觀察
+          <div className="mt-1 text-lg">{safeCount}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function NoticeBox({
   title,
   text,
@@ -902,12 +976,6 @@ function NoticeBox({
           </button>
         ))}
       </div>
-
-      {stocks.length > 3 && (
-        <div className="mt-2 text-xs font-bold opacity-90">
-          還有 {stocks.length - 3} 檔，可切換清單查看。
-        </div>
-      )}
     </div>
   );
 }
@@ -1318,6 +1386,7 @@ function StockRow({
     </div>
   );
 }
+
 function StockDetail({
   stock,
   onBack,
@@ -1732,6 +1801,11 @@ export default function App() {
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((group) => group.industry);
 
+  const marketPower = getMarketPower(stocks, mainIndustryGroups);
+  const strongCount = stocks.filter((stock) => stock.changePercent >= 5).length;
+  const alertCount = stocks.filter(isAlertStock).length;
+  const safeCount = stocks.filter(isSafeWatch).length;
+
   const observeStocks = useMemo(() => buildObserveStocks(stocks, topIndustryNames), [stocks, topIndustryNames]);
 
   const tomorrowWatchStocks = useMemo(() => {
@@ -1902,6 +1976,13 @@ export default function App() {
           <div className="text-sm font-black">{marketStatus.title}</div>
           <div className="mt-1 text-xs font-bold">{marketStatus.text}</div>
         </div>
+
+        <MarketPowerBox
+          marketPower={marketPower}
+          strongCount={strongCount}
+          alertCount={alertCount}
+          safeCount={safeCount}
+        />
 
         {isNineTenWindow() && (
           <div className="mb-3 rounded-2xl border border-orange-500 bg-orange-950/70 p-3 text-orange-100">
@@ -2079,10 +2160,6 @@ export default function App() {
                 {watchMessage}
               </div>
             )}
-
-            <div className="mt-2 text-xs font-bold text-slate-500">
-              自選股會存在手機瀏覽器，下次打開仍會保留。
-            </div>
           </div>
         )}
 
