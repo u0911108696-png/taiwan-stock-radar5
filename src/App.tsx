@@ -1688,7 +1688,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
-      <div className="mx-auto max-w-md px-3 py-4">
+      <div
+  className="mx-auto max-w-md px-3 pb-4"
+  style={{ paddingTop: "calc(env(safe-area-inset-top) + 16px)" }}
+>
         <div className={`mb-3 rounded-2xl border p-3 ${marketStatus.color}`}>
           <div className="text-sm font-black">{marketStatus.title}</div>
           <div className="mt-1 text-xs font-bold">{marketStatus.text}</div>
@@ -2112,7 +2115,10 @@ export default function App() {
         )}
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-black/95 px-2 py-2 backdrop-blur">
+      <nav
+  className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-black/95 px-2 pt-2 backdrop-blur"
+  style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
+>
         <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
           {tabs.map((item) => (
             <button
