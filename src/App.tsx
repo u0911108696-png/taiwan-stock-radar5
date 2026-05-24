@@ -12,7 +12,7 @@ type Stock = {
   industry: string;
 };
 
-type TabKey = "top50" | "watch" | "industry" | "breakout" | "alert";
+type TabKey = "top50" | "watch" | "observe" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score" | "openPremium";
 type FilterKey =
   | "all"
@@ -299,6 +299,7 @@ function stockScore(stock: Stock) {
   }
 
   if (isHighOpenContinue(stock)) score += 8;
+  if (stock.changePercent >= 5 && volumeLots(stock.volume) < 10000) score += 4;
 
   return Math.max(0, Math.min(99, score));
 }
@@ -330,6 +331,20 @@ function getIndustryRole(stock: Stock, groupStocks: Stock[]) {
   if (stock.code === leader.code) return "龍頭";
   if (stock.changePercent >= 5) return "跟漲";
   return "觀察";
+}
+
+function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
+  const tags: string[] = [];
+
+  if (isMainContinue(stock, strongIndustryNames)) tags.push("主流續強");
+  else if (isHighOpenContinue(stock)) tags.push("高開續強");
+
+  if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
+  if (isAlertStock(stock)) tags.push("警報股");
+  if (stock.changePercent >= 5) tags.push("突破");
+  if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
+
+  return Array.from(new Set(tags));
 }
 
 function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
@@ -420,7 +435,6 @@ function loadSavedWatchCodes() {
     return defaultWatchCodes;
   }
 }
-
 function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
   const map: Record<string, Stock[]> = {};
 
@@ -485,12 +499,29 @@ function getDataCheckStatus(
     ],
   };
 }
+
+function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
+  const map = new Map<string, Stock>();
+
+  stocks.forEach((stock) => {
+    const shouldObserve =
+      isMainContinue(stock, strongIndustryNames) ||
+      isHighOpenContinue(stock) ||
+      isLowVolumeStrongStock(stock) ||
+      isAlertStock(stock);
+
+    if (shouldObserve) {
+      map.set(stock.code, stock);
+    }
+  });
+
+  return sortStocks(Array.from(map.values()), "score");
+}
+
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
 
-  if (isMainContinue(stock, [])) {
-    advice.push("🚀 主流續強：高開續強，且屬於今日最強主流產業");
-  } else if (isHighOpenContinue(stock)) {
+  if (isHighOpenContinue(stock)) {
     advice.push("🚀 高開續強：開盤溢價率超過 3%，目前漲幅也超過 5%");
   } else if (stock.openPremiumPercent !== null) {
     if (stock.openPremiumPercent >= 5) {
@@ -611,30 +642,46 @@ function AlertTags({ tags }: { tags: string[] }) {
   );
 }
 
-function MainContinueNotice({
+function NoticeBox({
+  title,
+  text,
   stocks,
+  tone,
   onClose,
   onSelectStock,
 }: {
+  title: string;
+  text: string;
   stocks: Stock[];
+  tone: "green" | "yellow";
   onClose: () => void;
   onSelectStock: (stock: Stock) => void;
 }) {
   if (stocks.length === 0) return null;
 
+  const isGreen = tone === "green";
+
   return (
-    <div className="mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg">
+    <div
+      className={
+        isGreen
+          ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
+          : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg"
+      }
+    >
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-black">🚀 主流續強提醒</div>
-          <div className="mt-1 text-xs font-bold">
-            高開續強，而且屬於今日最強主流前 5 名產業。可點股票查看個股資料。
-          </div>
+          <div className="text-sm font-black">{title}</div>
+          <div className="mt-1 text-xs font-bold">{text}</div>
         </div>
 
         <button
           onClick={onClose}
-          className="rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-green-100"
+          className={
+            isGreen
+              ? "rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-green-100"
+              : "rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-yellow-100"
+          }
         >
           關閉
         </button>
@@ -652,9 +699,17 @@ function MainContinueNotice({
                 {stock.name}
                 <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
               </div>
-              <div className="mt-1 text-xs font-bold text-green-100">
-                主流產業：{stock.industry}
+
+              <div
+                className={
+                  isGreen
+                    ? "mt-1 text-xs font-bold text-green-100"
+                    : "mt-1 text-xs font-bold text-yellow-100"
+                }
+              >
+                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
               </div>
+
               <div className="mt-1 text-xs font-bold text-slate-300">
                 開盤溢價 {percentText(stock.openPremiumPercent)}
               </div>
@@ -664,7 +719,13 @@ function MainContinueNotice({
               <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
                 +{stock.changePercent.toFixed(2)}%
               </div>
-              <div className="mt-1 text-xs font-bold text-green-100">
+              <div
+                className={
+                  isGreen
+                    ? "mt-1 text-xs font-bold text-green-100"
+                    : "mt-1 text-xs font-bold text-yellow-100"
+                }
+              >
                 點我查看
               </div>
             </div>
@@ -673,75 +734,14 @@ function MainContinueNotice({
       </div>
 
       {stocks.length > 3 && (
-        <div className="mt-2 text-xs font-bold text-green-200">
-          還有 {stocks.length - 3} 檔主流續強，可到「9:10最強」或「主流續強」查看。
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LowVolumeStrongNotice({
-  stocks,
-  onClose,
-  onSelectStock,
-}: {
-  stocks: Stock[];
-  onClose: () => void;
-  onSelectStock: (stock: Stock) => void;
-}) {
-  if (stocks.length === 0) return null;
-
-  return (
-    <div className="mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg">
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-black">🚨 低量強漲提醒</div>
-          <div className="mt-1 text-xs font-bold">
-            漲幅 ≥ 5%，成交量低於 10,000 張。可點股票查看個股資料。
-          </div>
-        </div>
-
-        <button
-          onClick={onClose}
-          className="rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-yellow-100"
+        <div
+          className={
+            isGreen
+              ? "mt-2 text-xs font-bold text-green-200"
+              : "mt-2 text-xs font-bold text-yellow-200"
+          }
         >
-          關閉
-        </button>
-      </div>
-
-      <div className="space-y-2">
-        {stocks.slice(0, 3).map((stock) => (
-          <button
-            key={stock.code}
-            onClick={() => onSelectStock(stock)}
-            className="flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left active:scale-[0.99]"
-          >
-            <div>
-              <div className="font-black text-white">
-                {stock.name}
-                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
-              </div>
-              <div className="mt-1 text-xs font-bold text-yellow-100">
-                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
-              </div>
-            </div>
-
-            <div className="text-right">
-              <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-                +{stock.changePercent.toFixed(2)}%
-              </div>
-              <div className="mt-1 text-xs font-bold text-yellow-100">
-                點我查看
-              </div>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {stocks.length > 3 && (
-        <div className="mt-2 text-xs font-bold text-yellow-200">
-          還有 {stocks.length - 3} 檔符合條件，可到「突破」或「9:10快篩」查看。
+          還有 {stocks.length - 3} 檔，可到「今日觀察」查看。
         </div>
       )}
     </div>
@@ -1233,6 +1233,10 @@ export default function App() {
     saveWatchCodes(nextCodes.length > 0 ? nextCodes : defaultWatchCodes);
   }
 
+  function resetWatchCodes() {
+    saveWatchCodes(defaultWatchCodes);
+  }
+
   function toggleSelectedStockWatch(stock: Stock) {
     if (watchCodes.includes(stock.code)) {
       removeWatchCode(stock.code);
@@ -1260,7 +1264,7 @@ export default function App() {
 
   function applyStrong910Mode() {
     setMode("strong910");
-    setTab("top50");
+    setTab("observe");
     setFilterKey("mainContinue");
     setSortKey("openPremium");
     setSearchText("");
@@ -1319,6 +1323,10 @@ export default function App() {
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((group) => group.industry);
 
+  const observeStocks = useMemo(() => {
+    return buildObserveStocks(stocks, topIndustryNames);
+  }, [stocks, topIndustryNames]);
+
   const mainContinueStocks = useMemo(() => {
     return sortStocks(
       stocks.filter((stock) => {
@@ -1343,10 +1351,11 @@ export default function App() {
   const tabStocks = useMemo(() => {
     if (tab === "top50") return sortedStocks;
     if (tab === "watch") return sortedWatchListStocks;
+    if (tab === "observe") return sortStocks(observeStocks, sortKey);
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
     return sortedStocks;
-  }, [tab, sortedStocks, sortedWatchListStocks, breakoutStocks, alertStocks]);
+  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, breakoutStocks, alertStocks, sortKey]);
 
   const filteredTabStocks = useMemo(() => {
     return filterStocksBySearch(filterByQuick(tabStocks, filterKey, topIndustryNames));
@@ -1390,9 +1399,9 @@ export default function App() {
 
   const tabs: { key: TabKey; label: string; icon: string }[] = [
     { key: "top50", label: "50強", icon: "📊" },
+    { key: "observe", label: "觀察", icon: "👁️" },
     { key: "watch", label: "自選", icon: "☆" },
     { key: "industry", label: "產業", icon: "▮" },
-    { key: "breakout", label: "突破", icon: "⚡" },
     { key: "alert", label: "警報", icon: "🔔" },
   ];
 
@@ -1473,72 +1482,44 @@ export default function App() {
           </div>
         </header>
 
-        <MainContinueNotice
+        <NoticeBox
+          title="🚀 主流續強提醒"
+          text="高開續強，而且屬於今日最強主流前 5 名產業。"
           stocks={mainContinueStocks}
-          onClose={() => {
-            setDismissedMainContinueCodes(mainContinueStocks.map((stock) => stock.code));
-          }}
+          tone="green"
+          onClose={() => setDismissedMainContinueCodes(mainContinueStocks.map((stock) => stock.code))}
           onSelectStock={setSelectedStock}
         />
 
-        <LowVolumeStrongNotice
+        <NoticeBox
+          title="🚨 低量強漲提醒"
+          text="漲幅 ≥ 5%，成交量低於 10,000 張。"
           stocks={lowVolumeStrongStocks}
-          onClose={() => {
-            setDismissedLowVolumeCodes(lowVolumeStrongStocks.map((stock) => stock.code));
-          }}
+          tone="yellow"
+          onClose={() => setDismissedLowVolumeCodes(lowVolumeStrongStocks.map((stock) => stock.code))}
           onSelectStock={setSelectedStock}
         />
 
-        <div
-          className={
-            dataCheck.isGood
-              ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
-              : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
-          }
-        >
+        <div className={dataCheck.isGood ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100" : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"}>
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-black">{dataCheck.title}</div>
               <div className="mt-1 text-xs font-bold">{dataCheck.text}</div>
             </div>
-
-            <div className="text-right text-xs font-black">
-              {dataCheck.okCount}/5
-            </div>
+            <div className="text-right text-xs font-black">{dataCheck.okCount}/5</div>
           </div>
         </div>
 
         <div className="mb-3 grid grid-cols-3 gap-2">
-          <button
-            onClick={applyOpenMode}
-            className={
-              mode === "open" && tab === "alert"
-                ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
-                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
-            }
-          >
+          <button onClick={applyOpenMode} className={mode === "open" && tab === "alert" ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white" : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"}>
             開盤模式
           </button>
 
-          <button
-            onClick={applyNineTenMode}
-            className={
-              mode === "open" && tab === "top50" && filterKey === "breakout"
-                ? "rounded-xl bg-orange-500 px-3 py-2 text-sm font-black text-white"
-                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
-            }
-          >
+          <button onClick={applyNineTenMode} className={mode === "open" && tab === "top50" && filterKey === "breakout" ? "rounded-xl bg-orange-500 px-3 py-2 text-sm font-black text-white" : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"}>
             9:10快篩
           </button>
 
-          <button
-            onClick={applyStrong910Mode}
-            className={
-              mode === "strong910"
-                ? "rounded-xl bg-green-500 px-3 py-2 text-sm font-black text-black"
-                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
-            }
-          >
+          <button onClick={applyStrong910Mode} className={mode === "strong910" ? "rounded-xl bg-green-500 px-3 py-2 text-sm font-black text-black" : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"}>
             9:10最強
           </button>
         </div>
@@ -1619,25 +1600,13 @@ export default function App() {
 
         {mode === "strong910" && (
           <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
-            9:10 最強清單：主流續強 + 開盤溢價排序。
+            9:10 最強清單：今日觀察 + 主流續強 + 開盤溢價排序。
           </div>
         )}
 
-        {filterKey === "mainContinue" && (
+        {tab === "observe" && (
           <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
-            主流續強：高開續強，且屬於今日最強主流前 5 名產業。
-          </div>
-        )}
-
-        {filterKey === "openStrong" && (
-          <div className="mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-sm font-bold text-yellow-100">
-            開盤強：只顯示開盤溢價率 ≥ 3% 的股票。
-          </div>
-        )}
-
-        {filterKey === "highOpenContinue" && (
-          <div className="mb-3 rounded-2xl border border-lime-900 bg-lime-950/40 p-3 text-sm font-bold text-lime-100">
-            高開續強：只顯示開盤溢價率 ≥ 3%，且目前漲幅 ≥ 5% 的股票。
+            今日觀察：自動整理主流續強、高開續強、低量強漲與警報股。
           </div>
         )}
 
@@ -1674,14 +1643,7 @@ export default function App() {
 
         {tab === "industry" ? (
           <section>
-            <h2 className="mb-3 text-lg font-black">
-              產業排行 TOP 10
-              {(searchText || filterKey !== "all") && (
-                <span className="ml-2 text-xs text-slate-400">
-                  / 結果 {filteredIndustryGroups.length} 類
-                </span>
-              )}
-            </h2>
+            <h2 className="mb-3 text-lg font-black">產業排行 TOP 10</h2>
 
             {filteredIndustryGroups.length === 0 ? (
               <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
@@ -1758,6 +1720,7 @@ export default function App() {
               <h2 className="text-lg font-black">
                 {tab === "top50" && "漲幅排行 TOP 50"}
                 {tab === "watch" && "自選股"}
+                {tab === "observe" && "今日觀察清單"}
                 {tab === "breakout" && "突破股"}
                 {tab === "alert" && "警報股"}
               </h2>
@@ -1778,7 +1741,11 @@ export default function App() {
                   stock={stock}
                   rank={index + 1}
                   compact={tab !== "top50"}
-                  alertTags={getAlertTags(stock, topIndustryNames)}
+                  alertTags={
+                    tab === "observe"
+                      ? getObserveTags(stock, topIndustryNames)
+                      : getAlertTags(stock, topIndustryNames)
+                  }
                   onClick={() => setSelectedStock(stock)}
                 />
               ))
