@@ -394,6 +394,25 @@ function isSafeWatch(stock: Stock) {
   );
 }
 
+function isTomorrowWatchStock(stock: Stock, strongIndustryNames: string[]) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const score = stockScore(stock);
+
+  const notOverheated =
+    stock.changePercent >= 0 &&
+    stock.changePercent < 7 &&
+    score < 90 &&
+    openPremium < 5;
+
+  const hasReason =
+    strongIndustryNames.includes(stock.industry) ||
+    isSafeWatch(stock) ||
+    isMainContinue(stock, strongIndustryNames) ||
+    isChipActive(stock);
+
+  return notOverheated && hasReason;
+}
+
 function getBuyPoint(stock: Stock) {
   const score = stockScore(stock);
   const openPremium = stock.openPremiumPercent ?? 0;
@@ -513,6 +532,7 @@ function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
   if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
   if (isAlertStock(stock)) tags.push("警報股");
   if (isWatchAlertStock(stock)) tags.push("自選警報");
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) tags.push("明日觀察");
   if (stock.changePercent >= 5) tags.push("突破");
   if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
 
@@ -539,6 +559,7 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   if (isChipActive(stock)) tags.push("籌碼活躍");
   if (isSafeWatch(stock)) tags.push("安全觀察");
   if (isWatchAlertStock(stock)) tags.push("自選警報");
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) tags.push("明日觀察");
 
   if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
   else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
@@ -660,7 +681,8 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
       isLowVolumeStrongStock(stock) ||
       isChipActive(stock) ||
       isSafeWatch(stock) ||
-      isAlertStock(stock);
+      isAlertStock(stock) ||
+      isTomorrowWatchStock(stock, strongIndustryNames);
 
     if (shouldObserve) map.set(stock.code, stock);
   });
@@ -696,6 +718,8 @@ function getTradeAdvice(stock: Stock) {
     advice.push("ℹ️ 開盤溢價率：目前資料不足，可能 API 未提供開盤價或昨收價");
   }
 
+  if (isTomorrowWatchStock(stock, [])) advice.push("📌 明日觀察：漲幅未過熱，適合列入隔日追蹤");
+
   if (stock.changePercent >= 9.8) {
     advice.push("🔥 強勢追蹤：漲幅接近漲停，屬於今日強勢股");
     advice.push("⚠️ 注意風險：漲幅已高，避免盲目追高");
@@ -720,6 +744,10 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   reasons.push(`買點提醒：${buyPoint.title}`);
   reasons.push(`買點原因：${buyPoint.reason}`);
   reasons.push(`風險燈號：${risk.title}`);
+
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) {
+    reasons.push("明日觀察：主流產業或安全觀察，且漲幅與強度未過熱");
+  }
 
   if (isWatchAlertStock(stock)) reasons.push("自選警報：漲幅 ≥ 5%、強度 ≥ 85、或高開續強");
   if (isSafeWatch(stock)) reasons.push("安全觀察：漲幅 < 7%，強度 < 90，開盤溢價 < 5%，成交量不太低");
@@ -775,25 +803,27 @@ function AlertTags({ tags }: { tags: string[] }) {
         <span
           key={tag}
           className={
-            tag === "漲停附近" || tag === "急漲"
-              ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "自選警報"
-                ? "rounded-full bg-red-400 px-2 py-0.5 text-xs font-black text-black"
-                : tag === "安全觀察"
-                  ? "rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
-                  : tag === "籌碼活躍"
-                    ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
-                    : tag === "主流續強"
-                      ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
-                      : tag === "高開續強"
-                        ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
-                        : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
-                          ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
-                          : tag === "主流產業"
-                            ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                            : tag === "強度高"
-                              ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                              : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+            tag === "明日觀察"
+              ? "rounded-full bg-indigo-400 px-2 py-0.5 text-xs font-black text-black"
+              : tag === "漲停附近" || tag === "急漲"
+                ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+                : tag === "自選警報"
+                  ? "rounded-full bg-red-400 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "安全觀察"
+                    ? "rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                    : tag === "籌碼活躍"
+                      ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
+                      : tag === "主流續強"
+                        ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
+                        : tag === "高開續強"
+                          ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                          : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                            ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                            : tag === "主流產業"
+                              ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                              : tag === "強度高"
+                                ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                                : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
@@ -814,33 +844,37 @@ function NoticeBox({
   title: string;
   text: string;
   stocks: Stock[];
-  tone: "green" | "yellow" | "cyan" | "emerald" | "red";
+  tone: "green" | "yellow" | "cyan" | "emerald" | "red" | "indigo";
   onClose: () => void;
   onSelectStock: (stock: Stock) => void;
 }) {
   if (stocks.length === 0) return null;
 
   const boxClass =
-    tone === "red"
-      ? "mb-3 rounded-2xl border border-red-500 bg-red-950/80 p-3 text-red-100 shadow-lg"
-      : tone === "emerald"
-        ? "mb-3 rounded-2xl border border-emerald-400 bg-emerald-950/80 p-3 text-emerald-100 shadow-lg"
-        : tone === "cyan"
-          ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
-          : tone === "green"
-            ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
-            : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
+    tone === "indigo"
+      ? "mb-3 rounded-2xl border border-indigo-500 bg-indigo-950/80 p-3 text-indigo-100 shadow-lg"
+      : tone === "red"
+        ? "mb-3 rounded-2xl border border-red-500 bg-red-950/80 p-3 text-red-100 shadow-lg"
+        : tone === "emerald"
+          ? "mb-3 rounded-2xl border border-emerald-400 bg-emerald-950/80 p-3 text-emerald-100 shadow-lg"
+          : tone === "cyan"
+            ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
+            : tone === "green"
+              ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
+              : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
 
   const textClass =
-    tone === "red"
-      ? "mt-1 text-xs font-bold text-red-100"
-      : tone === "emerald"
-        ? "mt-1 text-xs font-bold text-emerald-100"
-        : tone === "cyan"
-          ? "mt-1 text-xs font-bold text-cyan-100"
-          : tone === "green"
-            ? "mt-1 text-xs font-bold text-green-100"
-            : "mt-1 text-xs font-bold text-yellow-100";
+    tone === "indigo"
+      ? "mt-1 text-xs font-bold text-indigo-100"
+      : tone === "red"
+        ? "mt-1 text-xs font-bold text-red-100"
+        : tone === "emerald"
+          ? "mt-1 text-xs font-bold text-emerald-100"
+          : tone === "cyan"
+            ? "mt-1 text-xs font-bold text-cyan-100"
+            : tone === "green"
+              ? "mt-1 text-xs font-bold text-green-100"
+              : "mt-1 text-xs font-bold text-yellow-100";
 
   return (
     <div className={boxClass}>
@@ -909,7 +943,13 @@ function ReviewBox({
   watchListStocks,
   onSelectStock,
 }: {
-  topIndustries: { industry: string; total: number; avgChange: number; strength: number; stocks: Stock[] }[];
+  topIndustries: {
+    industry: string;
+    total: number;
+    avgChange: number;
+    strength: number;
+    stocks: Stock[];
+  }[];
   stocks: Stock[];
   watchListStocks: Stock[];
   onSelectStock: (stock: Stock) => void;
@@ -985,6 +1025,60 @@ function ReviewBox({
       <div className="mt-3 text-xs font-bold text-indigo-200">
         復盤重點：強產業優先、弱自選檢查是否汰弱、過熱股明天避免追高。
       </div>
+    </div>
+  );
+}
+
+function TomorrowWatchBox({
+  stocks,
+  onSelectStock,
+}: {
+  stocks: Stock[];
+  onSelectStock: (stock: Stock) => void;
+}) {
+  if (stocks.length === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-2xl border border-indigo-400 bg-indigo-950/70 p-3 text-indigo-100">
+      <div className="text-sm font-black">📌 明日觀察名單</div>
+      <div className="mt-1 text-xs font-bold">
+        排除過熱追高股，優先留下主流產業、安全觀察與籌碼活躍股。
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {stocks.slice(0, 5).map((stock, index) => (
+          <button
+            key={stock.code}
+            onClick={() => onSelectStock(stock)}
+            className="flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left"
+          >
+            <div>
+              <div className="font-black text-white">
+                {index + 1}. {stock.name}
+                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+              </div>
+              <div className="text-xs font-bold text-indigo-100">
+                {stock.industry}｜強度 {stockScore(stock)}｜成交量{" "}
+                {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className="rounded-lg bg-indigo-500 px-2 py-1 text-sm font-black text-white">
+                {stock.changePercent >= 0 ? "+" : ""}
+                {stock.changePercent.toFixed(2)}%
+              </div>
+              <div className="mt-1 text-xs font-bold text-indigo-100">查看</div>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {stocks.length > 5 && (
+        <div className="mt-2 text-xs font-bold">
+          還有 {stocks.length - 5} 檔，可到「今日觀察」查看。
+        </div>
+      )}
     </div>
   );
 }
@@ -1467,6 +1561,7 @@ export default function App() {
   const [dismissedMainContinueCodes, setDismissedMainContinueCodes] = useState<string[]>([]);
   const [dismissedChipActiveCodes, setDismissedChipActiveCodes] = useState<string[]>([]);
   const [dismissedWatchAlertCodes, setDismissedWatchAlertCodes] = useState<string[]>([]);
+  const [dismissedTomorrowWatchCodes, setDismissedTomorrowWatchCodes] = useState<string[]>([]);
 
   async function loadStocks(codes = watchCodes, manual = false) {
     try {
@@ -1512,6 +1607,7 @@ export default function App() {
       setWatchListStocks(watchList);
       setDismissedSafeWatchCodes([]);
       setDismissedWatchAlertCodes([]);
+      setDismissedTomorrowWatchCodes([]);
       setLastSuccessAt(formatTime(new Date()));
       setNextRefresh(60);
     } catch (err: any) {
@@ -1631,28 +1727,42 @@ export default function App() {
   const marketStatus = getMarketStatus();
   const dataCheck = getDataCheckStatus(stocks, watchListStocks, lastSuccessAt);
   const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
-  const sortedWatchListStocks = useMemo(
-    () => sortStocks(watchListStocks, sortKey),
-    [watchListStocks, sortKey]
-  );
-
-  const industryGroups = useMemo(
-    () => buildIndustryGroups(sortedStocks, sortKey),
-    [sortedStocks, sortKey]
-  );
-
-  const mainIndustryGroups = useMemo(
-    () => industryGroups.filter((group) => group.industry !== "其他"),
-    [industryGroups]
-  );
-
+  const sortedWatchListStocks = useMemo(() => sortStocks(watchListStocks, sortKey), [watchListStocks, sortKey]);
+  const industryGroups = useMemo(() => buildIndustryGroups(sortedStocks, sortKey), [sortedStocks, sortKey]);
+  const mainIndustryGroups = useMemo(() => industryGroups.filter((group) => group.industry !== "其他"), [industryGroups]);
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((group) => group.industry);
 
-  const observeStocks = useMemo(
-    () => buildObserveStocks(stocks, topIndustryNames),
-    [stocks, topIndustryNames]
-  );
+  const observeStocks = useMemo(() => buildObserveStocks(stocks, topIndustryNames), [stocks, topIndustryNames]);
+
+  const tomorrowWatchStocks = useMemo(() => {
+    const map = new Map<string, Stock>();
+
+    stocks.forEach((stock) => {
+      if (
+        isTomorrowWatchStock(stock, topIndustryNames) &&
+        !dismissedTomorrowWatchCodes.includes(stock.code)
+      ) {
+        map.set(stock.code, stock);
+      }
+    });
+
+    watchListStocks.forEach((stock) => {
+      const openPremium = stock.openPremiumPercent ?? 0;
+      const score = stockScore(stock);
+      const isUsable =
+        stock.changePercent >= 0 &&
+        stock.changePercent < 7 &&
+        score < 90 &&
+        openPremium < 5;
+
+      if (isUsable && !dismissedTomorrowWatchCodes.includes(stock.code)) {
+        map.set(stock.code, stock);
+      }
+    });
+
+    return sortStocks(Array.from(map.values()), "score");
+  }, [stocks, watchListStocks, topIndustryNames, dismissedTomorrowWatchCodes]);
 
   const mainContinueStocks = useMemo(() => {
     return sortStocks(
@@ -1710,10 +1820,7 @@ export default function App() {
   }, [watchListStocks, dismissedWatchAlertCodes]);
 
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
-  const breakoutStocks = sortStocks(
-    stocks.filter((stock) => stock.changePercent >= 5),
-    sortKey
-  );
+  const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
 
   const tabStocks = useMemo(() => {
     if (tab === "top50") return sortedStocks;
@@ -1722,15 +1829,7 @@ export default function App() {
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
     return sortedStocks;
-  }, [
-    tab,
-    sortedStocks,
-    sortedWatchListStocks,
-    observeStocks,
-    breakoutStocks,
-    alertStocks,
-    sortKey,
-  ]);
+  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, breakoutStocks, alertStocks, sortKey]);
 
   const filteredTabStocks = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -1872,6 +1971,11 @@ export default function App() {
           topIndustries={topIndustries}
           stocks={stocks}
           watchListStocks={watchListStocks}
+          onSelectStock={setSelectedStock}
+        />
+
+        <TomorrowWatchBox
+          stocks={tomorrowWatchStocks}
           onSelectStock={setSelectedStock}
         />
 
