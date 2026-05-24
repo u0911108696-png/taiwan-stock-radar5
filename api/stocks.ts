@@ -12,82 +12,6 @@ const defaultWatchListCodes = [
   "6405",
 ];
 
-const yahooBackupCodes = [
-  "2330",
-  "2317",
-  "2454",
-  "2303",
-  "3711",
-  "3034",
-  "3035",
-  "2379",
-  "3443",
-  "3661",
-  "2408",
-  "2308",
-  "2327",
-  "3037",
-  "8046",
-  "2313",
-  "2367",
-  "3042",
-  "4958",
-  "2356",
-  "2357",
-  "2382",
-  "3231",
-  "2301",
-  "6669",
-  "3017",
-  "3714",
-  "6168",
-  "6405",
-  "6278",
-  "3481",
-  "2409",
-  "3008",
-  "3406",
-  "2603",
-  "2609",
-  "2615",
-  "2618",
-  "2881",
-  "2882",
-  "2884",
-  "2886",
-  "2891",
-  "2892",
-  "5871",
-  "5876",
-  "1301",
-  "1303",
-  "6505",
-  "1717",
-  "1722",
-  "4722",
-  "2002",
-  "2014",
-  "2027",
-  "1101",
-  "1102",
-  "2201",
-  "2207",
-  "2227",
-  "1216",
-  "1227",
-  "1707",
-  "1760",
-  "1783",
-  "2911",
-  "2912",
-  "5903",
-  "9904",
-  "9907",
-  "9914",
-  "9926",
-  "8374",
-];
-
 type StockItem = {
   code: string;
   name: string;
@@ -215,6 +139,7 @@ function toNumber(value: any) {
     .replace("+", "")
     .replace("X", "")
     .replace("--", "")
+    .replace("---", "")
     .trim();
 
   const number = Number(text);
@@ -249,9 +174,20 @@ function getWatchCodesFromUrl(req: Request) {
   }
 }
 
-function parseTwseStock(row: any): StockItem | null {
-  const code = cleanText(row.Code ?? row.code ?? row["證券代號"]);
-  const name = cleanText(row.Name ?? row.name ?? row["證券名稱"]);
+function parseTwseOpenApiStock(row: any): StockItem | null {
+  const code = cleanText(
+    row.Code ??
+      row.code ??
+      row["Code"] ??
+      row["證券代號"]
+  );
+
+  const name = cleanText(
+    row.Name ??
+      row.name ??
+      row["Name"] ??
+      row["證券名稱"]
+  );
 
   if (!/^\d{4}$/.test(code)) return null;
   if (!name) return null;
@@ -260,8 +196,8 @@ function parseTwseStock(row: any): StockItem | null {
     row.ClosingPrice ??
       row.Close ??
       row.close ??
-      row["收盤價"] ??
-      row["成交價"]
+      row["ClosingPrice"] ??
+      row["收盤價"]
   );
 
   const openPrice = toNumber(
@@ -269,6 +205,7 @@ function parseTwseStock(row: any): StockItem | null {
       row.OpenPrice ??
       row.open ??
       row.Open ??
+      row["OpeningPrice"] ??
       row["開盤價"]
   );
 
@@ -277,6 +214,7 @@ function parseTwseStock(row: any): StockItem | null {
       row.previousClose ??
       row.YesterdayClose ??
       row.ReferencePrice ??
+      row["PreviousClose"] ??
       row["昨收價"] ??
       row["參考價"]
   );
@@ -285,6 +223,7 @@ function parseTwseStock(row: any): StockItem | null {
     row.Change ??
       row.change ??
       row.PriceChange ??
+      row["Change"] ??
       row["漲跌價差"]
   );
 
@@ -292,25 +231,26 @@ function parseTwseStock(row: any): StockItem | null {
     row.TradeVolume ??
       row.volume ??
       row.Volume ??
+      row["TradeVolume"] ??
       row["成交股數"]
   );
 
+  let finalPreviousClose = previousClose;
+
+  if (finalPreviousClose <= 0 && price > 0) {
+    finalPreviousClose = price - change;
+  }
+
   let changePercent = 0;
 
-  if (previousClose > 0 && price > 0) {
-    changePercent = round2(((price - previousClose) / previousClose) * 100);
-  } else if (price > 0 && change !== 0) {
-    const estimatedPreviousClose = price - change;
-
-    if (estimatedPreviousClose > 0) {
-      changePercent = round2((change / estimatedPreviousClose) * 100);
-    }
+  if (finalPreviousClose > 0 && price > 0) {
+    changePercent = round2(((price - finalPreviousClose) / finalPreviousClose) * 100);
   }
 
   let openPremiumPercent: number | null = null;
 
-  if (openPrice > 0 && previousClose > 0) {
-    openPremiumPercent = round2(((openPrice - previousClose) / previousClose) * 100);
+  if (openPrice > 0 && finalPreviousClose > 0) {
+    openPremiumPercent = round2(((openPrice - finalPreviousClose) / finalPreviousClose) * 100);
   }
 
   if (price <= 0 || !Number.isFinite(changePercent)) return null;
@@ -323,7 +263,7 @@ function parseTwseStock(row: any): StockItem | null {
     changePercent,
     volume,
     openPrice,
-    previousClose,
+    previousClose: finalPreviousClose,
     openPremiumPercent,
     industry: getIndustry(code),
 
@@ -333,98 +273,42 @@ function parseTwseStock(row: any): StockItem | null {
   };
 }
 
-function getRecentDates(days = 10) {
-  const dates: string[] = [];
+async function fetchTwseOpenApiRanking() {
+  const urls = [
+    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL",
+    "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_AVG_ALL",
+  ];
 
-  for (let i = 0; i < days; i += 1) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          "user-agent": "Mozilla/5.0",
+          accept: "application/json,text/plain,*/*",
+        },
+        cache: "no-store",
+      });
 
-    const yyyy = date.getFullYear();
-    const mm = String(date.getMonth() + 1).padStart(2, "0");
-    const dd = String(date.getDate()).padStart(2, "0");
+      if (!res.ok) continue;
 
-    dates.push(`${yyyy}${mm}${dd}`);
-  }
+      const data = await res.json();
 
-  return dates;
-}
+      if (!Array.isArray(data) || data.length === 0) continue;
 
-async function fetchTwseRanking() {
-  const dates = getRecentDates(10);
+      const rows = data
+        .map(parseTwseOpenApiStock)
+        .filter(Boolean) as StockItem[];
 
-  for (const date of dates) {
-    const urls = [
-      `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`,
-      `https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date=${date}&type=ALLBUT0999`,
-    ];
+      const validRows = rows
+        .filter((stock) => stock.price > 0 && stock.name)
+        .sort((a, b) => b.changePercent - a.changePercent)
+        .slice(0, 50);
 
-    for (const url of urls) {
-      try {
-        const res = await fetch(url, {
-          headers: {
-            "user-agent": "Mozilla/5.0",
-            accept: "application/json,text/plain,*/*",
-          },
-          cache: "no-store",
-        });
-
-        if (!res.ok) continue;
-
-        const data = await res.json();
-
-        const fields =
-          data.fields9 ||
-          data.fields8 ||
-          data.fields ||
-          [];
-
-        const rawRows =
-          data.data9 ||
-          data.data8 ||
-          data.data ||
-          [];
-
-        if (!Array.isArray(rawRows) || rawRows.length === 0) continue;
-
-        const rows = rawRows
-          .map((row: any[]) => {
-            const item: Record<string, any> = {};
-
-            fields.forEach((field: string, index: number) => {
-              item[field] = row[index];
-            });
-
-            item.Code = item["證券代號"];
-            item.Name = item["證券名稱"];
-            item.TradeVolume = item["成交股數"];
-            item.OpeningPrice = item["開盤價"];
-            item.ClosingPrice = item["收盤價"];
-            item.Change = item["漲跌價差"];
-
-            const close = toNumber(item["收盤價"]);
-            const change = toNumber(item["漲跌價差"]);
-
-            if (close > 0) {
-              item.PreviousClose = close - change;
-            }
-
-            return item;
-          })
-          .map(parseTwseStock)
-          .filter(Boolean) as StockItem[];
-
-        const validRows = rows
-          .filter((stock) => stock.price > 0 && stock.name)
-          .sort((a, b) => b.changePercent - a.changePercent)
-          .slice(0, 50);
-
-        if (validRows.length > 0) {
-          return validRows;
-        }
-      } catch {
-        // 換下一個日期或來源
+      if (validRows.length > 0) {
+        return validRows;
       }
+    } catch {
+      // 換下一個來源
     }
   }
 
@@ -643,15 +527,6 @@ async function enrichWithYahoo(stocks: StockItem[]) {
   });
 }
 
-async function fetchYahooBackupRanking() {
-  const yahooStocks = await fetchYahooQuotes(yahooBackupCodes);
-
-  return yahooStocks
-    .filter((stock) => stock.price > 0 && stock.name)
-    .sort((a, b) => b.changePercent - a.changePercent)
-    .slice(0, 50);
-}
-
 async function buildWatchList(codes: string[], rankedStocks: StockItem[]) {
   const rankedMap = new Map<string, StockItem>();
 
@@ -747,21 +622,10 @@ export default async function handler(req: Request) {
   try {
     const watchCodes = getWatchCodesFromUrl(req);
 
-    let rankedStocks = await fetchTwseRanking();
-    let source = "twse_recent_10_days";
+    let rankedStocks = await fetchTwseOpenApiRanking();
 
     if (rankedStocks.length > 0) {
       rankedStocks = await enrichWithYahoo(rankedStocks);
-    }
-
-    rankedStocks = rankedStocks
-      .filter((stock) => stock.price > 0 && stock.name)
-      .sort((a, b) => b.changePercent - a.changePercent)
-      .slice(0, 50);
-
-    if (rankedStocks.length === 0) {
-      rankedStocks = await fetchYahooBackupRanking();
-      source = "yahoo_backup_pool";
     }
 
     rankedStocks = rankedStocks
@@ -777,7 +641,7 @@ export default async function handler(req: Request) {
       return responseJson({
         ok: false,
         source: "fallback",
-        message: "TWSE 與 Yahoo 備援都沒有取得有效資料，請稍後再試。",
+        message: "TWSE OpenAPI 沒有取得有效資料，請稍後再試。",
         rankedStocks: fallback,
         watchList,
         updatedAt: new Date().toISOString(),
@@ -786,11 +650,8 @@ export default async function handler(req: Request) {
 
     return responseJson({
       ok: true,
-      source,
-      message:
-        source === "yahoo_backup_pool"
-          ? "TWSE 抓不到資料，已改用 Yahoo 備援股票池排行"
-          : "台股資料取得成功",
+      source: "twse_openapi_stock_day_all",
+      message: "台股資料取得成功",
       rankedStocks,
       watchList,
       fields: {
