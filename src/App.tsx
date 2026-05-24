@@ -29,7 +29,8 @@ type FilterKey =
   | "openStrong"
   | "highOpenContinue"
   | "mainContinue"
-  | "chipActive";
+  | "chipActive"
+  | "safeWatch";
 type ModeKey = "open" | "normal" | "strong910";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -365,9 +366,23 @@ function stockScore(stock: Stock) {
   return Math.max(0, Math.min(99, score));
 }
 
+function isSafeWatch(stock: Stock) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const lots = volumeLots(stock.volume);
+
+  return (
+    stock.changePercent >= 0 &&
+    stock.changePercent < 7 &&
+    stockScore(stock) < 90 &&
+    openPremium < 5 &&
+    lots >= 300
+  );
+}
+
 function stockStatus(stock: Stock) {
   if (stock.changePercent >= 9.8) return "強勢";
   if (stock.changePercent >= 5) return "突破";
+  if (isSafeWatch(stock)) return "安全觀察";
   if (stock.changePercent >= 0) return "觀察";
   return "轉弱";
 }
@@ -420,6 +435,7 @@ function getIndustryRole(stock: Stock, groupStocks: Stock[]) {
 
   if (stock.code === leader.code) return "龍頭";
   if (stock.changePercent >= 5) return "跟漲";
+  if (isSafeWatch(stock)) return "安全";
   return "觀察";
 }
 
@@ -430,6 +446,7 @@ function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
   else if (isHighOpenContinue(stock)) tags.push("高開續強");
 
   if (isChipActive(stock)) tags.push("籌碼活躍");
+  if (isSafeWatch(stock)) tags.push("安全觀察");
   if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
   if (isAlertStock(stock)) tags.push("警報股");
   if (stock.changePercent >= 5) tags.push("突破");
@@ -455,6 +472,7 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   }
 
   if (isChipActive(stock)) tags.push("籌碼活躍");
+  if (isSafeWatch(stock)) tags.push("安全觀察");
 
   if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
   else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
@@ -463,7 +481,7 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   if (stockScore(stock) >= 85) tags.push("強度高");
   if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
 
-  return Array.from(new Set(tags)).slice(0, 6);
+  return Array.from(new Set(tags)).slice(0, 7);
 }
 
 function sortStocks(list: Stock[], sortKey: SortKey) {
@@ -507,6 +525,10 @@ function filterByQuick(
 
   if (filterKey === "chipActive") {
     return list.filter(isChipActive);
+  }
+
+  if (filterKey === "safeWatch") {
+    return list.filter(isSafeWatch);
   }
 
   return list;
@@ -597,6 +619,7 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
       isHighOpenContinue(stock) ||
       isLowVolumeStrongStock(stock) ||
       isChipActive(stock) ||
+      isSafeWatch(stock) ||
       isAlertStock(stock);
 
     if (shouldObserve) {
@@ -617,6 +640,10 @@ function getTradeAdvice(stock: Stock) {
     advice.push("🟡 偏熱觀察：動能不錯，但不要急追，可觀察拉回轉強");
   } else {
     advice.push("🟢 低風險觀察：目前未明顯過熱，可列入追蹤");
+  }
+
+  if (isSafeWatch(stock)) {
+    advice.push("✅ 安全觀察：漲幅未過熱、強度未過高，較適合等轉強或拉回觀察");
   }
 
   if (isChipActive(stock)) {
@@ -670,6 +697,10 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const risk = getRisk(stock);
 
   reasons.push(`風險燈號：${risk.title}`);
+
+  if (isSafeWatch(stock)) {
+    reasons.push("安全觀察：漲幅 < 7%，強度 < 90，開盤溢價 < 5%，成交量不太低");
+  }
 
   if (isChipActive(stock)) {
     reasons.push("籌碼活躍：換手率 3～10%，量比 > 1，流通市值 < 5 億");
@@ -731,19 +762,21 @@ function AlertTags({ tags }: { tags: string[] }) {
           className={
             tag === "漲停附近" || tag === "急漲"
               ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "籌碼活躍"
-                ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
-                : tag === "主流續強"
-                  ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
-                  : tag === "高開續強"
-                    ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
-                    : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
-                      ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
-                      : tag === "主流產業"
-                        ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                        : tag === "強度高"
-                          ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                          : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+              : tag === "安全觀察"
+                ? "rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                : tag === "籌碼活躍"
+                  ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "主流續強"
+                    ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
+                    : tag === "高開續強"
+                      ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                      : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                        ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                        : tag === "主流產業"
+                          ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                          : tag === "強度高"
+                            ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                            : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
@@ -764,25 +797,29 @@ function NoticeBox({
   title: string;
   text: string;
   stocks: Stock[];
-  tone: "green" | "yellow" | "cyan";
+  tone: "green" | "yellow" | "cyan" | "emerald";
   onClose: () => void;
   onSelectStock: (stock: Stock) => void;
 }) {
   if (stocks.length === 0) return null;
 
   const boxClass =
-    tone === "cyan"
-      ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
-      : tone === "green"
-        ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
-        : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
+    tone === "emerald"
+      ? "mb-3 rounded-2xl border border-emerald-400 bg-emerald-950/80 p-3 text-emerald-100 shadow-lg"
+      : tone === "cyan"
+        ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
+        : tone === "green"
+          ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
+          : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
 
   const textClass =
-    tone === "cyan"
-      ? "mt-1 text-xs font-bold text-cyan-100"
-      : tone === "green"
-        ? "mt-1 text-xs font-bold text-green-100"
-        : "mt-1 text-xs font-bold text-yellow-100";
+    tone === "emerald"
+      ? "mt-1 text-xs font-bold text-emerald-100"
+      : tone === "cyan"
+        ? "mt-1 text-xs font-bold text-cyan-100"
+        : tone === "green"
+          ? "mt-1 text-xs font-bold text-green-100"
+          : "mt-1 text-xs font-bold text-yellow-100";
 
   return (
     <div className={boxClass}>
@@ -1009,9 +1046,11 @@ function StockRow({
                 ? "text-xs font-bold text-green-400"
                 : status === "突破"
                   ? "text-xs font-bold text-yellow-400"
-                  : status === "轉弱"
-                    ? "text-xs font-bold text-slate-400"
-                    : "text-xs font-bold text-orange-300"
+                  : status === "安全觀察"
+                    ? "text-xs font-bold text-emerald-400"
+                    : status === "轉弱"
+                      ? "text-xs font-bold text-slate-400"
+                      : "text-xs font-bold text-orange-300"
             }
           >
             {status}
@@ -1024,7 +1063,9 @@ function StockRow({
                   ? "mt-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
                   : badge === "跟漲"
                     ? "mt-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                    : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
+                    : badge === "安全"
+                      ? "mt-1 rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                      : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
               }
             >
               {badge}
@@ -1140,9 +1181,11 @@ function StockDetail({
                     ? "mt-1 text-2xl font-black text-green-400"
                     : status === "突破"
                       ? "mt-1 text-2xl font-black text-yellow-400"
-                      : status === "轉弱"
-                        ? "mt-1 text-2xl font-black text-slate-400"
-                        : "mt-1 text-2xl font-black text-orange-300"
+                      : status === "安全觀察"
+                        ? "mt-1 text-2xl font-black text-emerald-400"
+                        : status === "轉弱"
+                          ? "mt-1 text-2xl font-black text-slate-400"
+                          : "mt-1 text-2xl font-black text-orange-300"
                 }
               >
                 {status}
@@ -1172,7 +1215,6 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">操作提醒</div>
-
             <div className="space-y-2">
               {tradeAdvice.map((item) => (
                 <div
@@ -1187,7 +1229,6 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">警報原因</div>
-
             <div className="space-y-2">
               {alertReasons.map((reason) => (
                 <div
@@ -1431,6 +1472,10 @@ export default function App() {
     );
   }, [stocks, dismissedChipActiveCodes]);
 
+  const safeWatchStocks = useMemo(() => {
+    return sortStocks(stocks.filter(isSafeWatch), "score");
+  }, [stocks]);
+
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
 
@@ -1512,6 +1557,7 @@ export default function App() {
     { key: "highOpenContinue", label: "高開續強" },
     { key: "mainContinue", label: "主流續強" },
     { key: "chipActive", label: "籌碼活躍" },
+    { key: "safeWatch", label: "安全觀察" },
   ];
 
   if (selectedStock) {
@@ -1533,6 +1579,7 @@ export default function App() {
       />
     );
   }
+
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
       <div className="mx-auto max-w-md px-3 py-4">
@@ -1566,6 +1613,15 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <NoticeBox
+          title="🟢 安全觀察提醒"
+          text="漲幅未過熱、強度未過高，較適合等轉強或拉回觀察。"
+          stocks={safeWatchStocks.slice(0, 5)}
+          tone="emerald"
+          onClose={() => {}}
+          onSelectStock={setSelectedStock}
+        />
 
         <NoticeBox
           title="💎 籌碼活躍提醒"
@@ -1659,7 +1715,6 @@ export default function App() {
             9:10最強
           </button>
         </div>
-
         <button
           onClick={applyNormalMode}
           className="mb-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
@@ -1731,6 +1786,12 @@ export default function App() {
                 </button>
               ))}
             </div>
+          </div>
+        )}
+
+        {filterKey === "safeWatch" && (
+          <div className="mb-3 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-100">
+            安全觀察：漲幅 &lt; 7%，強度 &lt; 90，開盤溢價 &lt; 5%，成交量不太低。
           </div>
         )}
 
@@ -1813,7 +1874,9 @@ export default function App() {
                     <button
                       onClick={() =>
                         setExpandedIndustry(
-                          isOpen && !searchText && filterKey === "all" ? "" : group.industry
+                          isOpen && !searchText && filterKey === "all"
+                            ? ""
+                            : group.industry
                         )
                       }
                       className="w-full text-left"
@@ -1871,7 +1934,9 @@ export default function App() {
               </h2>
 
               <span className="text-xs font-bold text-slate-400">
-                {tab === "top50" ? `${filteredTabStocks.length} / 50` : `${filteredTabStocks.length} 檔`}
+                {tab === "top50"
+                  ? `${filteredTabStocks.length} / 50`
+                  : `${filteredTabStocks.length} 檔`}
               </span>
             </div>
 
