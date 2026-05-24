@@ -24,10 +24,9 @@ type StockItem = {
   openPremiumPercent: number | null;
   industry: string;
 
-  // 新增：籌碼條件用
-  turnoverRate: number | null; // 換手率 %
-  volumeRatio: number | null; // 量比
-  floatMarketCapYi: number | null; // 流通市值，單位：億
+  turnoverRate: number | null;
+  volumeRatio: number | null;
+  floatMarketCapYi: number | null;
 };
 
 const stockIndustryMap: Record<string, string> = {
@@ -225,6 +224,7 @@ function parseTwseStock(row: any): StockItem | null {
     changePercent = round2(((price - previousClose) / previousClose) * 100);
   } else if (price > 0 && change !== 0) {
     const estimatedPreviousClose = price - change;
+
     if (estimatedPreviousClose > 0) {
       changePercent = round2((change / estimatedPreviousClose) * 100);
     }
@@ -256,81 +256,98 @@ function parseTwseStock(row: any): StockItem | null {
   };
 }
 
+function getRecentDates(days = 10) {
+  const dates: string[] = [];
+
+  for (let i = 0; i < days; i += 1) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+
+    const yyyy = date.getFullYear();
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+
+    dates.push(`${yyyy}${mm}${dd}`);
+  }
+
+  return dates;
+}
+
 async function fetchTwseRanking() {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, "0");
-  const dd = String(today.getDate()).padStart(2, "0");
-  const date = `${yyyy}${mm}${dd}`;
+  const dates = getRecentDates(10);
 
-  const urls = [
-    `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`,
-    `https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date=${date}&type=ALLBUT0999`,
-  ];
+  for (const date of dates) {
+    const urls = [
+      `https://www.twse.com.tw/rwd/zh/afterTrading/MI_INDEX?date=${date}&type=ALLBUT0999&response=json`,
+      `https://www.twse.com.tw/exchangeReport/MI_INDEX?response=json&date=${date}&type=ALLBUT0999`,
+    ];
 
-  for (const url of urls) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          "user-agent": "Mozilla/5.0",
-          accept: "application/json,text/plain,*/*",
-        },
-        cache: "no-store",
-      });
+    for (const url of urls) {
+      try {
+        const res = await fetch(url, {
+          headers: {
+            "user-agent": "Mozilla/5.0",
+            accept: "application/json,text/plain,*/*",
+          },
+          cache: "no-store",
+        });
 
-      if (!res.ok) continue;
+        if (!res.ok) continue;
 
-      const data = await res.json();
+        const data = await res.json();
 
-      const fields =
-        data.fields9 ||
-        data.fields8 ||
-        data.fields ||
-        [];
+        const fields =
+          data.fields9 ||
+          data.fields8 ||
+          data.fields ||
+          [];
 
-      const rawRows =
-        data.data9 ||
-        data.data8 ||
-        data.data ||
-        [];
+        const rawRows =
+          data.data9 ||
+          data.data8 ||
+          data.data ||
+          [];
 
-      if (!Array.isArray(rawRows) || rawRows.length === 0) continue;
+        if (!Array.isArray(rawRows) || rawRows.length === 0) continue;
 
-      const rows = rawRows
-        .map((row: any[]) => {
-          const item: Record<string, any> = {};
+        const rows = rawRows
+          .map((row: any[]) => {
+            const item: Record<string, any> = {};
 
-          fields.forEach((field: string, index: number) => {
-            item[field] = row[index];
-          });
+            fields.forEach((field: string, index: number) => {
+              item[field] = row[index];
+            });
 
-          item.Code = item["證券代號"];
-          item.Name = item["證券名稱"];
-          item.TradeVolume = item["成交股數"];
-          item.OpeningPrice = item["開盤價"];
-          item.ClosingPrice = item["收盤價"];
-          item.Change = item["漲跌價差"];
+            item.Code = item["證券代號"];
+            item.Name = item["證券名稱"];
+            item.TradeVolume = item["成交股數"];
+            item.OpeningPrice = item["開盤價"];
+            item.ClosingPrice = item["收盤價"];
+            item.Change = item["漲跌價差"];
 
-          const close = toNumber(item["收盤價"]);
-          const change = toNumber(item["漲跌價差"]);
+            const close = toNumber(item["收盤價"]);
+            const change = toNumber(item["漲跌價差"]);
 
-          if (close > 0) {
-            item.PreviousClose = close - change;
-          }
+            if (close > 0) {
+              item.PreviousClose = close - change;
+            }
 
-          return item;
-        })
-        .map(parseTwseStock)
-        .filter(Boolean) as StockItem[];
+            return item;
+          })
+          .map(parseTwseStock)
+          .filter(Boolean) as StockItem[];
 
-      if (rows.length > 0) {
-        return rows
-          .filter((stock) => stock.price > 0)
+        const validRows = rows
+          .filter((stock) => stock.price > 0 && stock.name)
           .sort((a, b) => b.changePercent - a.changePercent)
           .slice(0, 50);
+
+        if (validRows.length > 0) {
+          return validRows;
+        }
+      } catch {
+        // 換下一個日期或來源
       }
-    } catch {
-      // 換下一個來源
     }
   }
 
@@ -338,7 +355,11 @@ async function fetchTwseRanking() {
 }
 function parseYahooQuote(item: any): StockItem | null {
   const symbol = cleanText(item.symbol ?? "");
-  const code = symbol.replace(".TW", "").replace(".TWO", "").replace(/\D/g, "").slice(0, 4);
+  const code = symbol
+    .replace(".TW", "")
+    .replace(".TWO", "")
+    .replace(/\D/g, "")
+    .slice(0, 4);
 
   if (!/^\d{4}$/.test(code)) return null;
 
@@ -467,10 +488,7 @@ async function fetchYahooQuotes(codes: string[]) {
         return;
       }
 
-      if (
-        stock.price > 0 &&
-        (stock.volume > old.volume || old.price <= 0)
-      ) {
+      if (stock.price > 0 && (stock.volume > old.volume || old.price <= 0)) {
         map.set(stock.code, stock);
       }
     });
@@ -671,7 +689,7 @@ export default async function handler(req: Request) {
 
     return responseJson({
       ok: true,
-      source: "twse+yahoo",
+      source: "twse+yahoo_recent_10_days",
       message: "台股資料取得成功",
       rankedStocks,
       watchList,
