@@ -365,7 +365,6 @@ function stockScore(stock: Stock) {
 
   return Math.max(0, Math.min(99, score));
 }
-
 function isSafeWatch(stock: Stock) {
   const openPremium = stock.openPremiumPercent ?? 0;
   const lots = volumeLots(stock.volume);
@@ -454,6 +453,7 @@ function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
 
   return Array.from(new Set(tags));
 }
+
 function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   const tags: string[] = [];
 
@@ -733,7 +733,6 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
 
   return reasons;
 }
-
 function MiniLine() {
   return (
     <div className="mt-1 h-6 w-16">
@@ -879,6 +878,7 @@ function NoticeBox({
     </div>
   );
 }
+
 function ObserveSummary({
   stock,
   strongIndustryNames,
@@ -934,7 +934,7 @@ function ChipBox({ stock }: { stock: Stock }) {
       </div>
 
       <div className="mt-3 text-xs font-bold text-cyan-100">
-        籌碼活躍條件：換手率 3～10%，量比 &gt; 1，流通市值 &lt; 5 億。
+        籌碼資料若顯示資料不足，代表資料來源沒有提供完整欄位，不影響股價排行。
       </div>
     </div>
   );
@@ -1076,7 +1076,6 @@ function StockRow({
     </button>
   );
 }
-
 function StockDetail({
   stock,
   onBack,
@@ -1304,6 +1303,7 @@ export default function App() {
   const [filterKey, setFilterKey] = useState<FilterKey>("all");
   const [mode, setMode] = useState<ModeKey>("normal");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [dismissedSafeWatchCodes, setDismissedSafeWatchCodes] = useState<string[]>([]);
   const [dismissedLowVolumeCodes, setDismissedLowVolumeCodes] = useState<string[]>([]);
   const [dismissedMainContinueCodes, setDismissedMainContinueCodes] = useState<string[]>([]);
   const [dismissedChipActiveCodes, setDismissedChipActiveCodes] = useState<string[]>([]);
@@ -1350,6 +1350,7 @@ export default function App() {
 
       setStocks(rankedList);
       setWatchListStocks(watchList);
+      setDismissedSafeWatchCodes([]);
       setLastSuccessAt(formatTime(new Date()));
       setNextRefresh(60);
     } catch (err: any) {
@@ -1473,8 +1474,11 @@ export default function App() {
   }, [stocks, dismissedChipActiveCodes]);
 
   const safeWatchStocks = useMemo(() => {
-    return sortStocks(stocks.filter(isSafeWatch), "score");
-  }, [stocks]);
+    return sortStocks(
+      stocks.filter((stock) => isSafeWatch(stock) && !dismissedSafeWatchCodes.includes(stock.code)),
+      "score"
+    );
+  }, [stocks, dismissedSafeWatchCodes]);
 
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
@@ -1579,7 +1583,6 @@ export default function App() {
       />
     );
   }
-
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
       <div className="mx-auto max-w-md px-3 py-4">
@@ -1619,7 +1622,9 @@ export default function App() {
           text="漲幅未過熱、強度未過高，較適合等轉強或拉回觀察。"
           stocks={safeWatchStocks.slice(0, 5)}
           tone="emerald"
-          onClose={() => {}}
+          onClose={() =>
+            setDismissedSafeWatchCodes(safeWatchStocks.map((stock) => stock.code))
+          }
           onSelectStock={setSelectedStock}
         />
 
@@ -1715,6 +1720,7 @@ export default function App() {
             9:10最強
           </button>
         </div>
+
         <button
           onClick={applyNormalMode}
           className="mb-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
