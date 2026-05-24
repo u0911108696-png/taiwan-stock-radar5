@@ -1125,7 +1125,10 @@ function StockDetail({
   className="mx-auto max-w-md px-4 pb-5"
   style={{ paddingTop: "calc(env(safe-area-inset-top) + 56px)" }}
 >
-        <div className="mb-4 flex items-center justify-between">
+        <div
+  className="sticky z-50 mb-4 flex items-center justify-between rounded-2xl bg-black/90 px-1 pb-3 backdrop-blur"
+  style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
+>
           <button
             onClick={onBack}
             className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
