@@ -12,6 +12,8 @@ type Stock = {
   industry: string;
 };
 
+type RiskLevel = "low" | "medium" | "high";
+
 type TabKey = "top50" | "watch" | "observe" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score" | "openPremium";
 type FilterKey =
@@ -323,6 +325,34 @@ function isLowVolumeStrongStock(stock: Stock) {
   return stock.changePercent >= 5 && volumeLots(stock.volume) < 10000;
 }
 
+function getRisk(stock: Stock) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const lots = volumeLots(stock.volume);
+  const score = stockScore(stock);
+
+  if (stock.changePercent >= 9 || score >= 90 || openPremium >= 8) {
+    return {
+      level: "high" as RiskLevel,
+      title: "🔴 過熱，避免追高",
+      text: "漲幅、強度或開盤溢價已偏高，短線容易震盪，建議不要盲目追價。",
+    };
+  }
+
+  if (stock.changePercent >= 5 || openPremium >= 5 || lots >= 10000 || score >= 80) {
+    return {
+      level: "medium" as RiskLevel,
+      title: "🟡 偏熱，觀察拉回",
+      text: "動能不錯，但已有一定漲幅或量能放大，適合觀察拉回或轉強點。",
+    };
+  }
+
+  return {
+    level: "low" as RiskLevel,
+    title: "🟢 低風險觀察",
+    text: "目前尚未明顯過熱，可先列入觀察，但仍要搭配大盤與產業強度。",
+  };
+}
+
 function getIndustryRole(stock: Stock, groupStocks: Stock[]) {
   if (groupStocks.length === 0) return "";
 
@@ -520,6 +550,15 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
 
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
+  const risk = getRisk(stock);
+
+  if (risk.level === "high") {
+    advice.push("🔴 風險偏高：目前已過熱，避免追高，先等拉回或量縮整理");
+  } else if (risk.level === "medium") {
+    advice.push("🟡 偏熱觀察：動能不錯，但不要急追，可觀察拉回轉強");
+  } else {
+    advice.push("🟢 低風險觀察：目前未明顯過熱，可列入追蹤");
+  }
 
   if (isHighOpenContinue(stock)) {
     advice.push("🚀 高開續強：開盤溢價率超過 3%，目前漲幅也超過 5%");
@@ -565,6 +604,9 @@ function getTradeAdvice(stock: Stock) {
 
 function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
+  const risk = getRisk(stock);
+
+  reasons.push(`風險燈號：${risk.title}`);
 
   if (isMainContinue(stock, strongIndustryNames)) {
     reasons.push("主流續強：高開續強，且屬於今日最強主流前 5 名產業");
@@ -774,6 +816,46 @@ function ObserveSummary({
   );
 }
 
+function RiskBox({ stock }: { stock: Stock }) {
+  const risk = getRisk(stock);
+
+  return (
+    <div
+      className={
+        risk.level === "high"
+          ? "mt-5 rounded-2xl border border-red-900 bg-red-950/50 p-4 text-red-100"
+          : risk.level === "medium"
+            ? "mt-5 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-4 text-yellow-100"
+            : "mt-5 rounded-2xl border border-green-900 bg-green-950/40 p-4 text-green-100"
+      }
+    >
+      <div className="text-lg font-black">風險燈號</div>
+      <div className="mt-2 text-2xl font-black">{risk.title}</div>
+      <div className="mt-2 text-sm font-bold">{risk.text}</div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          漲幅
+          <div className="mt-1 text-sm">
+            {stock.changePercent >= 0 ? "+" : ""}
+            {stock.changePercent.toFixed(2)}%
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          強度
+          <div className="mt-1 text-sm">{stockScore(stock)}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          開盤溢價
+          <div className="mt-1 text-sm">{percentText(stock.openPremiumPercent)}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function StockRow({
   stock,
   rank,
@@ -975,6 +1057,8 @@ function StockDetail({
             stock={stock}
             strongIndustryNames={strongIndustryNames}
           />
+
+          <RiskBox stock={stock} />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-slate-900 p-4">
