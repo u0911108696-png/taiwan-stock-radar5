@@ -17,6 +17,7 @@ type Stock = {
 };
 
 type RiskLevel = "low" | "medium" | "high";
+type BuyPointLevel = "watch" | "pullback" | "avoid" | "weak";
 
 type TabKey = "top50" | "watch" | "observe" | "industry" | "breakout" | "alert";
 type SortKey = "change" | "volume" | "score" | "openPremium";
@@ -378,6 +379,54 @@ function isSafeWatch(stock: Stock) {
   );
 }
 
+function getBuyPoint(stock: Stock) {
+  const score = stockScore(stock);
+  const openPremium = stock.openPremiumPercent ?? 0;
+
+  if (stock.changePercent < 0) {
+    return {
+      level: "weak" as BuyPointLevel,
+      title: "⚪ 不建議",
+      text: "目前股價轉弱，先不要急著進場，等重新站回強勢再觀察。",
+      reason: "漲幅為負，代表今日目前不是強勢股。",
+    };
+  }
+
+  if (stock.changePercent >= 9 || score >= 90) {
+    return {
+      level: "avoid" as BuyPointLevel,
+      title: "🔴 避免追高",
+      text: "目前已經偏熱，短線容易震盪或拉回，不建議盲目追價。",
+      reason: "漲幅接近高檔，或強度分數已達過熱區。",
+    };
+  }
+
+  if (stock.changePercent >= 5 || openPremium >= 5) {
+    return {
+      level: "pullback" as BuyPointLevel,
+      title: "🟡 等拉回",
+      text: "動能不錯，但已經有漲幅，建議等拉回、量縮或重新轉強。",
+      reason: "漲幅超過 5%，或開盤溢價偏高，追高風險增加。",
+    };
+  }
+
+  if (isSafeWatch(stock) || stock.changePercent >= 0) {
+    return {
+      level: "watch" as BuyPointLevel,
+      title: "🟢 可觀察",
+      text: "目前沒有明顯過熱，可以列入觀察，但仍要搭配大盤與產業強度。",
+      reason: "漲幅未過熱，強度未過高，較適合等轉強或拉回觀察。",
+    };
+  }
+
+  return {
+    level: "weak" as BuyPointLevel,
+    title: "⚪ 不建議",
+    text: "目前條件不夠明確，先觀察即可。",
+    reason: "沒有符合明顯強勢或安全觀察條件。",
+  };
+}
+
 function stockStatus(stock: Stock) {
   if (stock.changePercent >= 9.8) return "強勢";
   if (stock.changePercent >= 5) return "突破";
@@ -578,7 +627,6 @@ function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
     })
     .sort((a, b) => b.strength - a.strength);
 }
-
 function getDataCheckStatus(
   stocks: Stock[],
   watchListStocks: Stock[],
@@ -633,6 +681,9 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
 function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
   const risk = getRisk(stock);
+  const buyPoint = getBuyPoint(stock);
+
+  advice.push(`買點提醒：${buyPoint.title}`);
 
   if (risk.level === "high") {
     advice.push("🔴 風險偏高：目前已過熱，避免追高，先等拉回或量縮整理");
@@ -695,7 +746,10 @@ function getTradeAdvice(stock: Stock) {
 function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
   const risk = getRisk(stock);
+  const buyPoint = getBuyPoint(stock);
 
+  reasons.push(`買點提醒：${buyPoint.title}`);
+  reasons.push(`買點原因：${buyPoint.reason}`);
   reasons.push(`風險燈號：${risk.title}`);
 
   if (isSafeWatch(stock)) {
@@ -733,6 +787,7 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
 
   return reasons;
 }
+
 function MiniLine() {
   return (
     <div className="mt-1 h-6 w-16">
@@ -878,7 +933,6 @@ function NoticeBox({
     </div>
   );
 }
-
 function ObserveSummary({
   stock,
   strongIndustryNames,
@@ -900,6 +954,36 @@ function ObserveSummary({
 
       <div className="mt-3 text-xs font-bold text-green-100">
         這些標籤用來判斷這檔股票為什麼被列入今日觀察清單。
+      </div>
+    </div>
+  );
+}
+
+function BuyPointBox({ stock }: { stock: Stock }) {
+  const buyPoint = getBuyPoint(stock);
+
+  return (
+    <div
+      className={
+        buyPoint.level === "avoid"
+          ? "mt-5 rounded-2xl border border-red-900 bg-red-950/50 p-4 text-red-100"
+          : buyPoint.level === "pullback"
+            ? "mt-5 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-4 text-yellow-100"
+            : buyPoint.level === "watch"
+              ? "mt-5 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-4 text-emerald-100"
+              : "mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-slate-200"
+      }
+    >
+      <div className="text-lg font-black">買點提醒</div>
+      <div className="mt-2 text-2xl font-black">{buyPoint.title}</div>
+      <div className="mt-2 text-sm font-bold">{buyPoint.text}</div>
+
+      <div className="mt-3 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
+        原因：{buyPoint.reason}
+      </div>
+
+      <div className="mt-3 text-xs font-bold opacity-80">
+        這是觀察提醒，不是買賣建議。實際操作仍要搭配大盤、產業、K 線與停損。
       </div>
     </div>
   );
@@ -1146,8 +1230,12 @@ function StockDetail({
             <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
           </div>
 
+          <BuyPointBox stock={stock} />
+
           <ObserveSummary stock={stock} strongIndustryNames={strongIndustryNames} />
+
           <RiskBox stock={stock} />
+
           <ChipBox stock={stock} />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
@@ -1214,6 +1302,7 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">操作提醒</div>
+
             <div className="space-y-2">
               {tradeAdvice.map((item) => (
                 <div
@@ -1228,6 +1317,7 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">警報原因</div>
+
             <div className="space-y-2">
               {alertReasons.map((reason) => (
                 <div
@@ -1283,7 +1373,6 @@ function StockDetail({
     </div>
   );
 }
-
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -1444,44 +1533,75 @@ export default function App() {
   const marketStatus = getMarketStatus();
   const dataCheck = getDataCheckStatus(stocks, watchListStocks, lastSuccessAt);
   const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
-  const sortedWatchListStocks = useMemo(() => sortStocks(watchListStocks, sortKey), [watchListStocks, sortKey]);
-  const industryGroups = useMemo(() => buildIndustryGroups(sortedStocks, sortKey), [sortedStocks, sortKey]);
-  const mainIndustryGroups = useMemo(() => industryGroups.filter((group) => group.industry !== "其他"), [industryGroups]);
+  const sortedWatchListStocks = useMemo(
+    () => sortStocks(watchListStocks, sortKey),
+    [watchListStocks, sortKey]
+  );
+  const industryGroups = useMemo(
+    () => buildIndustryGroups(sortedStocks, sortKey),
+    [sortedStocks, sortKey]
+  );
+  const mainIndustryGroups = useMemo(
+    () => industryGroups.filter((group) => group.industry !== "其他"),
+    [industryGroups]
+  );
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((group) => group.industry);
 
-  const observeStocks = useMemo(() => buildObserveStocks(stocks, topIndustryNames), [stocks, topIndustryNames]);
+  const observeStocks = useMemo(
+    () => buildObserveStocks(stocks, topIndustryNames),
+    [stocks, topIndustryNames]
+  );
 
   const mainContinueStocks = useMemo(() => {
     return sortStocks(
-      stocks.filter((stock) => isMainContinue(stock, topIndustryNames) && !dismissedMainContinueCodes.includes(stock.code)),
+      stocks.filter(
+        (stock) =>
+          isMainContinue(stock, topIndustryNames) &&
+          !dismissedMainContinueCodes.includes(stock.code)
+      ),
       "openPremium"
     );
   }, [stocks, topIndustryNames, dismissedMainContinueCodes]);
 
   const lowVolumeStrongStocks = useMemo(() => {
     return sortStocks(
-      stocks.filter((stock) => isLowVolumeStrongStock(stock) && !dismissedLowVolumeCodes.includes(stock.code)),
+      stocks.filter(
+        (stock) =>
+          isLowVolumeStrongStock(stock) &&
+          !dismissedLowVolumeCodes.includes(stock.code)
+      ),
       "score"
     );
   }, [stocks, dismissedLowVolumeCodes]);
 
   const chipActiveStocks = useMemo(() => {
     return sortStocks(
-      stocks.filter((stock) => isChipActive(stock) && !dismissedChipActiveCodes.includes(stock.code)),
+      stocks.filter(
+        (stock) =>
+          isChipActive(stock) &&
+          !dismissedChipActiveCodes.includes(stock.code)
+      ),
       "score"
     );
   }, [stocks, dismissedChipActiveCodes]);
 
   const safeWatchStocks = useMemo(() => {
     return sortStocks(
-      stocks.filter((stock) => isSafeWatch(stock) && !dismissedSafeWatchCodes.includes(stock.code)),
+      stocks.filter(
+        (stock) =>
+          isSafeWatch(stock) &&
+          !dismissedSafeWatchCodes.includes(stock.code)
+      ),
       "score"
     );
   }, [stocks, dismissedSafeWatchCodes]);
 
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
-  const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
+  const breakoutStocks = sortStocks(
+    stocks.filter((stock) => stock.changePercent >= 5),
+    sortKey
+  );
 
   const tabStocks = useMemo(() => {
     if (tab === "top50") return sortedStocks;
@@ -1490,7 +1610,15 @@ export default function App() {
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
     return sortedStocks;
-  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, breakoutStocks, alertStocks, sortKey]);
+  }, [
+    tab,
+    sortedStocks,
+    sortedWatchListStocks,
+    observeStocks,
+    breakoutStocks,
+    alertStocks,
+    sortKey,
+  ]);
 
   const filteredTabStocks = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -1506,7 +1634,6 @@ export default function App() {
       );
     });
   }, [tabStocks, searchText, filterKey, topIndustryNames]);
-
   const filteredIndustryGroups = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
 
@@ -1516,7 +1643,11 @@ export default function App() {
         const matchIndustry = group.industry.toLowerCase().includes(keyword);
 
         if (!keyword) {
-          return { ...group, stocks: filteredStocks, total: filteredStocks.length };
+          return {
+            ...group,
+            stocks: filteredStocks,
+            total: filteredStocks.length,
+          };
         }
 
         const searchedStocks = filteredStocks.filter((stock) => {
@@ -1566,7 +1697,11 @@ export default function App() {
 
   if (selectedStock) {
     const sameIndustryStocks = sortStocks(
-      stocks.filter((stock) => stock.industry === selectedStock.industry && stock.code !== selectedStock.code),
+      stocks.filter(
+        (stock) =>
+          stock.industry === selectedStock.industry &&
+          stock.code !== selectedStock.code
+      ),
       sortKey
     ).slice(0, 5);
 
@@ -1583,6 +1718,7 @@ export default function App() {
       />
     );
   }
+
   return (
     <div className="min-h-screen bg-black pb-24 text-white">
       <div className="mx-auto max-w-md px-3 py-4">
@@ -1794,7 +1930,6 @@ export default function App() {
             </div>
           </div>
         )}
-
         {filterKey === "safeWatch" && (
           <div className="mb-3 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-100">
             安全觀察：漲幅 &lt; 7%，強度 &lt; 90，開盤溢價 &lt; 5%，成交量不太低。
