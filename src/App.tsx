@@ -10,6 +10,10 @@ type Stock = {
   changePercent: number;
   volume: number;
   industry: string;
+
+  turnoverRate: number | null;
+  volumeRatio: number | null;
+  floatMarketCapYi: number | null;
 };
 
 type RiskLevel = "low" | "medium" | "high";
@@ -24,7 +28,8 @@ type FilterKey =
   | "lowVolume"
   | "openStrong"
   | "highOpenContinue"
-  | "mainContinue";
+  | "mainContinue"
+  | "chipActive";
 type ModeKey = "open" | "normal" | "strong910";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
@@ -125,6 +130,12 @@ function num(value: any) {
   return Number.isFinite(n) ? n : 0;
 }
 
+function nullableNum(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replaceAll(",", ""));
+  return Number.isFinite(n) ? n : null;
+}
+
 function getIndustry(code: string) {
   const cleanCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
   return industryMap[cleanCode] || "其他";
@@ -146,6 +157,11 @@ function priceText(value: number) {
 function percentText(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "資料不足";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function numberText(value: number | null, suffix = "") {
+  if (value === null || !Number.isFinite(value)) return "資料不足";
+  return `${value.toFixed(2)}${suffix}`;
 }
 
 function getMarketStatus() {
@@ -262,7 +278,11 @@ function normalizeStock(item: any): Stock {
     openPremiumPercent,
     changePercent,
     volume: num(item.TradeVolume ?? item.volume ?? item.Volume),
-    industry: getIndustry(code),
+    industry: item.industry || getIndustry(code),
+
+    turnoverRate: nullableNum(item.turnoverRate),
+    volumeRatio: nullableNum(item.volumeRatio),
+    floatMarketCapYi: nullableNum(item.floatMarketCapYi),
   };
 }
 
@@ -280,6 +300,18 @@ function isHighOpenContinue(stock: Stock) {
 
 function isMainContinue(stock: Stock, strongIndustryNames: string[]) {
   return isHighOpenContinue(stock) && strongIndustryNames.includes(stock.industry);
+}
+
+function isChipActive(stock: Stock) {
+  return (
+    stock.turnoverRate !== null &&
+    stock.volumeRatio !== null &&
+    stock.floatMarketCapYi !== null &&
+    stock.turnoverRate >= 3 &&
+    stock.turnoverRate <= 10 &&
+    stock.volumeRatio > 1 &&
+    stock.floatMarketCapYi < 5
+  );
 }
 
 function stockScore(stock: Stock) {
@@ -301,7 +333,8 @@ function stockScore(stock: Stock) {
   }
 
   if (isHighOpenContinue(stock)) score += 8;
-  if (stock.changePercent >= 5 && volumeLots(stock.volume) < 10000) score += 4;
+  if (isLowVolumeStrongStock(stock)) score += 4;
+  if (isChipActive(stock)) score += 10;
 
   return Math.max(0, Math.min(99, score));
 }
@@ -317,7 +350,8 @@ function isAlertStock(stock: Stock) {
   return (
     stock.changePercent >= 7 ||
     stockScore(stock) >= 85 ||
-    volumeLots(stock.volume) >= 10000
+    volumeLots(stock.volume) >= 10000 ||
+    isChipActive(stock)
   );
 }
 
@@ -369,6 +403,7 @@ function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
   if (isMainContinue(stock, strongIndustryNames)) tags.push("主流續強");
   else if (isHighOpenContinue(stock)) tags.push("高開續強");
 
+  if (isChipActive(stock)) tags.push("籌碼活躍");
   if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
   if (isAlertStock(stock)) tags.push("警報股");
   if (stock.changePercent >= 5) tags.push("突破");
@@ -376,7 +411,6 @@ function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
 
   return Array.from(new Set(tags));
 }
-
 function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   const tags: string[] = [];
 
@@ -394,6 +428,8 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
     else if (stock.openPremiumPercent >= 3) tags.push("開盤強");
   }
 
+  if (isChipActive(stock)) tags.push("籌碼活躍");
+
   if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
   else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
 
@@ -401,7 +437,7 @@ function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
   if (stockScore(stock) >= 85) tags.push("強度高");
   if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
 
-  return Array.from(new Set(tags)).slice(0, 5);
+  return Array.from(new Set(tags)).slice(0, 6);
 }
 
 function sortStocks(list: Stock[], sortKey: SortKey) {
@@ -445,6 +481,10 @@ function filterByQuick(
     return list.filter((s) => isMainContinue(s, strongIndustryNames));
   }
 
+  if (filterKey === "chipActive") {
+    return list.filter(isChipActive);
+  }
+
   return list;
 }
 
@@ -465,6 +505,7 @@ function loadSavedWatchCodes() {
     return defaultWatchCodes;
   }
 }
+
 function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
   const map: Record<string, Stock[]> = {};
 
@@ -538,6 +579,7 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
       isMainContinue(stock, strongIndustryNames) ||
       isHighOpenContinue(stock) ||
       isLowVolumeStrongStock(stock) ||
+      isChipActive(stock) ||
       isAlertStock(stock);
 
     if (shouldObserve) {
@@ -558,6 +600,10 @@ function getTradeAdvice(stock: Stock) {
     advice.push("🟡 偏熱觀察：動能不錯，但不要急追，可觀察拉回轉強");
   } else {
     advice.push("🟢 低風險觀察：目前未明顯過熱，可列入追蹤");
+  }
+
+  if (isChipActive(stock)) {
+    advice.push("✅ 籌碼活躍：換手率 3～10%、量比 > 1、流通市值 < 5 億");
   }
 
   if (isHighOpenContinue(stock)) {
@@ -607,6 +653,10 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const risk = getRisk(stock);
 
   reasons.push(`風險燈號：${risk.title}`);
+
+  if (isChipActive(stock)) {
+    reasons.push("籌碼活躍：換手率 3～10%，量比 > 1，流通市值 < 5 億");
+  }
 
   if (isMainContinue(stock, strongIndustryNames)) {
     reasons.push("主流續強：高開續強，且屬於今日最強主流前 5 名產業");
@@ -664,17 +714,19 @@ function AlertTags({ tags }: { tags: string[] }) {
           className={
             tag === "漲停附近" || tag === "急漲"
               ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-              : tag === "主流續強"
-                ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
-                : tag === "高開續強"
-                  ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
-                  : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
-                    ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
-                    : tag === "主流產業"
-                      ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                      : tag === "強度高"
-                        ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
-                        : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+              : tag === "籌碼活躍"
+                ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
+                : tag === "主流續強"
+                  ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "高開續強"
+                    ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                    : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                      ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                      : tag === "主流產業"
+                        ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                        : tag === "強度高"
+                          ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                          : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
           }
         >
           {tag}
@@ -695,22 +747,28 @@ function NoticeBox({
   title: string;
   text: string;
   stocks: Stock[];
-  tone: "green" | "yellow";
+  tone: "green" | "yellow" | "cyan";
   onClose: () => void;
   onSelectStock: (stock: Stock) => void;
 }) {
   if (stocks.length === 0) return null;
 
-  const isGreen = tone === "green";
+  const boxClass =
+    tone === "cyan"
+      ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
+      : tone === "green"
+        ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
+        : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
+
+  const textClass =
+    tone === "cyan"
+      ? "mt-1 text-xs font-bold text-cyan-100"
+      : tone === "green"
+        ? "mt-1 text-xs font-bold text-green-100"
+        : "mt-1 text-xs font-bold text-yellow-100";
 
   return (
-    <div
-      className={
-        isGreen
-          ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
-          : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg"
-      }
-    >
+    <div className={boxClass}>
       <div className="mb-2 flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-black">{title}</div>
@@ -719,11 +777,7 @@ function NoticeBox({
 
         <button
           onClick={onClose}
-          className={
-            isGreen
-              ? "rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-green-100"
-              : "rounded-lg bg-black/40 px-2 py-1 text-xs font-black text-yellow-100"
-          }
+          className="rounded-lg bg-black/40 px-2 py-1 text-xs font-black"
         >
           關閉
         </button>
@@ -742,18 +796,12 @@ function NoticeBox({
                 <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
               </div>
 
-              <div
-                className={
-                  isGreen
-                    ? "mt-1 text-xs font-bold text-green-100"
-                    : "mt-1 text-xs font-bold text-yellow-100"
-                }
-              >
+              <div className={textClass}>
                 {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
               </div>
 
               <div className="mt-1 text-xs font-bold text-slate-300">
-                開盤溢價 {percentText(stock.openPremiumPercent)}
+                換手 {numberText(stock.turnoverRate, "%")}｜量比 {numberText(stock.volumeRatio)}
               </div>
             </div>
 
@@ -761,35 +809,20 @@ function NoticeBox({
               <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
                 +{stock.changePercent.toFixed(2)}%
               </div>
-              <div
-                className={
-                  isGreen
-                    ? "mt-1 text-xs font-bold text-green-100"
-                    : "mt-1 text-xs font-bold text-yellow-100"
-                }
-              >
-                點我查看
-              </div>
+              <div className={textClass}>點我查看</div>
             </div>
           </button>
         ))}
       </div>
 
       {stocks.length > 3 && (
-        <div
-          className={
-            isGreen
-              ? "mt-2 text-xs font-bold text-green-200"
-              : "mt-2 text-xs font-bold text-yellow-200"
-          }
-        >
+        <div className="mt-2 text-xs font-bold">
           還有 {stocks.length - 3} 檔，可到「今日觀察」查看。
         </div>
       )}
     </div>
   );
 }
-
 function ObserveSummary({
   stock,
   strongIndustryNames,
@@ -811,6 +844,41 @@ function ObserveSummary({
 
       <div className="mt-3 text-xs font-bold text-green-100">
         這些標籤用來判斷這檔股票為什麼被列入今日觀察清單。
+      </div>
+    </div>
+  );
+}
+
+function ChipBox({ stock }: { stock: Stock }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-cyan-900 bg-cyan-950/40 p-4">
+      <div className="mb-3 text-lg font-black text-cyan-100">籌碼條件</div>
+
+      <div className="grid grid-cols-3 gap-2 text-center text-xs font-black">
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          換手率
+          <div className="mt-1 text-sm text-cyan-100">
+            {numberText(stock.turnoverRate, "%")}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          量比
+          <div className="mt-1 text-sm text-cyan-100">
+            {numberText(stock.volumeRatio)}
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          流通市值
+          <div className="mt-1 text-sm text-cyan-100">
+            {numberText(stock.floatMarketCapYi, "億")}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 text-xs font-bold text-cyan-100">
+        籌碼活躍條件：換手率 3～10%，量比 &gt; 1，流通市值 &lt; 5 億。
       </div>
     </div>
   );
@@ -849,7 +917,9 @@ function RiskBox({ stock }: { stock: Stock }) {
 
         <div className="rounded-xl bg-black/30 px-2 py-2">
           開盤溢價
-          <div className="mt-1 text-sm">{percentText(stock.openPremiumPercent)}</div>
+          <div className="mt-1 text-sm">
+            {percentText(stock.openPremiumPercent)}
+          </div>
         </div>
       </div>
     </div>
@@ -946,6 +1016,7 @@ function StockRow({
     </button>
   );
 }
+
 function StockDetail({
   stock,
   onBack,
@@ -1053,12 +1124,11 @@ function StockDetail({
             <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
           </div>
 
-          <ObserveSummary
-            stock={stock}
-            strongIndustryNames={strongIndustryNames}
-          />
+          <ObserveSummary stock={stock} strongIndustryNames={strongIndustryNames} />
 
           <RiskBox stock={stock} />
+
+          <ChipBox stock={stock} />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-slate-900 p-4">
@@ -1076,6 +1146,27 @@ function StockDetail({
             </div>
 
             <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">換手率</div>
+              <div className="mt-1 text-2xl font-black text-cyan-300">
+                {numberText(stock.turnoverRate, "%")}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">量比</div>
+              <div className="mt-1 text-2xl font-black text-cyan-300">
+                {numberText(stock.volumeRatio)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">流通市值</div>
+              <div className="mt-1 text-2xl font-black text-cyan-300">
+                {numberText(stock.floatMarketCapYi, "億")}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
               <div className="text-sm text-slate-400">狀態</div>
               <div
                 className={
@@ -1089,13 +1180,6 @@ function StockDetail({
                 }
               >
                 {status}
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-slate-900 p-4">
-              <div className="text-sm text-slate-400">自選</div>
-              <div className="mt-1 text-2xl font-black">
-                {isWatch ? "已加入" : "未加入"}
               </div>
             </div>
 
@@ -1124,16 +1208,6 @@ function StockDetail({
               <div className="mt-1 text-xs font-bold text-slate-500">
                 昨收 {priceText(stock.previousClose)}
               </div>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
-            <div className="mb-2 text-lg font-black">開盤溢價率說明</div>
-            <div className="text-sm font-bold text-slate-300">
-              公式：（開盤價 - 昨收價）÷ 昨收價 × 100%
-            </div>
-            <div className="mt-2 text-xs font-bold text-slate-500">
-              可用來判斷開盤是否高開、低開，以及早盤追高風險。
             </div>
           </div>
 
@@ -1253,6 +1327,7 @@ export default function App() {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [dismissedLowVolumeCodes, setDismissedLowVolumeCodes] = useState<string[]>([]);
   const [dismissedMainContinueCodes, setDismissedMainContinueCodes] = useState<string[]>([]);
+  const [dismissedChipActiveCodes, setDismissedChipActiveCodes] = useState<string[]>([]);
 
   async function loadStocks(codes = watchCodes, manual = false) {
     try {
@@ -1348,10 +1423,6 @@ export default function App() {
   function removeWatchCode(code: string) {
     const nextCodes = watchCodes.filter((item) => item !== code);
     saveWatchCodes(nextCodes.length > 0 ? nextCodes : defaultWatchCodes);
-  }
-
-  function resetWatchCodes() {
-    saveWatchCodes(defaultWatchCodes);
   }
 
   function toggleSelectedStockWatch(stock: Stock) {
@@ -1462,6 +1533,15 @@ export default function App() {
     );
   }, [stocks, dismissedLowVolumeCodes]);
 
+  const chipActiveStocks = useMemo(() => {
+    return sortStocks(
+      stocks.filter((stock) => {
+        return isChipActive(stock) && !dismissedChipActiveCodes.includes(stock.code);
+      }),
+      "score"
+    );
+  }, [stocks, dismissedChipActiveCodes]);
+
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
 
@@ -1537,7 +1617,7 @@ export default function App() {
     { key: "lowVolume", label: "低量" },
     { key: "openStrong", label: "開盤強" },
     { key: "highOpenContinue", label: "高開續強" },
-    { key: "mainContinue", label: "主流續強" },
+    { key: "chipActive", label: "籌碼活躍" },
   ];
 
   if (selectedStock) {
@@ -1599,6 +1679,15 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <NoticeBox
+          title="💎 籌碼活躍提醒"
+          text="換手率 3～10%，量比 > 1，流通市值 < 5 億。"
+          stocks={chipActiveStocks}
+          tone="cyan"
+          onClose={() => setDismissedChipActiveCodes(chipActiveStocks.map((stock) => stock.code))}
+          onSelectStock={setSelectedStock}
+        />
 
         <NoticeBox
           title="🚀 主流續強提醒"
@@ -1716,6 +1805,12 @@ export default function App() {
           </div>
         )}
 
+        {filterKey === "chipActive" && (
+          <div className="mb-3 rounded-2xl border border-cyan-900 bg-cyan-950/40 p-3 text-sm font-bold text-cyan-100">
+            籌碼活躍：換手率 3～10%，量比 &gt; 1，流通市值 &lt; 5 億。
+          </div>
+        )}
+
         {mode === "strong910" && (
           <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
             9:10 最強清單：今日觀察 + 主流續強 + 開盤溢價排序。
@@ -1724,7 +1819,7 @@ export default function App() {
 
         {tab === "observe" && (
           <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
-            今日觀察：自動整理主流續強、高開續強、低量強漲與警報股。
+            今日觀察：自動整理主流續強、高開續強、籌碼活躍、低量強漲與警報股。
           </div>
         )}
 
