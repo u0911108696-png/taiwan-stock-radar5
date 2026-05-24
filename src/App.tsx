@@ -18,8 +18,17 @@ type Stock = {
 type RiskLevel = "low" | "medium" | "high";
 type BuyPointLevel = "watch" | "pullback" | "avoid" | "weak";
 
-type TabKey = "top50" | "watch" | "observe" | "industry" | "breakout" | "alert";
+type TabKey =
+  | "top50"
+  | "watch"
+  | "observe"
+  | "tomorrow"
+  | "industry"
+  | "breakout"
+  | "alert";
+
 type SortKey = "change" | "volume" | "score" | "openPremium";
+
 type FilterKey =
   | "all"
   | "strong"
@@ -30,8 +39,10 @@ type FilterKey =
   | "highOpenContinue"
   | "mainContinue"
   | "chipActive"
-  | "safeWatch";
-type ModeKey = "open" | "normal" | "strong910";
+  | "safeWatch"
+  | "tomorrowWatch";
+
+type ModeKey = "open" | "normal" | "strong910" | "tomorrow";
 
 const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
@@ -602,6 +613,7 @@ function filterByQuick(
   if (filterKey === "mainContinue") return list.filter((s) => isMainContinue(s, strongIndustryNames));
   if (filterKey === "chipActive") return list.filter(isChipActive);
   if (filterKey === "safeWatch") return list.filter(isSafeWatch);
+  if (filterKey === "tomorrowWatch") return list.filter((s) => isTomorrowWatchStock(s, strongIndustryNames));
 
   return list;
 }
@@ -717,8 +729,6 @@ function getTradeAdvice(stock: Stock) {
   } else {
     advice.push("ℹ️ 開盤溢價率：目前資料不足，可能 API 未提供開盤價或昨收價");
   }
-
-  if (isTomorrowWatchStock(stock, [])) advice.push("📌 明日觀察：漲幅未過熱，適合列入隔日追蹤");
 
   if (stock.changePercent >= 9.8) {
     advice.push("🔥 強勢追蹤：漲幅接近漲停，屬於今日強勢股");
@@ -1076,7 +1086,7 @@ function TomorrowWatchBox({
 
       {stocks.length > 5 && (
         <div className="mt-2 text-xs font-bold">
-          還有 {stocks.length - 5} 檔，可到「今日觀察」查看。
+          還有 {stocks.length - 5} 檔，可按「📌 明日觀察」查看完整清單。
         </div>
       )}
     </div>
@@ -1213,7 +1223,6 @@ function RiskBox({ stock }: { stock: Stock }) {
     </div>
   );
 }
-
 function StockRow({
   stock,
   rank,
@@ -1534,7 +1543,6 @@ function StockDetail({
     </div>
   );
 }
-
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -1695,6 +1703,15 @@ export default function App() {
     setShowAdvanced(true);
   }
 
+  function applyTomorrowMode() {
+    setMode("tomorrow");
+    setTab("tomorrow");
+    setFilterKey("tomorrowWatch");
+    setSortKey("score");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
   function applyNormalMode() {
     setMode("normal");
     setTab("top50");
@@ -1826,10 +1843,11 @@ export default function App() {
     if (tab === "top50") return sortedStocks;
     if (tab === "watch") return sortedWatchListStocks;
     if (tab === "observe") return sortStocks(observeStocks, sortKey);
+    if (tab === "tomorrow") return tomorrowWatchStocks;
     if (tab === "breakout") return breakoutStocks;
     if (tab === "alert") return alertStocks;
     return sortedStocks;
-  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, breakoutStocks, alertStocks, sortKey]);
+  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, tomorrowWatchStocks, breakoutStocks, alertStocks, sortKey]);
 
   const filteredTabStocks = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
@@ -1905,6 +1923,7 @@ export default function App() {
     { key: "mainContinue", label: "主流續強" },
     { key: "chipActive", label: "籌碼活躍" },
     { key: "safeWatch", label: "安全觀察" },
+    { key: "tomorrowWatch", label: "明日觀察" },
   ];
 
   if (selectedStock) {
@@ -2004,6 +2023,26 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            onClick={applyTomorrowMode}
+            className={
+              mode === "tomorrow"
+                ? "rounded-xl bg-indigo-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-indigo-950 px-3 py-2 text-sm font-black text-indigo-100"
+            }
+          >
+            📌 明日觀察
+          </button>
+
+          <button
+            onClick={applyNormalMode}
+            className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
+          >
+            回到盤中模式
+          </button>
+        </div>
 
         {tab === "watch" && (
           <NoticeBox
@@ -2122,13 +2161,6 @@ export default function App() {
           </button>
         </div>
 
-        <button
-          onClick={applyNormalMode}
-          className="mb-3 w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
-        >
-          回到盤中模式
-        </button>
-
         {tab === "watch" && (
           <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
             <div className="mb-2 text-sm font-black text-white">自選股管理</div>
@@ -2230,6 +2262,12 @@ export default function App() {
           </div>
         )}
 
+        {filterKey === "tomorrowWatch" && (
+          <div className="mb-3 rounded-2xl border border-indigo-900 bg-indigo-950/40 p-3 text-sm font-bold text-indigo-100">
+            明日觀察：排除過熱股，優先看主流產業、安全觀察、籌碼活躍。
+          </div>
+        )}
+
         {filterKey === "safeWatch" && (
           <div className="mb-3 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-100">
             安全觀察：漲幅 &lt; 7%，強度 &lt; 90，開盤溢價 &lt; 5%，成交量不太低。
@@ -2273,6 +2311,7 @@ export default function App() {
               onClick={() => {
                 setMode("normal");
                 setTab(item.key);
+                setFilterKey("all");
               }}
               className={
                 tab === item.key
@@ -2370,6 +2409,7 @@ export default function App() {
                 {tab === "top50" && "漲幅排行 TOP 50"}
                 {tab === "watch" && "自選股"}
                 {tab === "observe" && "今日觀察清單"}
+                {tab === "tomorrow" && "📌 明日觀察清單"}
                 {tab === "breakout" && "突破股"}
                 {tab === "alert" && "警報股"}
               </h2>
@@ -2393,7 +2433,7 @@ export default function App() {
                   rank={index + 1}
                   compact={tab !== "top50"}
                   alertTags={
-                    tab === "observe"
+                    tab === "observe" || tab === "tomorrow"
                       ? getObserveTags(stock, topIndustryNames)
                       : getAlertTags(stock, topIndustryNames)
                   }
@@ -2422,6 +2462,7 @@ export default function App() {
                 setSelectedStock(null);
                 setMode("normal");
                 setTab(item.key);
+                setFilterKey("all");
               }}
               className={
                 tab === item.key
