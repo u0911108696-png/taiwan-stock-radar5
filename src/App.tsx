@@ -848,61 +848,35 @@ function NoticeBox({
   text,
   stocks,
   tone,
-  onClose,
   onSelectStock,
 }: {
   title: string;
   text: string;
   stocks: Stock[];
   tone: "green" | "yellow" | "cyan" | "emerald" | "red" | "indigo";
-  onClose: () => void;
   onSelectStock: (stock: Stock) => void;
 }) {
   if (stocks.length === 0) return null;
 
   const boxClass =
     tone === "indigo"
-      ? "mb-3 rounded-2xl border border-indigo-500 bg-indigo-950/80 p-3 text-indigo-100 shadow-lg"
+      ? "rounded-2xl border border-indigo-500 bg-indigo-950/70 p-3 text-indigo-100"
       : tone === "red"
-        ? "mb-3 rounded-2xl border border-red-500 bg-red-950/80 p-3 text-red-100 shadow-lg"
+        ? "rounded-2xl border border-red-500 bg-red-950/70 p-3 text-red-100"
         : tone === "emerald"
-          ? "mb-3 rounded-2xl border border-emerald-400 bg-emerald-950/80 p-3 text-emerald-100 shadow-lg"
+          ? "rounded-2xl border border-emerald-400 bg-emerald-950/70 p-3 text-emerald-100"
           : tone === "cyan"
-            ? "mb-3 rounded-2xl border border-cyan-400 bg-cyan-950/80 p-3 text-cyan-100 shadow-lg"
+            ? "rounded-2xl border border-cyan-400 bg-cyan-950/70 p-3 text-cyan-100"
             : tone === "green"
-              ? "mb-3 rounded-2xl border border-green-500 bg-green-950/80 p-3 text-green-100 shadow-lg"
-              : "mb-3 rounded-2xl border border-yellow-500 bg-yellow-950/80 p-3 text-yellow-100 shadow-lg";
-
-  const textClass =
-    tone === "indigo"
-      ? "mt-1 text-xs font-bold text-indigo-100"
-      : tone === "red"
-        ? "mt-1 text-xs font-bold text-red-100"
-        : tone === "emerald"
-          ? "mt-1 text-xs font-bold text-emerald-100"
-          : tone === "cyan"
-            ? "mt-1 text-xs font-bold text-cyan-100"
-            : tone === "green"
-              ? "mt-1 text-xs font-bold text-green-100"
-              : "mt-1 text-xs font-bold text-yellow-100";
+              ? "rounded-2xl border border-green-500 bg-green-950/70 p-3 text-green-100"
+              : "rounded-2xl border border-yellow-500 bg-yellow-950/70 p-3 text-yellow-100";
 
   return (
     <div className={boxClass}>
-      <div className="mb-2 flex items-start justify-between gap-3">
-        <div>
-          <div className="text-sm font-black">{title}</div>
-          <div className="mt-1 text-xs font-bold">{text}</div>
-        </div>
+      <div className="text-sm font-black">{title}</div>
+      <div className="mt-1 text-xs font-bold">{text}</div>
 
-        <button
-          onClick={onClose}
-          className="rounded-lg bg-black/40 px-2 py-1 text-xs font-black"
-        >
-          關閉
-        </button>
-      </div>
-
-      <div className="space-y-2">
+      <div className="mt-3 space-y-2">
         {stocks.slice(0, 3).map((stock) => (
           <button
             key={stock.code}
@@ -915,32 +889,136 @@ function NoticeBox({
                 <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
               </div>
 
-              <div className={textClass}>
+              <div className="mt-1 text-xs font-bold opacity-90">
                 {stock.industry}｜強度 {stockScore(stock)}｜成交量{" "}
                 {volumeLots(stock.volume).toLocaleString()} 張
               </div>
-
-              {hasChipLine(stock) && (
-                <div className="mt-1 text-xs font-bold text-slate-300">
-                  {chipLineText(stock)}
-                </div>
-              )}
             </div>
 
-            <div className="text-right">
-              <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-                {stock.changePercent >= 0 ? "+" : ""}
-                {stock.changePercent.toFixed(2)}%
-              </div>
-              <div className={textClass}>點我查看</div>
+            <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
+              {stock.changePercent >= 0 ? "+" : ""}
+              {stock.changePercent.toFixed(2)}%
             </div>
           </button>
         ))}
       </div>
 
       {stocks.length > 3 && (
-        <div className="mt-2 text-xs font-bold">
-          還有 {stocks.length - 3} 檔，可到清單查看。
+        <div className="mt-2 text-xs font-bold opacity-90">
+          還有 {stocks.length - 3} 檔，可切換清單查看。
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlertCenter({
+  watchAlertStocks,
+  tomorrowWatchStocks,
+  chipActiveStocks,
+  mainContinueStocks,
+  lowVolumeStrongStocks,
+  safeWatchStocks,
+  onSelectStock,
+  onOpenTomorrow,
+}: {
+  watchAlertStocks: Stock[];
+  tomorrowWatchStocks: Stock[];
+  chipActiveStocks: Stock[];
+  mainContinueStocks: Stock[];
+  lowVolumeStrongStocks: Stock[];
+  safeWatchStocks: Stock[];
+  onSelectStock: (stock: Stock) => void;
+  onOpenTomorrow: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const alertCount =
+    watchAlertStocks.length +
+    tomorrowWatchStocks.length +
+    chipActiveStocks.length +
+    mainContinueStocks.length +
+    lowVolumeStrongStocks.length +
+    safeWatchStocks.length;
+
+  if (alertCount === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-2xl border border-slate-700 bg-slate-950 p-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <div>
+          <div className="text-sm font-black text-white">🔔 提醒中心</div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            目前共有 {alertCount} 個提醒，點我{open ? "收起" : "展開"}。
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-red-500 px-3 py-1 text-sm font-black text-white">
+          {alertCount}
+        </div>
+      </button>
+
+      {!open && tomorrowWatchStocks.length > 0 && (
+        <button
+          onClick={onOpenTomorrow}
+          className="mt-3 w-full rounded-xl bg-indigo-500 px-3 py-2 text-sm font-black text-white"
+        >
+          📌 直接查看明日觀察清單
+        </button>
+      )}
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          <NoticeBox
+            title="🚨 自選股警報"
+            text={`自選股中有 ${watchAlertStocks.length} 檔符合強勢提醒條件。`}
+            stocks={watchAlertStocks}
+            tone="red"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="📌 明日觀察"
+            text={`有 ${tomorrowWatchStocks.length} 檔適合列入隔日觀察。`}
+            stocks={tomorrowWatchStocks}
+            tone="indigo"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="💎 籌碼活躍"
+            text="換手率 3～10%，量比 > 1，流通市值 < 5 億。"
+            stocks={chipActiveStocks}
+            tone="cyan"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🚀 主流續強"
+            text="高開續強，而且屬於今日最強主流前 5 名產業。"
+            stocks={mainContinueStocks}
+            tone="green"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🚨 低量強漲"
+            text="漲幅 ≥ 5%，成交量低於 10,000 張。"
+            stocks={lowVolumeStrongStocks}
+            tone="yellow"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🟢 安全觀察"
+            text="漲幅未過熱、強度未過高，較適合等轉強或拉回觀察。"
+            stocks={safeWatchStocks.slice(0, 5)}
+            tone="emerald"
+            onSelectStock={onSelectStock}
+          />
         </div>
       )}
     </div>
@@ -974,7 +1052,7 @@ function ReviewBox({
     <div className="mb-3 rounded-2xl border border-indigo-500 bg-indigo-950/70 p-3 text-indigo-100">
       <div className="text-sm font-black">🌙 收盤後復盤提醒</div>
       <div className="mt-1 text-xs font-bold">
-        建議整理今日最強產業、最強個股與自選股強弱，作為明天觀察方向。
+        整理今日最強產業、最強個股與自選股強弱，作為明天觀察方向。
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -999,7 +1077,9 @@ function ReviewBox({
             {topStock ? topStock.name : "資料不足"}
           </div>
           <div className="mt-1 text-xs font-bold text-red-300">
-            {topStock ? `+${topStock.changePercent.toFixed(2)}%｜${topStock.code}` : "尚無個股資料"}
+            {topStock
+              ? `+${topStock.changePercent.toFixed(2)}%｜${topStock.code}`
+              : "尚無個股資料"}
           </div>
         </button>
       </div>
@@ -1014,7 +1094,9 @@ function ReviewBox({
             {bestWatch ? bestWatch.name : "資料不足"}
           </div>
           <div className="mt-1 text-xs font-bold text-red-300">
-            {bestWatch ? `${bestWatch.changePercent >= 0 ? "+" : ""}${bestWatch.changePercent.toFixed(2)}%` : "尚無自選資料"}
+            {bestWatch
+              ? `${bestWatch.changePercent >= 0 ? "+" : ""}${bestWatch.changePercent.toFixed(2)}%`
+              : "尚無自選資料"}
           </div>
         </button>
 
@@ -1027,68 +1109,12 @@ function ReviewBox({
             {weakWatch ? weakWatch.name : "資料不足"}
           </div>
           <div className="mt-1 text-xs font-bold text-slate-300">
-            {weakWatch ? `${weakWatch.changePercent >= 0 ? "+" : ""}${weakWatch.changePercent.toFixed(2)}%` : "尚無自選資料"}
+            {weakWatch
+              ? `${weakWatch.changePercent >= 0 ? "+" : ""}${weakWatch.changePercent.toFixed(2)}%`
+              : "尚無自選資料"}
           </div>
         </button>
       </div>
-
-      <div className="mt-3 text-xs font-bold text-indigo-200">
-        復盤重點：強產業優先、弱自選檢查是否汰弱、過熱股明天避免追高。
-      </div>
-    </div>
-  );
-}
-
-function TomorrowWatchBox({
-  stocks,
-  onSelectStock,
-}: {
-  stocks: Stock[];
-  onSelectStock: (stock: Stock) => void;
-}) {
-  if (stocks.length === 0) return null;
-
-  return (
-    <div className="mb-3 rounded-2xl border border-indigo-400 bg-indigo-950/70 p-3 text-indigo-100">
-      <div className="text-sm font-black">📌 明日觀察名單</div>
-      <div className="mt-1 text-xs font-bold">
-        排除過熱追高股，優先留下主流產業、安全觀察與籌碼活躍股。
-      </div>
-
-      <div className="mt-3 space-y-2">
-        {stocks.slice(0, 5).map((stock, index) => (
-          <button
-            key={stock.code}
-            onClick={() => onSelectStock(stock)}
-            className="flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left"
-          >
-            <div>
-              <div className="font-black text-white">
-                {index + 1}. {stock.name}
-                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
-              </div>
-              <div className="text-xs font-bold text-indigo-100">
-                {stock.industry}｜強度 {stockScore(stock)}｜成交量{" "}
-                {volumeLots(stock.volume).toLocaleString()} 張
-              </div>
-            </div>
-
-            <div className="text-right">
-              <div className="rounded-lg bg-indigo-500 px-2 py-1 text-sm font-black text-white">
-                {stock.changePercent >= 0 ? "+" : ""}
-                {stock.changePercent.toFixed(2)}%
-              </div>
-              <div className="mt-1 text-xs font-bold text-indigo-100">查看</div>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {stocks.length > 5 && (
-        <div className="mt-2 text-xs font-bold">
-          還有 {stocks.length - 5} 檔，可按「📌 明日觀察」查看完整清單。
-        </div>
-      )}
     </div>
   );
 }
@@ -1106,13 +1132,8 @@ function ObserveSummary({
 
   return (
     <div className="mt-5 rounded-2xl border border-green-900 bg-green-950/40 p-4">
-      <div className="mb-2 text-lg font-black text-green-100">
-        今日觀察標籤
-      </div>
+      <div className="mb-2 text-lg font-black text-green-100">今日觀察標籤</div>
       <AlertTags tags={tags} />
-      <div className="mt-3 text-xs font-bold text-green-100">
-        這些標籤用來判斷這檔股票為什麼被列入今日觀察清單。
-      </div>
     </div>
   );
 }
@@ -1135,13 +1156,8 @@ function BuyPointBox({ stock }: { stock: Stock }) {
       <div className="text-lg font-black">買點提醒</div>
       <div className="mt-2 text-2xl font-black">{buyPoint.title}</div>
       <div className="mt-2 text-sm font-bold">{buyPoint.text}</div>
-
       <div className="mt-3 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
         原因：{buyPoint.reason}
-      </div>
-
-      <div className="mt-3 text-xs font-bold opacity-80">
-        這是觀察提醒，不是買賣建議。實際操作仍要搭配大盤、產業、K 線與停損。
       </div>
     </div>
   );
@@ -1174,10 +1190,6 @@ function ChipBox({ stock }: { stock: Stock }) {
           </div>
         </div>
       </div>
-
-      <div className="mt-3 text-xs font-bold text-cyan-100">
-        籌碼資料若顯示資料不足，代表資料來源沒有提供完整欄位，不影響股價排行。
-      </div>
     </div>
   );
 }
@@ -1198,31 +1210,10 @@ function RiskBox({ stock }: { stock: Stock }) {
       <div className="text-lg font-black">風險燈號</div>
       <div className="mt-2 text-2xl font-black">{risk.title}</div>
       <div className="mt-2 text-sm font-bold">{risk.text}</div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          漲幅
-          <div className="mt-1 text-sm">
-            {stock.changePercent >= 0 ? "+" : ""}
-            {stock.changePercent.toFixed(2)}%
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          強度
-          <div className="mt-1 text-sm">{stockScore(stock)}</div>
-        </div>
-
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          開盤溢價
-          <div className="mt-1 text-sm">
-            {percentText(stock.openPremiumPercent)}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
+
 function StockRow({
   stock,
   rank,
@@ -1327,7 +1318,6 @@ function StockRow({
     </div>
   );
 }
-
 function StockDetail({
   stock,
   onBack,
@@ -1543,6 +1533,7 @@ function StockDetail({
     </div>
   );
 }
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -1564,12 +1555,6 @@ export default function App() {
   const [filterKey, setFilterKey] = useState<FilterKey>("all");
   const [mode, setMode] = useState<ModeKey>("normal");
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [dismissedSafeWatchCodes, setDismissedSafeWatchCodes] = useState<string[]>([]);
-  const [dismissedLowVolumeCodes, setDismissedLowVolumeCodes] = useState<string[]>([]);
-  const [dismissedMainContinueCodes, setDismissedMainContinueCodes] = useState<string[]>([]);
-  const [dismissedChipActiveCodes, setDismissedChipActiveCodes] = useState<string[]>([]);
-  const [dismissedWatchAlertCodes, setDismissedWatchAlertCodes] = useState<string[]>([]);
-  const [dismissedTomorrowWatchCodes, setDismissedTomorrowWatchCodes] = useState<string[]>([]);
 
   async function loadStocks(codes = watchCodes, manual = false) {
     try {
@@ -1613,9 +1598,6 @@ export default function App() {
 
       setStocks(rankedList);
       setWatchListStocks(watchList);
-      setDismissedSafeWatchCodes([]);
-      setDismissedWatchAlertCodes([]);
-      setDismissedTomorrowWatchCodes([]);
       setLastSuccessAt(formatTime(new Date()));
       setNextRefresh(60);
     } catch (err: any) {
@@ -1756,10 +1738,7 @@ export default function App() {
     const map = new Map<string, Stock>();
 
     stocks.forEach((stock) => {
-      if (
-        isTomorrowWatchStock(stock, topIndustryNames) &&
-        !dismissedTomorrowWatchCodes.includes(stock.code)
-      ) {
+      if (isTomorrowWatchStock(stock, topIndustryNames)) {
         map.set(stock.code, stock);
       }
     });
@@ -1773,68 +1752,31 @@ export default function App() {
         score < 90 &&
         openPremium < 5;
 
-      if (isUsable && !dismissedTomorrowWatchCodes.includes(stock.code)) {
-        map.set(stock.code, stock);
-      }
+      if (isUsable) map.set(stock.code, stock);
     });
 
     return sortStocks(Array.from(map.values()), "score");
-  }, [stocks, watchListStocks, topIndustryNames, dismissedTomorrowWatchCodes]);
+  }, [stocks, watchListStocks, topIndustryNames]);
 
   const mainContinueStocks = useMemo(() => {
-    return sortStocks(
-      stocks.filter(
-        (stock) =>
-          isMainContinue(stock, topIndustryNames) &&
-          !dismissedMainContinueCodes.includes(stock.code)
-      ),
-      "openPremium"
-    );
-  }, [stocks, topIndustryNames, dismissedMainContinueCodes]);
+    return sortStocks(stocks.filter((stock) => isMainContinue(stock, topIndustryNames)), "openPremium");
+  }, [stocks, topIndustryNames]);
 
   const lowVolumeStrongStocks = useMemo(() => {
-    return sortStocks(
-      stocks.filter(
-        (stock) =>
-          isLowVolumeStrongStock(stock) &&
-          !dismissedLowVolumeCodes.includes(stock.code)
-      ),
-      "score"
-    );
-  }, [stocks, dismissedLowVolumeCodes]);
+    return sortStocks(stocks.filter(isLowVolumeStrongStock), "score");
+  }, [stocks]);
 
   const chipActiveStocks = useMemo(() => {
-    return sortStocks(
-      stocks.filter(
-        (stock) =>
-          isChipActive(stock) &&
-          !dismissedChipActiveCodes.includes(stock.code)
-      ),
-      "score"
-    );
-  }, [stocks, dismissedChipActiveCodes]);
+    return sortStocks(stocks.filter(isChipActive), "score");
+  }, [stocks]);
 
   const safeWatchStocks = useMemo(() => {
-    return sortStocks(
-      stocks.filter(
-        (stock) =>
-          isSafeWatch(stock) &&
-          !dismissedSafeWatchCodes.includes(stock.code)
-      ),
-      "score"
-    );
-  }, [stocks, dismissedSafeWatchCodes]);
+    return sortStocks(stocks.filter(isSafeWatch), "score");
+  }, [stocks]);
 
   const watchAlertStocks = useMemo(() => {
-    return sortStocks(
-      watchListStocks.filter(
-        (stock) =>
-          isWatchAlertStock(stock) &&
-          !dismissedWatchAlertCodes.includes(stock.code)
-      ),
-      "score"
-    );
-  }, [watchListStocks, dismissedWatchAlertCodes]);
+    return sortStocks(watchListStocks.filter(isWatchAlertStock), "score");
+  }, [watchListStocks]);
 
   const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
   const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
@@ -1965,7 +1907,7 @@ export default function App() {
           <div className="mb-3 rounded-2xl border border-orange-500 bg-orange-950/70 p-3 text-orange-100">
             <div className="text-sm font-black">⏰ 9:10 開盤快篩時間</div>
             <div className="mt-1 text-xs font-bold">
-              建議先看「9:10快篩」與「9:10最強」，再確認主流續強、高開續強。
+              建議先看「9:10快篩」與「9:10最強」。
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1993,9 +1935,15 @@ export default function App() {
           onSelectStock={setSelectedStock}
         />
 
-        <TomorrowWatchBox
-          stocks={tomorrowWatchStocks}
+        <AlertCenter
+          watchAlertStocks={watchAlertStocks}
+          tomorrowWatchStocks={tomorrowWatchStocks}
+          chipActiveStocks={chipActiveStocks}
+          mainContinueStocks={mainContinueStocks}
+          lowVolumeStrongStocks={lowVolumeStrongStocks}
+          safeWatchStocks={safeWatchStocks}
           onSelectStock={setSelectedStock}
+          onOpenTomorrow={applyTomorrowMode}
         />
 
         <header className="mb-3">
@@ -2043,63 +1991,6 @@ export default function App() {
             回到盤中模式
           </button>
         </div>
-
-        {tab === "watch" && (
-          <NoticeBox
-            title="🚨 自選股警報"
-            text={`自選股中有 ${watchAlertStocks.length} 檔符合強勢提醒條件。`}
-            stocks={watchAlertStocks}
-            tone="red"
-            onClose={() =>
-              setDismissedWatchAlertCodes(watchAlertStocks.map((stock) => stock.code))
-            }
-            onSelectStock={setSelectedStock}
-          />
-        )}
-
-        <NoticeBox
-          title="🟢 安全觀察提醒"
-          text="漲幅未過熱、強度未過高，較適合等轉強或拉回觀察。"
-          stocks={safeWatchStocks.slice(0, 5)}
-          tone="emerald"
-          onClose={() =>
-            setDismissedSafeWatchCodes(safeWatchStocks.map((stock) => stock.code))
-          }
-          onSelectStock={setSelectedStock}
-        />
-
-        <NoticeBox
-          title="💎 籌碼活躍提醒"
-          text="換手率 3～10%，量比 > 1，流通市值 < 5 億。"
-          stocks={chipActiveStocks}
-          tone="cyan"
-          onClose={() =>
-            setDismissedChipActiveCodes(chipActiveStocks.map((stock) => stock.code))
-          }
-          onSelectStock={setSelectedStock}
-        />
-
-        <NoticeBox
-          title="🚀 主流續強提醒"
-          text="高開續強，而且屬於今日最強主流前 5 名產業。"
-          stocks={mainContinueStocks}
-          tone="green"
-          onClose={() =>
-            setDismissedMainContinueCodes(mainContinueStocks.map((stock) => stock.code))
-          }
-          onSelectStock={setSelectedStock}
-        />
-
-        <NoticeBox
-          title="🚨 低量強漲提醒"
-          text="漲幅 ≥ 5%，成交量低於 10,000 張。"
-          stocks={lowVolumeStrongStocks}
-          tone="yellow"
-          onClose={() =>
-            setDismissedLowVolumeCodes(lowVolumeStrongStocks.map((stock) => stock.code))
-          }
-          onSelectStock={setSelectedStock}
-        />
 
         <div
           className={
@@ -2265,30 +2156,6 @@ export default function App() {
         {filterKey === "tomorrowWatch" && (
           <div className="mb-3 rounded-2xl border border-indigo-900 bg-indigo-950/40 p-3 text-sm font-bold text-indigo-100">
             明日觀察：排除過熱股，優先看主流產業、安全觀察、籌碼活躍。
-          </div>
-        )}
-
-        {filterKey === "safeWatch" && (
-          <div className="mb-3 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-100">
-            安全觀察：漲幅 &lt; 7%，強度 &lt; 90，開盤溢價 &lt; 5%，成交量不太低。
-          </div>
-        )}
-
-        {filterKey === "chipActive" && (
-          <div className="mb-3 rounded-2xl border border-cyan-900 bg-cyan-950/40 p-3 text-sm font-bold text-cyan-100">
-            籌碼活躍：換手率 3～10%，量比 &gt; 1，流通市值 &lt; 5 億。
-          </div>
-        )}
-
-        {filterKey === "mainContinue" && (
-          <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
-            主流續強：高開續強，且屬於今日最強主流前 5 名產業。
-          </div>
-        )}
-
-        {mode === "strong910" && (
-          <div className="mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-sm font-bold text-green-100">
-            9:10 最強清單：今日觀察 + 主流續強 + 開盤溢價排序。
           </div>
         )}
 
