@@ -195,6 +195,18 @@ function isNineTenWindow() {
   return isWeekday && totalMinutes >= start && totalMinutes <= end;
 }
 
+function isAfterCloseReviewWindow() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const start = 13 * 60 + 30;
+  const end = 23 * 60 + 59;
+
+  return isWeekday && totalMinutes >= start && totalMinutes <= end;
+}
+
 function getMarketStatus() {
   const now = new Date();
   const day = now.getDay();
@@ -239,7 +251,7 @@ function getMarketStatus() {
 
   return {
     title: "⚠️ 收盤後",
-    text: "目前可能是今日收盤或最近一次交易資料。",
+    text: "目前可能是今日收盤或最近一次交易資料，適合做復盤觀察。",
     color: "border-slate-700 bg-slate-900 text-slate-300",
   };
 }
@@ -887,6 +899,92 @@ function NoticeBox({
           還有 {stocks.length - 3} 檔，可到清單查看。
         </div>
       )}
+    </div>
+  );
+}
+
+function ReviewBox({
+  topIndustries,
+  stocks,
+  watchListStocks,
+  onSelectStock,
+}: {
+  topIndustries: { industry: string; total: number; avgChange: number; strength: number; stocks: Stock[] }[];
+  stocks: Stock[];
+  watchListStocks: Stock[];
+  onSelectStock: (stock: Stock) => void;
+}) {
+  if (!isAfterCloseReviewWindow()) return null;
+
+  const topStock = [...stocks].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const bestWatch = [...watchListStocks].sort((a, b) => b.changePercent - a.changePercent)[0];
+  const weakWatch = [...watchListStocks].sort((a, b) => a.changePercent - b.changePercent)[0];
+
+  return (
+    <div className="mb-3 rounded-2xl border border-indigo-500 bg-indigo-950/70 p-3 text-indigo-100">
+      <div className="text-sm font-black">🌙 收盤後復盤提醒</div>
+      <div className="mt-1 text-xs font-bold">
+        建議整理今日最強產業、最強個股與自選股強弱，作為明天觀察方向。
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-xl bg-black/30 p-3">
+          <div className="text-xs font-bold text-indigo-200">今日最強產業</div>
+          <div className="mt-1 text-lg font-black">
+            {topIndustries[0]?.industry || "資料不足"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-indigo-200">
+            {topIndustries[0]
+              ? `${topIndustries[0].total} 檔｜平均 +${topIndustries[0].avgChange}%`
+              : "尚無產業資料"}
+          </div>
+        </div>
+
+        <button
+          onClick={() => topStock && onSelectStock(topStock)}
+          className="rounded-xl bg-black/30 p-3 text-left"
+        >
+          <div className="text-xs font-bold text-indigo-200">今日最強個股</div>
+          <div className="mt-1 text-lg font-black">
+            {topStock ? topStock.name : "資料不足"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-red-300">
+            {topStock ? `+${topStock.changePercent.toFixed(2)}%｜${topStock.code}` : "尚無個股資料"}
+          </div>
+        </button>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => bestWatch && onSelectStock(bestWatch)}
+          className="rounded-xl bg-black/30 p-3 text-left"
+        >
+          <div className="text-xs font-bold text-indigo-200">自選最強</div>
+          <div className="mt-1 text-base font-black">
+            {bestWatch ? bestWatch.name : "資料不足"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-red-300">
+            {bestWatch ? `${bestWatch.changePercent >= 0 ? "+" : ""}${bestWatch.changePercent.toFixed(2)}%` : "尚無自選資料"}
+          </div>
+        </button>
+
+        <button
+          onClick={() => weakWatch && onSelectStock(weakWatch)}
+          className="rounded-xl bg-black/30 p-3 text-left"
+        >
+          <div className="text-xs font-bold text-indigo-200">自選最弱</div>
+          <div className="mt-1 text-base font-black">
+            {weakWatch ? weakWatch.name : "資料不足"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-300">
+            {weakWatch ? `${weakWatch.changePercent >= 0 ? "+" : ""}${weakWatch.changePercent.toFixed(2)}%` : "尚無自選資料"}
+          </div>
+        </button>
+      </div>
+
+      <div className="mt-3 text-xs font-bold text-indigo-200">
+        復盤重點：強產業優先、弱自選檢查是否汰弱、過熱股明天避免追高。
+      </div>
     </div>
   );
 }
@@ -1769,6 +1867,13 @@ export default function App() {
             </div>
           </div>
         )}
+
+        <ReviewBox
+          topIndustries={topIndustries}
+          stocks={stocks}
+          watchListStocks={watchListStocks}
+          onSelectStock={setSelectedStock}
+        />
 
         <header className="mb-3">
           <div className="flex items-center justify-between gap-3">
