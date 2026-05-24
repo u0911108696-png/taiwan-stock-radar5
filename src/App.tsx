@@ -10,7 +10,6 @@ type Stock = {
   changePercent: number;
   volume: number;
   industry: string;
-
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
@@ -177,17 +176,9 @@ function hasChipLine(stock: Stock) {
 function chipLineText(stock: Stock) {
   const parts: string[] = [];
 
-  if (stock.turnoverRate !== null) {
-    parts.push(`換手 ${numberText(stock.turnoverRate, "%")}`);
-  }
-
-  if (stock.volumeRatio !== null) {
-    parts.push(`量比 ${numberText(stock.volumeRatio)}`);
-  }
-
-  if (stock.floatMarketCapYi !== null) {
-    parts.push(`流通 ${numberText(stock.floatMarketCapYi, "億")}`);
-  }
+  if (stock.turnoverRate !== null) parts.push(`換手 ${numberText(stock.turnoverRate, "%")}`);
+  if (stock.volumeRatio !== null) parts.push(`量比 ${numberText(stock.volumeRatio)}`);
+  if (stock.floatMarketCapYi !== null) parts.push(`流通 ${numberText(stock.floatMarketCapYi, "億")}`);
 
   return parts.join("｜");
 }
@@ -366,6 +357,7 @@ function stockScore(stock: Stock) {
 
   return Math.max(0, Math.min(99, score));
 }
+
 function isSafeWatch(stock: Stock) {
   const openPremium = stock.openPremiumPercent ?? 0;
   const lots = volumeLots(stock.volume);
@@ -410,20 +402,11 @@ function getBuyPoint(stock: Stock) {
     };
   }
 
-  if (isSafeWatch(stock) || stock.changePercent >= 0) {
-    return {
-      level: "watch" as BuyPointLevel,
-      title: "🟢 可觀察",
-      text: "目前沒有明顯過熱，可以列入觀察，但仍要搭配大盤與產業強度。",
-      reason: "漲幅未過熱，強度未過高，較適合等轉強或拉回觀察。",
-    };
-  }
-
   return {
-    level: "weak" as BuyPointLevel,
-    title: "⚪ 不建議",
-    text: "目前條件不夠明確，先觀察即可。",
-    reason: "沒有符合明顯強勢或安全觀察條件。",
+    level: "watch" as BuyPointLevel,
+    title: "🟢 可觀察",
+    text: "目前沒有明顯過熱，可以列入觀察，但仍要搭配大盤與產業強度。",
+    reason: "漲幅未過熱，強度未過高，較適合等轉強或拉回觀察。",
   };
 }
 
@@ -559,26 +542,11 @@ function filterByQuick(
   if (filterKey === "breakout") return list.filter((s) => s.changePercent >= 5);
   if (filterKey === "alert") return list.filter(isAlertStock);
   if (filterKey === "lowVolume") return list.filter((s) => s.volume > 0 && s.volume < 300000);
-
-  if (filterKey === "openStrong") {
-    return list.filter((s) => s.openPremiumPercent !== null && s.openPremiumPercent >= 3);
-  }
-
-  if (filterKey === "highOpenContinue") {
-    return list.filter(isHighOpenContinue);
-  }
-
-  if (filterKey === "mainContinue") {
-    return list.filter((s) => isMainContinue(s, strongIndustryNames));
-  }
-
-  if (filterKey === "chipActive") {
-    return list.filter(isChipActive);
-  }
-
-  if (filterKey === "safeWatch") {
-    return list.filter(isSafeWatch);
-  }
+  if (filterKey === "openStrong") return list.filter((s) => s.openPremiumPercent !== null && s.openPremiumPercent >= 3);
+  if (filterKey === "highOpenContinue") return list.filter(isHighOpenContinue);
+  if (filterKey === "mainContinue") return list.filter((s) => isMainContinue(s, strongIndustryNames));
+  if (filterKey === "chipActive") return list.filter(isChipActive);
+  if (filterKey === "safeWatch") return list.filter(isSafeWatch);
 
   return list;
 }
@@ -627,25 +595,15 @@ function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
     })
     .sort((a, b) => b.strength - a.strength);
 }
-function getDataCheckStatus(
-  stocks: Stock[],
-  watchListStocks: Stock[],
-  lastSuccessAt: string
-) {
+
+function getDataCheckStatus(stocks: Stock[], watchListStocks: Stock[], lastSuccessAt: string) {
   const hasRanking = stocks.length > 0;
   const hasWatchList = watchListStocks.length > 0;
   const hasPrice = stocks.some((stock) => stock.price > 0);
   const hasVolume = stocks.some((stock) => stock.volume > 0);
   const hasUpdated = Boolean(lastSuccessAt);
 
-  const okCount = [
-    hasRanking,
-    hasWatchList,
-    hasPrice,
-    hasVolume,
-    hasUpdated,
-  ].filter(Boolean).length;
-
+  const okCount = [hasRanking, hasWatchList, hasPrice, hasVolume, hasUpdated].filter(Boolean).length;
   const isGood = okCount >= 4;
 
   return {
@@ -670,9 +628,7 @@ function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
       isSafeWatch(stock) ||
       isAlertStock(stock);
 
-    if (shouldObserve) {
-      map.set(stock.code, stock);
-    }
+    if (shouldObserve) map.set(stock.code, stock);
   });
 
   return sortStocks(Array.from(map.values()), "score");
@@ -693,24 +649,15 @@ function getTradeAdvice(stock: Stock) {
     advice.push("🟢 低風險觀察：目前未明顯過熱，可列入追蹤");
   }
 
-  if (isSafeWatch(stock)) {
-    advice.push("✅ 安全觀察：漲幅未過熱、強度未過高，較適合等轉強或拉回觀察");
-  }
-
-  if (isChipActive(stock)) {
-    advice.push("✅ 籌碼活躍：換手率 3～10%、量比 > 1、流通市值 < 5 億");
-  }
+  if (isSafeWatch(stock)) advice.push("✅ 安全觀察：漲幅未過熱、強度未過高，較適合等轉強或拉回觀察");
+  if (isChipActive(stock)) advice.push("✅ 籌碼活躍：換手率 3～10%、量比 > 1、流通市值 < 5 億");
 
   if (isHighOpenContinue(stock)) {
     advice.push("🚀 高開續強：開盤溢價率超過 3%，目前漲幅也超過 5%");
   } else if (stock.openPremiumPercent !== null) {
-    if (stock.openPremiumPercent >= 5) {
-      advice.push("🚀 開盤高溢價：開盤就強，但也要小心追高風險");
-    } else if (stock.openPremiumPercent >= 3) {
-      advice.push("✅ 開盤偏強：開盤溢價率超過 3%，早盤買盤較積極");
-    } else if (stock.openPremiumPercent <= -3) {
-      advice.push("⚠️ 開盤偏弱：開盤溢價率低於 -3%，先觀察是否轉強");
-    }
+    if (stock.openPremiumPercent >= 5) advice.push("🚀 開盤高溢價：開盤就強，但也要小心追高風險");
+    else if (stock.openPremiumPercent >= 3) advice.push("✅ 開盤偏強：開盤溢價率超過 3%，早盤買盤較積極");
+    else if (stock.openPremiumPercent <= -3) advice.push("⚠️ 開盤偏弱：開盤溢價率低於 -3%，先觀察是否轉強");
   } else {
     advice.push("ℹ️ 開盤溢價率：目前資料不足，可能 API 未提供開盤價或昨收價");
   }
@@ -718,27 +665,14 @@ function getTradeAdvice(stock: Stock) {
   if (stock.changePercent >= 9.8) {
     advice.push("🔥 強勢追蹤：漲幅接近漲停，屬於今日強勢股");
     advice.push("⚠️ 注意風險：漲幅已高，避免盲目追高");
-  } else if (stock.changePercent >= 7) {
-    advice.push("🚨 警報股：漲幅超過 7%，短線動能強");
-  } else if (stock.changePercent >= 5) {
-    advice.push("⚡ 突破股：漲幅超過 5%，可列入觀察");
-  } else if (stock.changePercent >= 0) {
-    advice.push("🟡 觀察股：目前沒有明顯轉弱");
-  } else {
-    advice.push("🔴 轉弱股：目前漲幅為負，先保守觀察");
-  }
+  } else if (stock.changePercent >= 7) advice.push("🚨 警報股：漲幅超過 7%，短線動能強");
+  else if (stock.changePercent >= 5) advice.push("⚡ 突破股：漲幅超過 5%，可列入觀察");
+  else if (stock.changePercent >= 0) advice.push("🟡 觀察股：目前沒有明顯轉弱");
+  else advice.push("🔴 轉弱股：目前漲幅為負，先保守觀察");
 
-  if (isLowVolumeStrongStock(stock)) {
-    advice.push("🚨 低量強漲：漲幅超過 5%，但成交量低於 10,000 張");
-  }
-
-  if (volumeLots(stock.volume) < 300) {
-    advice.push("⚠️ 成交量偏低：流動性較差，進出要小心");
-  }
-
-  if (stockScore(stock) >= 85) {
-    advice.push("✅ 強度高：符合警報條件，可優先追蹤");
-  }
+  if (isLowVolumeStrongStock(stock)) advice.push("🚨 低量強漲：漲幅超過 5%，但成交量低於 10,000 張");
+  if (volumeLots(stock.volume) < 300) advice.push("⚠️ 成交量偏低：流動性較差，進出要小心");
+  if (stockScore(stock) >= 85) advice.push("✅ 強度高：符合警報條件，可優先追蹤");
 
   return advice;
 }
@@ -752,13 +686,8 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   reasons.push(`買點原因：${buyPoint.reason}`);
   reasons.push(`風險燈號：${risk.title}`);
 
-  if (isSafeWatch(stock)) {
-    reasons.push("安全觀察：漲幅 < 7%，強度 < 90，開盤溢價 < 5%，成交量不太低");
-  }
-
-  if (isChipActive(stock)) {
-    reasons.push("籌碼活躍：換手率 3～10%，量比 > 1，流通市值 < 5 億");
-  }
+  if (isSafeWatch(stock)) reasons.push("安全觀察：漲幅 < 7%，強度 < 90，開盤溢價 < 5%，成交量不太低");
+  if (isChipActive(stock)) reasons.push("籌碼活躍：換手率 3～10%，量比 > 1，流通市值 < 5 億");
 
   if (isMainContinue(stock, strongIndustryNames)) {
     reasons.push("主流續強：高開續強，且屬於今日最強主流前 5 名產業");
@@ -773,10 +702,7 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   else if (stock.changePercent >= 7) reasons.push("漲幅超過 7%");
   else if (stock.changePercent >= 5) reasons.push("漲幅超過 5%，屬於突破股");
 
-  if (isLowVolumeStrongStock(stock)) {
-    reasons.push("低量強漲：漲幅超過 5%，成交量低於 10,000 張");
-  }
-
+  if (isLowVolumeStrongStock(stock)) reasons.push("低量強漲：漲幅超過 5%，成交量低於 10,000 張");
   if (volumeLots(stock.volume) >= 10000) reasons.push("成交量超過 1 萬張");
   else if (volumeLots(stock.volume) >= 3000) reasons.push("成交量放大");
 
@@ -787,7 +713,6 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
 
   return reasons;
 }
-
 function MiniLine() {
   return (
     <div className="mt-1 h-6 w-16">
@@ -917,7 +842,8 @@ function NoticeBox({
 
             <div className="text-right">
               <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-                +{stock.changePercent.toFixed(2)}%
+                {stock.changePercent >= 0 ? "+" : ""}
+                {stock.changePercent.toFixed(2)}%
               </div>
               <div className={textClass}>點我查看</div>
             </div>
@@ -933,6 +859,7 @@ function NoticeBox({
     </div>
   );
 }
+
 function ObserveSummary({
   stock,
   strongIndustryNames,
@@ -949,9 +876,7 @@ function ObserveSummary({
       <div className="mb-2 text-lg font-black text-green-100">
         今日觀察標籤
       </div>
-
       <AlertTags tags={tags} />
-
       <div className="mt-3 text-xs font-bold text-green-100">
         這些標籤用來判斷這檔股票為什麼被列入今日觀察清單。
       </div>
@@ -1073,6 +998,7 @@ function StockRow({
   compact = false,
   badge = "",
   alertTags = [],
+  onRemove,
 }: {
   stock: Stock;
   rank: number;
@@ -1080,86 +1006,96 @@ function StockRow({
   compact?: boolean;
   badge?: string;
   alertTags?: string[];
+  onRemove?: () => void;
 }) {
   const status = stockStatus(stock);
 
   return (
-    <button
-      onClick={onClick}
-      className="mb-2 w-full rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-black p-3 text-left active:scale-[0.99]"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="w-6 text-xl font-black text-red-500">{rank}</div>
+    <div className="mb-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-black p-3">
+      <button onClick={onClick} className="w-full text-left active:scale-[0.99]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-6 text-xl font-black text-red-500">{rank}</div>
 
-          <div className="min-w-0">
-            <div className="truncate text-lg font-black text-white">
-              {stock.name}
-              <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+            <div className="min-w-0">
+              <div className="truncate text-lg font-black text-white">
+                {stock.name}
+                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+              </div>
+
+              <div
+                className={
+                  compact
+                    ? "mt-1 text-xl font-black text-white"
+                    : "mt-1 text-2xl font-black text-white"
+                }
+              >
+                {priceText(stock.price)}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+
+              <AlertTags tags={alertTags} />
             </div>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
+              {stock.changePercent >= 0 ? "+" : ""}
+              {stock.changePercent.toFixed(2)}%
+            </div>
+
+            <MiniLine />
 
             <div
               className={
-                compact
-                  ? "mt-1 text-xl font-black text-white"
-                  : "mt-1 text-2xl font-black text-white"
+                status === "強勢"
+                  ? "text-xs font-bold text-green-400"
+                  : status === "突破"
+                    ? "text-xs font-bold text-yellow-400"
+                    : status === "安全觀察"
+                      ? "text-xs font-bold text-emerald-400"
+                      : status === "轉弱"
+                        ? "text-xs font-bold text-slate-400"
+                        : "text-xs font-bold text-orange-300"
               }
             >
-              {priceText(stock.price)}
+              {status}
             </div>
 
-            <div className="mt-1 text-xs font-bold text-slate-500">
-              {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
-            </div>
-
-            <AlertTags tags={alertTags} />
+            {badge && (
+              <div
+                className={
+                  badge === "龍頭"
+                    ? "mt-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+                    : badge === "跟漲"
+                      ? "mt-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                      : badge === "安全"
+                        ? "mt-1 rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                        : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
+                }
+              >
+                {badge}
+              </div>
+            )}
           </div>
         </div>
+      </button>
 
-        <div className="shrink-0 text-right">
-          <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-            {stock.changePercent >= 0 ? "+" : ""}
-            {stock.changePercent.toFixed(2)}%
-          </div>
-
-          <MiniLine />
-
-          <div
-            className={
-              status === "強勢"
-                ? "text-xs font-bold text-green-400"
-                : status === "突破"
-                  ? "text-xs font-bold text-yellow-400"
-                  : status === "安全觀察"
-                    ? "text-xs font-bold text-emerald-400"
-                    : status === "轉弱"
-                      ? "text-xs font-bold text-slate-400"
-                      : "text-xs font-bold text-orange-300"
-            }
-          >
-            {status}
-          </div>
-
-          {badge && (
-            <div
-              className={
-                badge === "龍頭"
-                  ? "mt-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
-                  : badge === "跟漲"
-                    ? "mt-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
-                    : badge === "安全"
-                      ? "mt-1 rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
-                      : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
-              }
-            >
-              {badge}
-            </div>
-          )}
-        </div>
-      </div>
-    </button>
+      {onRemove && (
+        <button
+          onClick={onRemove}
+          className="mt-3 w-full rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-slate-200"
+        >
+          從自選刪除
+        </button>
+      )}
+    </div>
   );
 }
+
 function StockDetail({
   stock,
   onBack,
@@ -1231,11 +1167,8 @@ function StockDetail({
           </div>
 
           <BuyPointBox stock={stock} />
-
           <ObserveSummary stock={stock} strongIndustryNames={strongIndustryNames} />
-
           <RiskBox stock={stock} />
-
           <ChipBox stock={stock} />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
@@ -1302,7 +1235,6 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">操作提醒</div>
-
             <div className="space-y-2">
               {tradeAdvice.map((item) => (
                 <div
@@ -1317,7 +1249,6 @@ function StockDetail({
 
           <div className="mt-5 rounded-2xl bg-slate-900 p-4">
             <div className="mb-3 text-lg font-black">警報原因</div>
-
             <div className="space-y-2">
               {alertReasons.map((reason) => (
                 <div
@@ -1373,10 +1304,13 @@ function StockDetail({
     </div>
   );
 }
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
   const [watchCodes, setWatchCodes] = useState<string[]>(defaultWatchCodes);
+  const [newWatchCode, setNewWatchCode] = useState("");
+  const [watchMessage, setWatchMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -1457,7 +1391,7 @@ export default function App() {
     const cleanCodes = Array.from(
       new Set(
         codes
-          .map((code) => String(code).trim())
+          .map((code) => String(code).trim().replace(/\D/g, "").slice(0, 4))
           .filter((code) => /^\d{4}$/.test(code))
       )
     );
@@ -1467,11 +1401,37 @@ export default function App() {
     loadStocks(cleanCodes, true);
   }
 
+  function addWatchCode() {
+    const code = newWatchCode.trim().replace(/\D/g, "").slice(0, 4);
+
+    if (!/^\d{4}$/.test(code)) {
+      setWatchMessage("請輸入 4 碼股票代號");
+      return;
+    }
+
+    if (watchCodes.includes(code)) {
+      setWatchMessage(`${code} 已經在自選股`);
+      setNewWatchCode("");
+      return;
+    }
+
+    saveWatchCodes([...watchCodes, code]);
+    setNewWatchCode("");
+    setWatchMessage(`${code} 已加入自選`);
+    setTab("watch");
+  }
+
+  function removeWatchCode(code: string) {
+    saveWatchCodes(watchCodes.filter((item) => item !== code));
+    setWatchMessage(`${code} 已從自選刪除`);
+  }
+
   function toggleSelectedStockWatch(stock: Stock) {
     if (watchCodes.includes(stock.code)) {
-      saveWatchCodes(watchCodes.filter((code) => code !== stock.code));
+      removeWatchCode(stock.code);
     } else {
       saveWatchCodes([...watchCodes, stock.code]);
+      setWatchMessage(`${stock.code} 已加入自選`);
     }
   }
 
@@ -1537,14 +1497,17 @@ export default function App() {
     () => sortStocks(watchListStocks, sortKey),
     [watchListStocks, sortKey]
   );
+
   const industryGroups = useMemo(
     () => buildIndustryGroups(sortedStocks, sortKey),
     [sortedStocks, sortKey]
   );
+
   const mainIndustryGroups = useMemo(
     () => industryGroups.filter((group) => group.industry !== "其他"),
     [industryGroups]
   );
+
   const topIndustries = mainIndustryGroups.slice(0, 5);
   const topIndustryNames = topIndustries.map((group) => group.industry);
 
@@ -1634,6 +1597,7 @@ export default function App() {
       );
     });
   }, [tabStocks, searchText, filterKey, topIndustryNames]);
+
   const filteredIndustryGroups = useMemo(() => {
     const keyword = searchText.trim().toLowerCase();
 
@@ -1864,6 +1828,40 @@ export default function App() {
           回到盤中模式
         </button>
 
+        {tab === "watch" && (
+          <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+            <div className="mb-2 text-sm font-black text-white">自選股管理</div>
+
+            <div className="flex gap-2">
+              <input
+                value={newWatchCode}
+                onChange={(event) => setNewWatchCode(event.target.value)}
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="輸入股票代號，例如 2330"
+                className="min-w-0 flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
+              />
+
+              <button
+                onClick={addWatchCode}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-black text-white"
+              >
+                加入
+              </button>
+            </div>
+
+            {watchMessage && (
+              <div className="mt-2 text-xs font-bold text-emerald-300">
+                {watchMessage}
+              </div>
+            )}
+
+            <div className="mt-2 text-xs font-bold text-slate-500">
+              自選股會存在手機瀏覽器，下次打開仍會保留。
+            </div>
+          </div>
+        )}
+
         <div className="mb-3">
           <div className="flex gap-2">
             <input
@@ -1930,6 +1928,7 @@ export default function App() {
             </div>
           </div>
         )}
+
         {filterKey === "safeWatch" && (
           <div className="mb-3 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm font-bold text-emerald-100">
             安全觀察：漲幅 &lt; 7%，強度 &lt; 90，開盤溢價 &lt; 5%，成交量不太低。
@@ -2098,6 +2097,11 @@ export default function App() {
                       : getAlertTags(stock, topIndustryNames)
                   }
                   onClick={() => setSelectedStock(stock)}
+                  onRemove={
+                    tab === "watch"
+                      ? () => removeWatchCode(stock.code)
+                      : undefined
+                  }
                 />
               ))
             )}
