@@ -183,6 +183,18 @@ function chipLineText(stock: Stock) {
   return parts.join("｜");
 }
 
+function isNineTenWindow() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const start = 9 * 60;
+  const end = 9 * 60 + 15;
+
+  return isWeekday && totalMinutes >= start && totalMinutes <= end;
+}
+
 function getMarketStatus() {
   const now = new Date();
   const day = now.getDay();
@@ -298,7 +310,6 @@ function normalizeStock(item: any): Stock {
     changePercent,
     volume: num(item.TradeVolume ?? item.volume ?? item.Volume),
     industry: item.industry || getIndustry(code),
-
     turnoverRate: nullableNum(item.turnoverRate),
     volumeRatio: nullableNum(item.volumeRatio),
     floatMarketCapYi: nullableNum(item.floatMarketCapYi),
@@ -1733,6 +1744,31 @@ export default function App() {
           <div className="text-sm font-black">{marketStatus.title}</div>
           <div className="mt-1 text-xs font-bold">{marketStatus.text}</div>
         </div>
+
+        {isNineTenWindow() && (
+          <div className="mb-3 rounded-2xl border border-orange-500 bg-orange-950/70 p-3 text-orange-100">
+            <div className="text-sm font-black">⏰ 9:10 開盤快篩時間</div>
+            <div className="mt-1 text-xs font-bold">
+              建議先看「9:10快篩」與「9:10最強」，再確認主流續強、高開續強。
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={applyNineTenMode}
+                className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
+              >
+                開啟 9:10快篩
+              </button>
+
+              <button
+                onClick={applyStrong910Mode}
+                className="rounded-xl bg-green-500 px-3 py-2 text-xs font-black text-black"
+              >
+                開啟 9:10最強
+              </button>
+            </div>
+          </div>
+        )}
 
         <header className="mb-3">
           <div className="flex items-center justify-between gap-3">
