@@ -12,6 +12,82 @@ const defaultWatchListCodes = [
   "6405",
 ];
 
+const yahooBackupCodes = [
+  "2330",
+  "2317",
+  "2454",
+  "2303",
+  "3711",
+  "3034",
+  "3035",
+  "2379",
+  "3443",
+  "3661",
+  "2408",
+  "2308",
+  "2327",
+  "3037",
+  "8046",
+  "2313",
+  "2367",
+  "3042",
+  "4958",
+  "2356",
+  "2357",
+  "2382",
+  "3231",
+  "2301",
+  "6669",
+  "3017",
+  "3714",
+  "6168",
+  "6405",
+  "6278",
+  "3481",
+  "2409",
+  "3008",
+  "3406",
+  "2603",
+  "2609",
+  "2615",
+  "2618",
+  "2881",
+  "2882",
+  "2884",
+  "2886",
+  "2891",
+  "2892",
+  "5871",
+  "5876",
+  "1301",
+  "1303",
+  "6505",
+  "1717",
+  "1722",
+  "4722",
+  "2002",
+  "2014",
+  "2027",
+  "1101",
+  "1102",
+  "2201",
+  "2207",
+  "2227",
+  "1216",
+  "1227",
+  "1707",
+  "1760",
+  "1783",
+  "2911",
+  "2912",
+  "5903",
+  "9904",
+  "9907",
+  "9914",
+  "9926",
+  "8374",
+];
+
 type StockItem = {
   code: string;
   name: string;
@@ -58,6 +134,7 @@ const stockIndustryMap: Record<string, string> = {
   "2382": "電腦週邊",
   "3231": "電腦週邊",
   "6669": "電腦週邊",
+  "3017": "電腦週邊",
 
   "2303": "半導體",
   "2330": "半導體",
@@ -566,6 +643,15 @@ async function enrichWithYahoo(stocks: StockItem[]) {
   });
 }
 
+async function fetchYahooBackupRanking() {
+  const yahooStocks = await fetchYahooQuotes(yahooBackupCodes);
+
+  return yahooStocks
+    .filter((stock) => stock.price > 0 && stock.name)
+    .sort((a, b) => b.changePercent - a.changePercent)
+    .slice(0, 50);
+}
+
 async function buildWatchList(codes: string[], rankedStocks: StockItem[]) {
   const rankedMap = new Map<string, StockItem>();
 
@@ -662,9 +748,20 @@ export default async function handler(req: Request) {
     const watchCodes = getWatchCodesFromUrl(req);
 
     let rankedStocks = await fetchTwseRanking();
+    let source = "twse_recent_10_days";
 
     if (rankedStocks.length > 0) {
       rankedStocks = await enrichWithYahoo(rankedStocks);
+    }
+
+    rankedStocks = rankedStocks
+      .filter((stock) => stock.price > 0 && stock.name)
+      .sort((a, b) => b.changePercent - a.changePercent)
+      .slice(0, 50);
+
+    if (rankedStocks.length === 0) {
+      rankedStocks = await fetchYahooBackupRanking();
+      source = "yahoo_backup_pool";
     }
 
     rankedStocks = rankedStocks
@@ -680,7 +777,7 @@ export default async function handler(req: Request) {
       return responseJson({
         ok: false,
         source: "fallback",
-        message: "目前沒有取得有效台股排行資料，請稍後再試。",
+        message: "TWSE 與 Yahoo 備援都沒有取得有效資料，請稍後再試。",
         rankedStocks: fallback,
         watchList,
         updatedAt: new Date().toISOString(),
@@ -689,8 +786,11 @@ export default async function handler(req: Request) {
 
     return responseJson({
       ok: true,
-      source: "twse+yahoo_recent_10_days",
-      message: "台股資料取得成功",
+      source,
+      message:
+        source === "yahoo_backup_pool"
+          ? "TWSE 抓不到資料，已改用 Yahoo 備援股票池排行"
+          : "台股資料取得成功",
       rankedStocks,
       watchList,
       fields: {
