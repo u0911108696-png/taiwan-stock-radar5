@@ -28,10 +28,14 @@ type MoreView =
   | "settings"
   | "data"
   | "buyRadar"
-  | "sellRadar";
+  | "sellRadar"
+  | "waitRadar"
+  | "breakoutRadar"
+  | "noEntryRadar";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 type ObserveGroup = "明天優先" | "等回測" | "不追高";
+type EntryMode = "保守" | "標準" | "積極";
 
 type Settings = {
   maxPrice: number;
@@ -42,6 +46,7 @@ type Settings = {
   pullbackRangePercent: number;
   stopLossPercent: number;
   hotPercent: number;
+  entryMode: EntryMode;
 };
 
 type ApiResponse = {
@@ -72,6 +77,7 @@ const defaultSettings: Settings = {
   pullbackRangePercent: 1.5,
   stopLossPercent: 1,
   hotPercent: 8,
+  entryMode: "標準",
 };
 
 const industryMap: Record<string, string> = {
@@ -183,6 +189,12 @@ function getMarketStatus() {
   return "收盤後";
 }
 
+function requiredEntryCount(settings: Settings) {
+  if (settings.entryMode === "保守") return 5;
+  if (settings.entryMode === "積極") return 3;
+  return 4;
+}
+
 function isHot(stock: Stock, settings: Settings) {
   return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
 }
@@ -255,6 +267,55 @@ function getStatus(stock: Stock, settings: Settings) {
   return "觀察";
 }
 
+function getEntryConditions(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const conditions = [
+    { label: "站上開盤價", ok: stock.price >= stock.openPrice },
+    { label: "漲幅2%～6%", ok: stock.changePercent >= 2 && stock.changePercent <= 6 },
+    { label: "未過熱", ok: !isHot(stock, settings) },
+    { label: "主流產業", ok: mainIndustries.includes(stock.industry) },
+    { label: "沒跌破昨收", ok: stock.price >= stock.previousClose },
+    { label: `股價${settings.maxPrice}元內`, ok: stock.price > 0 && stock.price <= settings.maxPrice },
+  ];
+
+  return conditions;
+}
+
+function getNoEntryReason(stock: Stock, settings: Settings) {
+  if (stock.price > settings.maxPrice) return `股價超過${settings.maxPrice}元`;
+  if (isHot(stock, settings)) return "過熱，不追高";
+  if (stock.price < stock.openPrice) return "跌破開盤價";
+  if (stock.changePercent < 2) return "漲幅低於2%";
+  if (stock.price < stock.previousClose) return "跌破昨收";
+  return "";
+}
+
+function getEntryTiming(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const noReason = getNoEntryReason(stock, settings);
+  if (noReason) return "不進場";
+
+  const count = getEntryConditions(stock, mainIndustries, settings).filter((item) => item.ok).length;
+  const required = requiredEntryCount(settings);
+
+  if (isPullback(stock, settings)) return "等回測";
+  if (isBreakout(stock) && count >= required) return "可進場";
+  if (count >= required) return "可觀察";
+  return "等訊號";
+}
+
+function getEntryLight(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const timing = getEntryTiming(stock, mainIndustries, settings);
+
+  if (timing === "可進場" || timing === "可觀察") {
+    return { label: "🟢 綠燈", text: "可觀察進場", tone: "text-emerald-300" };
+  }
+
+  if (timing === "等回測" || timing === "等訊號") {
+    return { label: "🟡 黃燈", text: timing === "等回測" ? "等回測進場" : "等更明確訊號", tone: "text-yellow-300" };
+  }
+
+  return { label: "🔴 紅燈", text: "不要進場", tone: "text-red-300" };
+}
+
 function getEntryType(stock: Stock, mainIndustries: string[], settings: Settings) {
   if (isHot(stock, settings)) return "過熱型";
   if (isWeak(stock)) return "轉弱型";
@@ -265,23 +326,24 @@ function getEntryType(stock: Stock, mainIndustries: string[], settings: Settings
 }
 
 function getBuyLabel(stock: Stock, mainIndustries: string[], settings: Settings) {
-  if (isHot(stock, settings)) return "不追高";
-  if (isWeak(stock)) return "暫不進場";
-  if (isPullback(stock, settings)) return "回測買點";
-  if (isBreakout(stock)) return "突破買點";
-  if (mainIndustries.includes(stock.industry) && stock.price >= stock.openPrice && stock.changePercent >= 2) return "轉強買點";
-  return "等待買點";
+  const timing = getEntryTiming(stock, mainIndustries, settings);
+
+  if (timing === "不進場") return "不進場";
+  if (timing === "等回測") return "等回測";
+  if (timing === "可進場") return "可進場";
+  if (timing === "可觀察") return "可觀察";
+  return "等訊號";
 }
 
 function getBuySuggestion(stock: Stock, mainIndustries: string[], settings: Settings) {
-  const label = getBuyLabel(stock, mainIndustries, settings);
+  const timing = getEntryTiming(stock, mainIndustries, settings);
+  const noReason = getNoEntryReason(stock, settings);
 
-  if (label === "不追高") return "漲幅偏大，不追高，等回測。";
-  if (label === "暫不進場") return "轉弱或跌破開盤，先不進場。";
-  if (label === "回測買點") return "可觀察開盤價附近是否守住。";
-  if (label === "突破買點") return "突破後可觀察是否續強，不要追過熱。";
-  if (label === "轉強買點") return "站上開盤且主流產業，可列入觀察。";
-  return "尚未到好買點，等待更明確訊號。";
+  if (timing === "不進場") return `不要進場：${noReason}`;
+  if (timing === "等回測") return `等價格回到開盤價 ±${settings.pullbackRangePercent}% 並守住開盤。`;
+  if (timing === "可進場") return "突破條件符合，可觀察進場，但不追過熱。";
+  if (timing === "可觀察") return "條件多數符合，可列入進場觀察。";
+  return "還沒到進場時機，等站上開盤或轉強。";
 }
 
 function getSellSuggestion(stock: Stock, settings: Settings) {
@@ -296,15 +358,13 @@ function getSellSuggestion(stock: Stock, settings: Settings) {
 }
 
 function getConclusion(stock: Stock, mainIndustries: string[], settings: Settings) {
-  const score = scoreStock(stock, mainIndustries, settings);
-  const buyLabel = getBuyLabel(stock, mainIndustries, settings);
+  const timing = getEntryTiming(stock, mainIndustries, settings);
 
-  if (buyLabel === "不追高") return "不追高";
-  if (buyLabel === "暫不進場") return "轉弱小心";
-  if (buyLabel === "回測買點") return "等回測";
-  if (score >= 80) return "可觀察";
-  if (score >= 60) return "小心觀察";
-  return "暫不追";
+  if (timing === "可進場") return "可觀察進場";
+  if (timing === "可觀察") return "可觀察";
+  if (timing === "等回測") return "等回測";
+  if (timing === "不進場") return "不要進場";
+  return "等待訊號";
 }
 
 function getSignal(top50: Stock[], alerts: Stock[], hotList: Stock[]) {
@@ -343,6 +403,17 @@ function getKLinks(code: string, name: string) {
     goodinfo: `https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID=${code}`,
     google: `https://www.google.com/search?q=${code}+${encodeURIComponent(name)}+K線`,
   };
+}
+
+function getDistanceToEntry(stock: Stock, settings: Settings) {
+  if (stock.openPrice <= 0) return 999;
+  const buyLow = stock.openPrice * (1 - settings.pullbackRangePercent / 100);
+  const buyHigh = stock.openPrice * (1 + settings.pullbackRangePercent / 100);
+
+  if (stock.price >= buyLow && stock.price <= buyHigh) return 0;
+
+  if (stock.price > buyHigh) return Math.abs(stock.price - buyHigh) / buyHigh;
+  return Math.abs(stock.price - buyLow) / buyLow;
 }
 
 function MiniCard({
@@ -446,7 +517,8 @@ function StockCard({
   const direction = priceDirections[stock.code];
   const oldRank = previousRanks[stock.code];
   const rankText = !oldRank ? "新進" : oldRank > rank ? `↑${oldRank - rank}` : oldRank < rank ? `↓${rank - oldRank}` : "持平";
-  const buyLabel = getBuyLabel(stock, mainIndustries, settings);
+  const entryLight = getEntryLight(stock, mainIndustries, settings);
+  const timing = getEntryTiming(stock, mainIndustries, settings);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -470,7 +542,7 @@ function StockCard({
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className="rounded-full bg-slate-800 px-3 py-1">{getStatus(stock, settings)}</span>
-          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{buyLabel}</span>
+          <span className={`rounded-full bg-black/30 px-3 py-1 ${entryLight.tone}`}>{timing}</span>
           <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">分數 {score}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${getDirectionTone(direction)}`}>
             {getDirectionText(direction)}
@@ -480,7 +552,7 @@ function StockCard({
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          買點：{buyLabel}｜賣點：{getSellSuggestion(stock, settings)}
+          進場：{entryLight.label} {entryLight.text}｜賣點：{getSellSuggestion(stock, settings)}
         </div>
       </button>
 
@@ -724,24 +796,17 @@ export default function App() {
   const mustWatch3 = useMemo(() => top10.slice(0, 3), [top10]);
 
   const canEntryList = useMemo(
-    () =>
-      top10.filter((stock) =>
-        ["突破買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
-      ),
+    () => top10.filter((stock) => ["可進場", "可觀察"].includes(getEntryTiming(stock, mainIndustries, settings))),
     [top10, mainIndustries, settings]
   );
 
   const waitPullbackTopList = useMemo(
-    () =>
-      top10.filter((stock) =>
-        getBuyLabel(stock, mainIndustries, settings) === "回測買點" ||
-        getBuyLabel(stock, mainIndustries, settings) === "等待買點"
-      ),
+    () => top10.filter((stock) => ["等回測", "等訊號"].includes(getEntryTiming(stock, mainIndustries, settings))),
     [top10, mainIndustries, settings]
   );
 
   const noChaseTopList = useMemo(
-    () => top50.filter((stock) => getBuyLabel(stock, mainIndustries, settings) === "不追高").slice(0, 10),
+    () => top50.filter((stock) => getEntryTiming(stock, mainIndustries, settings) === "不進場").slice(0, 10),
     [top50, mainIndustries, settings]
   );
 
@@ -762,10 +827,40 @@ export default function App() {
         .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
         .filter((stock) => !isHot(stock, settings))
         .filter((stock) => !isWeak(stock))
-        .filter((stock) =>
-          ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
-        )
+        .filter((stock) => ["可進場", "可觀察", "等回測"].includes(getEntryTiming(stock, mainIndustries, settings)))
+        .sort((a, b) => getDistanceToEntry(a, settings) - getDistanceToEntry(b, settings))
+        .slice(0, 30),
+    [top50, mainIndustries, settings]
+  );
+
+  const waitRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
+        .filter((stock) => !isHot(stock, settings))
+        .filter((stock) => stock.price > stock.openPrice * (1 + settings.pullbackRangePercent / 100))
+        .filter((stock) => scoreStock(stock, mainIndustries, settings) >= 50)
+        .sort((a, b) => getDistanceToEntry(a, settings) - getDistanceToEntry(b, settings))
+        .slice(0, 30),
+    [top50, mainIndustries, settings]
+  );
+
+  const breakoutRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainIndustries.includes(stock.industry))
+        .filter((stock) => stock.price >= stock.openPrice)
+        .filter((stock) => stock.changePercent >= 3)
+        .filter((stock) => !isHot(stock, settings))
         .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
+        .slice(0, 30),
+    [top50, mainIndustries, settings]
+  );
+
+  const noEntryRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => getEntryTiming(stock, mainIndustries, settings) === "不進場")
         .slice(0, 30),
     [top50, mainIndustries, settings]
   );
@@ -788,16 +883,8 @@ export default function App() {
     [favoriteCodes, stocks]
   );
 
-  const observeAlerts = useMemo(
-    () => observeStocks.filter((stock) => isAlert(stock, settings) || isWeak(stock) || isHot(stock, settings)),
-    [observeStocks, settings]
-  );
-
   const observeBuyAlerts = useMemo(
-    () =>
-      observeStocks.filter((stock) =>
-        ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
-      ),
+    () => observeStocks.filter((stock) => ["可進場", "可觀察", "等回測"].includes(getEntryTiming(stock, mainIndustries, settings))),
     [observeStocks, mainIndustries, settings]
   );
 
@@ -818,7 +905,7 @@ export default function App() {
         isAlert(stock, settings) ||
         isWeak(stock) ||
         stock.changePercent >= 3 ||
-        ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
+        ["可進場", "可觀察", "等回測"].includes(getEntryTiming(stock, mainIndustries, settings))
     );
   }, [favoriteStocksRaw, settings, mainIndustries]);
 
@@ -889,6 +976,9 @@ export default function App() {
       if (moreView === "open910") return sortList(open910List);
       if (moreView === "buyRadar") return sortList(buyRadarList);
       if (moreView === "sellRadar") return sortList(sellRadarList);
+      if (moreView === "waitRadar") return sortList(waitRadarList);
+      if (moreView === "breakoutRadar") return sortList(breakoutRadarList);
+      if (moreView === "noEntryRadar") return sortList(noEntryRadarList);
     }
 
     return [];
@@ -905,6 +995,9 @@ export default function App() {
     open910List,
     buyRadarList,
     sellRadarList,
+    waitRadarList,
+    breakoutRadarList,
+    noEntryRadarList,
     searchText,
     sortKey,
     mainIndustries,
@@ -961,13 +1054,15 @@ export default function App() {
     const nextGroups = { ...groups };
 
     observeStocks.forEach((stock) => {
-      if (isWeak(stock)) return;
+      if (getEntryTiming(stock, mainIndustries, settings) === "不進場") return;
 
       keep.push(stock.code);
 
-      if (isHot(stock, settings)) nextGroups[stock.code] = "不追高";
-      else if (isPullback(stock, settings)) nextGroups[stock.code] = "等回測";
-      else if (scoreStock(stock, mainIndustries, settings) >= 80) nextGroups[stock.code] = "明天優先";
+      const timing = getEntryTiming(stock, mainIndustries, settings);
+
+      if (timing === "可進場" || timing === "可觀察") nextGroups[stock.code] = "明天優先";
+      else if (timing === "等回測" || timing === "等訊號") nextGroups[stock.code] = "等回測";
+      else nextGroups[stock.code] = "不追高";
     });
 
     setObserveCodes(keep);
@@ -977,7 +1072,7 @@ export default function App() {
   }
 
   function removeWeakObserve() {
-    const weakCodes = new Set(observeStocks.filter(isWeak).map((s) => s.code));
+    const weakCodes = new Set(observeStocks.filter((stock) => getEntryTiming(stock, mainIndustries, settings) === "不進場").map((s) => s.code));
     const next = observeCodes.filter((code) => !weakCodes.has(code));
     setObserveCodes(next);
     localStorage.setItem(OBSERVE_KEY, JSON.stringify(next));
@@ -985,7 +1080,7 @@ export default function App() {
 
   function addActiveFavoritesToObserve() {
     const codes = favoriteStocksRaw
-      .filter((stock) => isAlert(stock, settings) || stock.changePercent >= 3)
+      .filter((stock) => ["可進場", "可觀察", "等回測"].includes(getEntryTiming(stock, mainIndustries, settings)))
       .map((stock) => stock.code);
 
     const next = Array.from(new Set([...observeCodes, ...codes])).slice(0, 30);
@@ -1015,13 +1110,20 @@ export default function App() {
     const isFavorite = favoriteCodes.includes(selectedStock.code);
     const isObserve = observeCodes.includes(selectedStock.code);
 
-    const buyLabel = getBuyLabel(selectedStock, mainIndustries, settings);
+    const entryLight = getEntryLight(selectedStock, mainIndustries, settings);
+    const entryTiming = getEntryTiming(selectedStock, mainIndustries, settings);
     const entryType = getEntryType(selectedStock, mainIndustries, settings);
+    const conditions = getEntryConditions(selectedStock, mainIndustries, settings);
+    const passCount = conditions.filter((item) => item.ok).length;
+    const requiredCount = requiredEntryCount(settings);
+    const noEntryReason = getNoEntryReason(selectedStock, settings);
 
     const buyLow = selectedStock.openPrice * (1 - settings.pullbackRangePercent / 100);
     const buyHigh = selectedStock.openPrice * (1 + settings.pullbackRangePercent / 100);
     const stopByOpen = selectedStock.openPrice * (1 - settings.stopLossPercent / 100);
     const stopByPrev = selectedStock.previousClose * (1 - settings.stopLossPercent / 100);
+
+    const tooFarFromBuyZone = selectedStock.price > buyHigh;
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -1047,6 +1149,16 @@ export default function App() {
 
               <div className={`text-right text-3xl font-black ${selectedStock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
                 {formatPercent(selectedStock.changePercent)}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-black/30 p-4">
+              <div className="text-xs font-bold text-slate-500">現在進場判斷</div>
+              <div className={`mt-1 text-3xl font-black ${entryLight.tone}`}>
+                {entryLight.label} {entryLight.text}
+              </div>
+              <div className="mt-2 text-sm font-bold text-slate-300">
+                條件符合 {passCount}/{conditions.length}，目前模式：{settings.entryMode}，需要至少 {requiredCount} 個條件。
               </div>
             </div>
 
@@ -1085,19 +1197,47 @@ export default function App() {
           </section>
 
           <section className="mt-4 rounded-3xl border border-emerald-500/50 bg-emerald-950/20 p-5">
-            <h2 className="text-xl font-black">進場買點</h2>
+            <h2 className="text-xl font-black">明確進場價位</h2>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <DetailRow label="買點標籤" value={buyLabel} />
+              <DetailRow label="現在判斷" value={entryTiming} />
               <DetailRow label="進場型態" value={entryType} />
-              <DetailRow label="回測買點低" value={`${buyLow.toFixed(2)} 元`} />
-              <DetailRow label="回測買點高" value={`${buyHigh.toFixed(2)} 元`} />
-              <DetailRow label="突破買點" value={`${selectedStock.openPrice.toFixed(2)} 元以上續強`} />
-              <DetailRow label="轉強買點" value={`站回開盤 ${selectedStock.openPrice.toFixed(2)} 元`} />
+              <DetailRow label="可觀察進場價低" value={`${buyLow.toFixed(2)} 元`} />
+              <DetailRow label="可觀察進場價高" value={`${buyHigh.toFixed(2)} 元`} />
+              <DetailRow label="等待回測價" value={`${buyLow.toFixed(2)}～${buyHigh.toFixed(2)} 元`} />
+              <DetailRow label="失敗價位" value={`${stopByOpen.toFixed(2)} 元以下`} />
             </div>
 
             <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-emerald-100">
               進場建議：{getBuySuggestion(selectedStock, mainIndustries, settings)}
+            </div>
+
+            {tooFarFromBuyZone && (
+              <div className="mt-3 rounded-2xl bg-red-950/50 p-3 text-sm font-black text-red-100">
+                ⚠️ 現在離買點區太遠，不追價，等回測。
+              </div>
+            )}
+
+            {noEntryReason && (
+              <div className="mt-3 rounded-2xl bg-red-950/50 p-3 text-sm font-black text-red-100">
+                禁止進場原因：{noEntryReason}
+              </div>
+            )}
+          </section>
+
+          <section className="mt-4 rounded-3xl border border-cyan-500/50 bg-cyan-950/20 p-5">
+            <h2 className="text-xl font-black">進場條件清單</h2>
+
+            <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-black">
+              {conditions.map((item) => (
+                <div key={item.label} className={`rounded-2xl p-3 ${item.ok ? "bg-emerald-500/20 text-emerald-200" : "bg-red-500/20 text-red-200"}`}>
+                  {item.ok ? "✅" : "❌"} {item.label}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-cyan-100">
+              立即進場條件：至少符合 {requiredCount} 個條件，且不能有過熱、跌破開盤、漲幅低於2%、超過股價上限。
             </div>
           </section>
 
@@ -1113,16 +1253,6 @@ export default function App() {
 
             <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-red-100">
               賣出建議：{getSellSuggestion(selectedStock, settings)}
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-cyan-500/50 bg-cyan-950/20 p-5">
-            <h2 className="text-xl font-black">進階摘要</h2>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <DetailRow label="50強排名" value={selectedRank ? `第 ${selectedRank} 名` : "不在50強"} />
-              <DetailRow label="產業排名" value={selectedIndustryRank ? `${selectedStock.industry} 第 ${selectedIndustryRank}` : "--"} />
-              <DetailRow label="追高風險" value={isHot(selectedStock, settings) ? "高" : selectedStock.changePercent >= 5 ? "中" : "低"} />
-              <DetailRow label="狀態" value={getStatus(selectedStock, settings)} />
             </div>
           </section>
 
@@ -1142,29 +1272,11 @@ export default function App() {
           </section>
 
           <section className="mt-4 rounded-3xl border border-yellow-500/50 bg-yellow-950/20 p-5">
-            <h2 className="text-xl font-black">買進前檢查表</h2>
-            <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-black">
-              {[
-                [`股價${settings.maxPrice}內`, selectedStock.price <= settings.maxPrice],
-                ["主流產業", mainIndustries.includes(selectedStock.industry)],
-                ["未過熱", !isHot(selectedStock, settings)],
-                ["未轉弱", !isWeak(selectedStock)],
-                ["有買點", !["不追高", "暫不進場", "等待買點"].includes(buyLabel)],
-                ["在觀察", isObserve],
-              ].map(([label, ok]: any) => (
-                <div key={label} className={`rounded-2xl p-3 ${ok ? "bg-emerald-500/20 text-emerald-200" : "bg-red-500/20 text-red-200"}`}>
-                  {ok ? "✅" : "❌"} {label}
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-yellow-500/50 bg-yellow-950/20 p-5">
             <h2 className="text-xl font-black">明日操作劇本</h2>
             <div className="mt-3 space-y-2 text-sm font-black text-yellow-100">
-              <div className="rounded-2xl bg-black/30 p-3">1. 開高太多不追，等回測買點區。</div>
-              <div className="rounded-2xl bg-black/30 p-3">2. 守住開盤價並續強，才列優先觀察。</div>
-              <div className="rounded-2xl bg-black/30 p-3">3. 跌破開盤停損區或昨收停損區，移出觀察。</div>
+              <div className="rounded-2xl bg-black/30 p-3">1. 開高太多不追，等回測到 {buyLow.toFixed(2)}～{buyHigh.toFixed(2)} 元。</div>
+              <div className="rounded-2xl bg-black/30 p-3">2. 守住開盤價並符合 {requiredCount} 個以上條件，才列進場觀察。</div>
+              <div className="rounded-2xl bg-black/30 p-3">3. 跌破 {stopByOpen.toFixed(2)} 元或昨收停損區，移出觀察。</div>
             </div>
           </section>
 
@@ -1249,7 +1361,7 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股進出場買賣點版</div>
+              <div className="text-sm font-bold text-slate-400">台股明確進場時機版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">今日儀表板</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 {signal.text}
@@ -1279,11 +1391,11 @@ export default function App() {
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard title="盤勢燈號" value={signal.title} sub={signal.text} tone={signal.tone} onClick={() => goMore("today")} />
-          <MiniCard title="買點雷達" value={buyRadarList.length} sub="接近買點" tone="text-emerald-300" onClick={() => goMore("buyRadar")} />
+          <MiniCard title="最接近進場" value={buyRadarList.length} sub="按接近買點排序" tone="text-emerald-300" onClick={() => goMore("buyRadar")} />
+          <MiniCard title="等待回測" value={waitRadarList.length} sub="太高等回測" tone="text-yellow-300" onClick={() => goMore("waitRadar")} />
+          <MiniCard title="突破進場" value={breakoutRadarList.length} sub="主流突破未過熱" tone="text-cyan-300" onClick={() => goMore("breakoutRadar")} />
+          <MiniCard title="禁止進場" value={noEntryRadarList.length} sub="過熱 / 轉弱 / 超價" tone="text-red-300" onClick={() => goMore("noEntryRadar")} />
           <MiniCard title="賣點雷達" value={sellRadarList.length} sub="跌破 / 過熱" tone="text-red-300" onClick={() => goMore("sellRadar")} />
-          <MiniCard title="今日必看" value={mustWatch3.length} sub="最優先3檔" tone="text-cyan-300" onClick={() => setTab("top")} />
-          <MiniCard title="主流產業" value={mainIndustries[0] || "--"} sub={mainIndustries.slice(0, 3).join("、") || "尚無資料"} tone="text-cyan-300" onClick={() => goMore("industry")} />
-          <MiniCard title="即時警報" value={realTime200Alerts.length} sub="200元內 + 未過熱" tone="text-orange-300" onClick={() => goMore("alerts")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
@@ -1333,16 +1445,14 @@ export default function App() {
           <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
             <h2 className="text-xl font-black">更多功能</h2>
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="買點雷達" sub="接近買點股票" badge={buyRadarList.length} tone="text-emerald-300" onClick={() => setMoreView("buyRadar")} />
+              <ActionCard title="最接近進場" sub="買點區排序" badge={buyRadarList.length} tone="text-emerald-300" onClick={() => setMoreView("buyRadar")} />
+              <ActionCard title="等待回測" sub="太高等回測" badge={waitRadarList.length} tone="text-yellow-300" onClick={() => setMoreView("waitRadar")} />
+              <ActionCard title="突破進場" sub="主流突破" badge={breakoutRadarList.length} tone="text-cyan-300" onClick={() => setMoreView("breakoutRadar")} />
+              <ActionCard title="禁止進場" sub="過熱轉弱超價" badge={noEntryRadarList.length} tone="text-red-300" onClick={() => setMoreView("noEntryRadar")} />
               <ActionCard title="賣點雷達" sub="跌破 / 過熱" badge={sellRadarList.length} tone="text-red-300" onClick={() => setMoreView("sellRadar")} />
               <ActionCard title="今日50強" sub="完整清單" badge={top50.length} tone="text-red-300" onClick={() => setMoreView("today")} />
-              <ActionCard title="即時警報" sub="200元內警報" badge={realTime200Alerts.length} tone="text-orange-300" onClick={() => setMoreView("alerts")} />
               <ActionCard title="產業" sub="產業熱度排行" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="更新頻率與買賣點參數" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
-              <ActionCard title="不要碰" sub="過熱與轉弱" badge={avoidList.length} tone="text-red-300" onClick={() => setMoreView("avoid")} />
-              <ActionCard title="回測" sub="等回測觀察" badge={pullbackList.length} tone="text-lime-300" onClick={() => setMoreView("pullback")} />
-              <ActionCard title="突破" sub="突破確認股" badge={breakoutList.length} tone="text-orange-300" onClick={() => setMoreView("breakout")} />
-              <ActionCard title="9:10" sub="開盤觀察" badge={open910List.length} tone="text-purple-300" onClick={() => setMoreView("open910")} />
+              <ActionCard title="設定" sub="進場嚴格度與參數" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
               <ActionCard title="統計" sub="觀察與自選" badge="📈" tone="text-blue-300" onClick={() => setMoreView("stats")} />
               <ActionCard title="資料" sub="API與快取狀態" badge={dataStatus} tone="text-blue-300" onClick={() => setMoreView("data")} />
             </div>
@@ -1357,8 +1467,10 @@ export default function App() {
               {tab === "observe" && "📝 觀察清單"}
               {tab === "favorite" && "⭐ 自選股"}
               {tab === "more" && moreView === "today" && "📊 今日50強"}
-              {tab === "more" && moreView === "alerts" && "🚨 即時200元內警報"}
-              {tab === "more" && moreView === "buyRadar" && "🟢 買點雷達"}
+              {tab === "more" && moreView === "buyRadar" && "🟢 最接近進場"}
+              {tab === "more" && moreView === "waitRadar" && "🟡 等待回測雷達"}
+              {tab === "more" && moreView === "breakoutRadar" && "🔵 突破進場雷達"}
+              {tab === "more" && moreView === "noEntryRadar" && "🔴 禁止進場雷達"}
               {tab === "more" && moreView === "sellRadar" && "🔴 賣點雷達"}
               {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
@@ -1371,14 +1483,14 @@ export default function App() {
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              進出場買賣點版：找強股 → 看買點 → 看賣點 → 放進觀察。
+              明確進場時機版：現在能不能進、要等哪個價位、什麼情況不能進。
             </p>
           </div>
 
           {tab === "top" && (
             <div className="space-y-5">
               <div>
-                <h3 className="mb-2 text-xl font-black">可進場觀察</h3>
+                <h3 className="mb-2 text-xl font-black">可進場 / 可觀察</h3>
                 <div className="space-y-3">
                   {canEntryList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
                   {canEntryList.map((stock, index) => (
@@ -1388,7 +1500,7 @@ export default function App() {
               </div>
 
               <div>
-                <h3 className="mb-2 text-xl font-black">等回測 / 等買點</h3>
+                <h3 className="mb-2 text-xl font-black">等回測 / 等訊號</h3>
                 <div className="space-y-3">
                   {waitPullbackTopList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
                   {waitPullbackTopList.map((stock, index) => (
@@ -1398,7 +1510,7 @@ export default function App() {
               </div>
 
               <div>
-                <h3 className="mb-2 text-xl font-black">不追高</h3>
+                <h3 className="mb-2 text-xl font-black">不要進場</h3>
                 <div className="space-y-3">
                   {noChaseTopList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
                   {noChaseTopList.map((stock, index) => (
@@ -1412,14 +1524,14 @@ export default function App() {
           {tab === "observe" && (
             <div className="space-y-5">
               <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">觀察股買賣點</h3>
+                <h3 className="text-xl font-black">觀察股進場提醒</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  接近買點 {observeBuyAlerts.length} 檔｜跌破賣點 {observeSellAlerts.length} 檔
+                  可進場 / 可觀察 / 等回測：{observeBuyAlerts.length} 檔｜已失敗 / 不進場：{observeSellAlerts.length} 檔
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button onClick={organizeObserve} className="rounded-2xl bg-purple-500/20 py-3 text-sm font-black text-purple-200">一鍵整理</button>
-                  <button onClick={removeWeakObserve} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">清除轉弱</button>
+                  <button onClick={removeWeakObserve} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">清除失敗</button>
                 </div>
               </div>
 
@@ -1444,7 +1556,7 @@ export default function App() {
           {tab === "favorite" && (
             <div className="space-y-5">
               <div className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-4">
-                <h3 className="text-xl font-black">自選股買賣點</h3>
+                <h3 className="text-xl font-black">自選股進場提醒</h3>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm font-black">
                   <div className="rounded-2xl bg-black/30 p-3">全部<br />{favoriteCodes.length}</div>
                   <div className="rounded-2xl bg-black/30 p-3">警報<br />{favoriteAlerts.length}</div>
@@ -1460,7 +1572,7 @@ export default function App() {
                   </button>
 
                   <button onClick={addActiveFavoritesToObserve} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-                    轉強加入觀察
+                    進場接近加入觀察
                   </button>
                 </div>
 
@@ -1532,6 +1644,23 @@ export default function App() {
           {tab === "more" && moreView === "settings" && (
             <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
               <div>
+                <div className="mb-2 text-lg font-black">進場嚴格度</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["保守", "標準", "積極"] as EntryMode[]).map((mode) => (
+                    <button
+                      key={mode}
+                      onClick={() => saveSettings({ ...settings, entryMode: mode })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.entryMode === mode ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {mode}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
                 <div className="mb-2 text-lg font-black">自動更新頻率</div>
                 <div className="grid grid-cols-4 gap-2">
                   {[
@@ -1602,16 +1731,16 @@ export default function App() {
               <div className="text-xl font-black">統計中心</div>
               <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
                 <div>今日50強：{top50.length}</div>
-                <div>買點雷達：{buyRadarList.length}</div>
+                <div>最接近進場：{buyRadarList.length}</div>
+                <div>等待回測：{waitRadarList.length}</div>
+                <div>突破進場：{breakoutRadarList.length}</div>
+                <div>禁止進場：{noEntryRadarList.length}</div>
                 <div>賣點雷達：{sellRadarList.length}</div>
-                <div>即時警報：{realTime200Alerts.length}</div>
                 <div>觀察股：{observeCodes.length}</div>
-                <div>觀察接近買點：{observeBuyAlerts.length}</div>
-                <div>觀察跌破賣點：{observeSellAlerts.length}</div>
+                <div>觀察進場提醒：{observeBuyAlerts.length}</div>
+                <div>觀察失敗提醒：{observeSellAlerts.length}</div>
                 <div>自選股：{favoriteCodes.length}</div>
                 <div>自選警報：{favoriteAlerts.length}</div>
-                <div>過熱股：{hotList.length}</div>
-                <div>轉弱股：{weakList.length}</div>
               </div>
             </div>
           )}
