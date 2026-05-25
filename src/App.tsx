@@ -1632,6 +1632,8 @@ export default function App() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [lastSuccessAt, setLastSuccessAt] = useState("");
+  const [apiUpdatedAtTaiwan, setApiUpdatedAtTaiwan] = useState("");
+  const [dataSource, setDataSource] = useState("");
   const [lastFailAt, setLastFailAt] = useState("");
   const [lastFailReason, setLastFailReason] = useState("");
   const [nextRefresh, setNextRefresh] = useState(60);
@@ -1687,6 +1689,8 @@ export default function App() {
       setStocks(rankedList);
       setWatchListStocks(watchList);
       setLastSuccessAt(formatTime(new Date()));
+      setApiUpdatedAtTaiwan(data.updatedAtTaiwan || "");
+      setDataSource(data.source || "");
       setNextRefresh(60);
     } catch (err: any) {
       const message = err?.message || "資料載入失敗";
@@ -2048,6 +2052,13 @@ export default function App() {
               <h1 className="text-xl font-black tracking-wide">台股即時雷達</h1>
               <div className="mt-1 text-xs font-bold text-slate-400">
                 最後成功更新：{lastSuccessAt || "尚未成功"}
+                <div className="mt-1 text-xs font-bold text-slate-400">
+  API資料時間：{apiUpdatedAtTaiwan || "尚未取得"}
+</div>
+
+<div className="mt-1 text-xs font-bold text-slate-500">
+  資料來源：{dataSource || "尚未取得"}
+</div>
               </div>
               <div className="mt-1 text-xs font-bold text-slate-500">
                 自動更新倒數：{nextRefresh}s
