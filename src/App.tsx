@@ -1178,129 +1178,6 @@ function ReviewBox({
           </div>
         </button>
       </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button
-          onClick={() => bestWatch && onSelectStock(bestWatch)}
-          className="rounded-xl bg-black/30 p-3 text-left"
-        >
-          <div className="text-xs font-bold text-indigo-200">自選最強</div>
-          <div className="mt-1 text-base font-black">
-            {bestWatch ? bestWatch.name : "資料不足"}
-          </div>
-          <div className={`mt-1 text-xs ${bestWatch ? changeTextClass(bestWatch.changePercent) : "font-bold text-slate-300"}`}>
-            {bestWatch ? changeText(bestWatch.changePercent) : "尚無自選資料"}
-          </div>
-        </button>
-
-        <button
-          onClick={() => weakWatch && onSelectStock(weakWatch)}
-          className="rounded-xl bg-black/30 p-3 text-left"
-        >
-          <div className="text-xs font-bold text-indigo-200">自選最弱</div>
-          <div className="mt-1 text-base font-black">
-            {weakWatch ? weakWatch.name : "資料不足"}
-          </div>
-          <div className={`mt-1 text-xs ${weakWatch ? changeTextClass(weakWatch.changePercent) : "font-bold text-slate-300"}`}>
-            {weakWatch ? changeText(weakWatch.changePercent) : "尚無自選資料"}
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ObserveSummary({
-  stock,
-  strongIndustryNames,
-}: {
-  stock: Stock;
-  strongIndustryNames: string[];
-}) {
-  const tags = getObserveTags(stock, strongIndustryNames);
-
-  if (tags.length === 0) return null;
-
-  return (
-    <div className="mt-5 rounded-2xl border border-green-900 bg-green-950/40 p-4">
-      <div className="mb-2 text-lg font-black text-green-100">今日觀察標籤</div>
-      <AlertTags tags={tags} />
-    </div>
-  );
-}
-
-function BuyPointBox({ stock }: { stock: Stock }) {
-  const buyPoint = getBuyPoint(stock);
-
-  return (
-    <div
-      className={
-        buyPoint.level === "avoid"
-          ? "mt-5 rounded-2xl border border-red-900 bg-red-950/50 p-4 text-red-100"
-          : buyPoint.level === "pullback"
-            ? "mt-5 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-4 text-yellow-100"
-            : buyPoint.level === "watch"
-              ? "mt-5 rounded-2xl border border-emerald-900 bg-emerald-950/40 p-4 text-emerald-100"
-              : "mt-5 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-slate-200"
-      }
-    >
-      <div className="text-lg font-black">買點提醒</div>
-      <div className="mt-2 text-2xl font-black">{buyPoint.title}</div>
-      <div className="mt-2 text-sm font-bold">{buyPoint.text}</div>
-      <div className="mt-3 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
-        原因：{buyPoint.reason}
-      </div>
-    </div>
-  );
-}
-
-function ChipBox({ stock }: { stock: Stock }) {
-  return (
-    <div className="mt-5 rounded-2xl border border-cyan-900 bg-cyan-950/40 p-4">
-      <div className="mb-3 text-lg font-black text-cyan-100">籌碼條件</div>
-
-      <div className="grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          換手率
-          <div className="mt-1 text-sm text-cyan-100">
-            {numberText(stock.turnoverRate, "%")}
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          量比
-          <div className="mt-1 text-sm text-cyan-100">
-            {numberText(stock.volumeRatio)}
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-black/30 px-2 py-2">
-          流通市值
-          <div className="mt-1 text-sm text-cyan-100">
-            {numberText(stock.floatMarketCapYi, "億")}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RiskBox({ stock }: { stock: Stock }) {
-  const risk = getRisk(stock);
-
-  return (
-    <div
-      className={
-        risk.level === "high"
-          ? "mt-5 rounded-2xl border border-red-900 bg-red-950/50 p-4 text-red-100"
-          : risk.level === "medium"
-            ? "mt-5 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-4 text-yellow-100"
-            : "mt-5 rounded-2xl border border-green-900 bg-green-950/40 p-4 text-green-100"
-      }
-    >
-      <div className="text-lg font-black">風險燈號</div>
-      <div className="mt-2 text-2xl font-black">{risk.title}</div>
-      <div className="mt-2 text-sm font-bold">{risk.text}</div>
     </div>
   );
 }
@@ -1408,6 +1285,7 @@ function StockRow({
     </div>
   );
 }
+
 function StockDetail({
   stock,
   onBack,
@@ -1427,7 +1305,6 @@ function StockDetail({
   onSelectStock: (stock: Stock) => void;
   strongIndustryNames: string[];
 }) {
-  const status = stockStatus(stock);
   const links = getStockLinks(stock.code);
   const tradeAdvice = getTradeAdvice(stock);
 
@@ -1479,14 +1356,7 @@ function StockDetail({
             <div className="text-6xl font-black">{priceText(stock.price)}</div>
           </div>
 
-          <div className="mt-3">
-            <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
-          </div>
-
-          <BuyPointBox stock={stock} />
-          <ObserveSummary stock={stock} strongIndustryNames={strongIndustryNames} />
-          <RiskBox stock={stock} />
-          <ChipBox stock={stock} />
+          <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-2xl bg-slate-900 p-4">
@@ -1511,21 +1381,9 @@ function StockDetail({
             </div>
 
             <div className="rounded-2xl bg-slate-900 p-4">
-              <div className="text-sm text-slate-400">狀態</div>
-              <div
-                className={
-                  status === "強勢"
-                    ? "mt-1 text-2xl font-black text-green-400"
-                    : status === "突破"
-                      ? "mt-1 text-2xl font-black text-yellow-400"
-                      : status === "安全觀察"
-                        ? "mt-1 text-2xl font-black text-emerald-400"
-                        : status === "轉弱"
-                          ? "mt-1 text-2xl font-black text-slate-400"
-                          : "mt-1 text-2xl font-black text-orange-300"
-                }
-              >
-                {status}
+              <div className="text-sm text-slate-400">昨收</div>
+              <div className="mt-1 text-2xl font-black">
+                {priceText(stock.previousClose)}
               </div>
             </div>
           </div>
@@ -1604,13 +1462,8 @@ function StockDetail({
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <div className={changeTextClass(item.changePercent)}>
-                      {changeText(item.changePercent)}
-                    </div>
-                    <div className="text-xs font-bold text-slate-500">
-                      點我查看
-                    </div>
+                  <div className={changeTextClass(item.changePercent)}>
+                    {changeText(item.changePercent)}
                   </div>
                 </button>
               ))
@@ -1621,7 +1474,6 @@ function StockDetail({
     </div>
   );
 }
-
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
@@ -2003,31 +1855,6 @@ export default function App() {
           safeCount={safeCount}
         />
 
-        {isNineTenWindow() && (
-          <div className="mb-3 rounded-2xl border border-orange-500 bg-orange-950/70 p-3 text-orange-100">
-            <div className="text-sm font-black">⏰ 9:10 開盤快篩時間</div>
-            <div className="mt-1 text-xs font-bold">
-              建議先看「9:10快篩」與「9:10最強」。
-            </div>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={applyNineTenMode}
-                className="rounded-xl bg-orange-500 px-3 py-2 text-xs font-black text-white"
-              >
-                開啟 9:10快篩
-              </button>
-
-              <button
-                onClick={applyStrong910Mode}
-                className="rounded-xl bg-green-500 px-3 py-2 text-xs font-black text-black"
-              >
-                開啟 9:10最強
-              </button>
-            </div>
-          </div>
-        )}
-
         <ReviewBox
           topIndustries={topIndustries}
           stocks={stocks}
@@ -2052,14 +1879,16 @@ export default function App() {
               <h1 className="text-xl font-black tracking-wide">台股即時雷達</h1>
               <div className="mt-1 text-xs font-bold text-slate-400">
                 最後成功更新：{lastSuccessAt || "尚未成功"}
-                <div className="mt-1 text-xs font-bold text-slate-400">
-  API資料時間：{apiUpdatedAtTaiwan || "尚未取得"}
-</div>
-
-<div className="mt-1 text-xs font-bold text-slate-500">
-  資料來源：{dataSource || "尚未取得"}
-</div>
               </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                API資料時間：{apiUpdatedAtTaiwan || "尚未取得"}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                資料來源：{dataSource || "尚未取得"}
+              </div>
+
               <div className="mt-1 text-xs font-bold text-slate-500">
                 自動更新倒數：{nextRefresh}s
               </div>
@@ -2253,12 +2082,6 @@ export default function App() {
                 </button>
               ))}
             </div>
-          </div>
-        )}
-
-        {filterKey === "tomorrowWatch" && (
-          <div className="mb-3 rounded-2xl border border-indigo-900 bg-indigo-950/40 p-3 text-sm font-bold text-indigo-100">
-            明日觀察：排除過熱股，優先看主流產業、安全觀察、籌碼活躍。
           </div>
         )}
 
