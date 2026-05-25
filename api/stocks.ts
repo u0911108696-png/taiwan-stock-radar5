@@ -289,7 +289,9 @@ const candidateStockCodes = [
 ];
 
 function toNumber(value: any): number {
-  if (value === null || value === undefined || value === "") return 0;
+  if (value === null || value === undefined || value === "" || value === "-") {
+    return 0;
+  }
 
   const n = Number(String(value).replaceAll(",", ""));
   return Number.isFinite(n) ? n : 0;
@@ -342,16 +344,13 @@ function chunkArray<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
-function buildYahooSymbols(codes: string[]) {
-  return codes.map((code) => `${cleanCode(code)}.TW`);
-}
-
 function nowText() {
   return new Date().toLocaleString("zh-TW", {
     timeZone: "Asia/Taipei",
     hour12: false,
   });
 }
+
 function makeEmptyStock(code: string): StockItem {
   const clean = cleanCode(code);
 
@@ -370,6 +369,115 @@ function makeEmptyStock(code: string): StockItem {
     volumeRatio: null,
     floatMarketCapYi: null,
   };
+}
+async function fetchWithTimeout(url: string, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        "cache-control": "no-cache, no-store, must-revalidate",
+        pragma: "no-cache",
+        expires: "0",
+        accept: "application/json,text/plain,*/*",
+        "user-agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+      },
+    });
+
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildTwseExCh(codes: string[]) {
+  return uniqueCodes(codes)
+    .map((code) => `tse_${code}.tw`)
+    .join("|");
+}
+
+function normalizeTwseItem(item: any): StockItem | null {
+  const code = cleanCode(item?.c || item?.ch || "");
+
+  if (!/^\d{4}$/.test(code)) return null;
+
+  const price = toNumber(item?.z);
+  const openPrice = toNumber(item?.o);
+  const previousClose = toNumber(item?.y);
+  const volume = toNumber(item?.v) * 1000;
+
+  if (price <= 0 || previousClose <= 0) return null;
+
+  const change = price - previousClose;
+  const changePercent = Number(((change / previousClose) * 100).toFixed(2));
+
+  let openPremiumPercent: number | null = null;
+
+  if (openPrice > 0 && previousClose > 0) {
+    openPremiumPercent = Number(
+      (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
+    );
+  }
+
+  return {
+    code,
+    name: getStockName(code, String(item?.n || "")),
+    price,
+    change: Number(change.toFixed(2)),
+    changePercent,
+    volume,
+    openPrice,
+    previousClose,
+    openPremiumPercent,
+    industry: getIndustry(code),
+    turnoverRate: null,
+    volumeRatio: null,
+    floatMarketCapYi: null,
+  };
+}
+
+async function fetchTwseQuotes(codes: string[]) {
+  const cleanCodes = uniqueCodes(codes);
+  const chunks = chunkArray(cleanCodes, 40);
+  const map = new Map<string, StockItem>();
+
+  for (const chunk of chunks) {
+    const exCh = buildTwseExCh(chunk);
+
+    if (!exCh) continue;
+
+    const url =
+      "https://mis.twse.com.tw/stock/api/getStockInfo.jsp" +
+      "?ex_ch=" +
+      encodeURIComponent(exCh) +
+      "&json=1&delay=0&_=" +
+      Date.now();
+
+    try {
+      const res = await fetchWithTimeout(url);
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const items = Array.isArray(data?.msgArray) ? data.msgArray : [];
+
+      for (const item of items) {
+        const normalized = normalizeTwseItem(item);
+
+        if (normalized && normalized.price > 0) {
+          map.set(normalized.code, normalized);
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return Array.from(map.values());
 }
 
 function normalizeYahooItem(item: any): StockItem | null {
@@ -412,28 +520,8 @@ function normalizeYahooItem(item: any): StockItem | null {
   };
 }
 
-async function fetchWithTimeout(url: string, timeoutMs = 8000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const res = await fetch(url, {
-      cache: "no-store",
-      signal: controller.signal,
-      headers: {
-        "cache-control": "no-cache, no-store, must-revalidate",
-        pragma: "no-cache",
-        expires: "0",
-        "user-agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-        accept: "application/json,text/plain,*/*",
-      },
-    });
-
-    return res;
-  } finally {
-    clearTimeout(timer);
-  }
+function buildYahooSymbols(codes: string[]) {
+  return uniqueCodes(codes).map((code) => `${code}.TW`);
 }
 
 async function fetchYahooQuotesFromHost(codes: string[], host: string) {
@@ -493,135 +581,33 @@ async function fetchYahooQuotes(codes: string[]) {
   return Array.from(map.values());
 }
 
-async function fetchYahooChartQuoteFromHost(
-  code: string,
-  host: string
-): Promise<StockItem | null> {
-  const clean = cleanCode(code);
+async function fetchBestQuotes(codes: string[]) {
+  const twse = await fetchTwseQuotes(codes);
+  const twseCodes = new Set(twse.map((item) => item.code));
 
-  if (!/^\d{4}$/.test(clean)) return null;
-
-  const url =
-    `https://${host}/v8/finance/chart/${clean}.TW` +
-    `?range=1d&interval=1m&includePrePost=false&t=${Date.now()}`;
-
-  try {
-    const res = await fetchWithTimeout(url);
-
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    const result = data?.chart?.result?.[0];
-
-    if (!result) return null;
-
-    const meta = result.meta || {};
-    const quote = result.indicators?.quote?.[0] || {};
-
-    const closes = Array.isArray(quote.close) ? quote.close : [];
-    const volumes = Array.isArray(quote.volume) ? quote.volume : [];
-    const opens = Array.isArray(quote.open) ? quote.open : [];
-
-    let latestPrice = 0;
-
-    for (let i = closes.length - 1; i >= 0; i--) {
-      const close = toNumber(closes[i]);
-
-      if (close > 0) {
-        latestPrice = close;
-        break;
-      }
-    }
-
-    const latestVolume = volumes.reduce(
-      (sum: number, item: any) => sum + toNumber(item),
-      0
-    );
-
-    const previousClose = toNumber(meta.previousClose);
-    const regularPrice = toNumber(meta.regularMarketPrice);
-    const price = latestPrice > 0 ? latestPrice : regularPrice;
-
-    if (price <= 0) return null;
-
-    const change = previousClose > 0 ? price - previousClose : 0;
-    const changePercent =
-      previousClose > 0 ? Number(((change / previousClose) * 100).toFixed(2)) : 0;
-
-    let openPrice = 0;
-
-    for (let i = 0; i < opens.length; i++) {
-      const open = toNumber(opens[i]);
-
-      if (open > 0) {
-        openPrice = open;
-        break;
-      }
-    }
-
-    let openPremiumPercent: number | null = null;
-
-    if (openPrice > 0 && previousClose > 0) {
-      openPremiumPercent = Number(
-        (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
-      );
-    }
-
-    return {
-      code: clean,
-      name: getStockName(clean, String(meta.shortName || meta.longName || clean)),
-      price,
-      change: Number(change.toFixed(2)),
-      changePercent,
-      volume: latestVolume,
-      openPrice,
-      previousClose,
-      openPremiumPercent,
-      industry: getIndustry(clean),
-      turnoverRate: null,
-      volumeRatio: null,
-      floatMarketCapYi: null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
-  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
-
-  for (const host of hosts) {
-    const result = await fetchYahooChartQuoteFromHost(code, host);
-
-    if (result && result.price > 0) return result;
-  }
-
-  return null;
-}
-
-async function fetchFreshWatchList(codes: string[]) {
-  const cleanCodes = uniqueCodes(codes);
-
-  const chartResults = await Promise.all(
-    cleanCodes.map((code) => fetchYahooChartQuote(code))
-  );
-
-  const validChartResults = chartResults.filter(Boolean) as StockItem[];
-
-  const missingCodes = cleanCodes.filter(
-    (code) => !validChartResults.some((item) => item.code === code)
-  );
-
-  const quoteFallback =
-    missingCodes.length > 0 ? await fetchYahooQuotes(missingCodes) : [];
+  const missingCodes = uniqueCodes(codes).filter((code) => !twseCodes.has(code));
+  const yahoo = missingCodes.length > 0 ? await fetchYahooQuotes(missingCodes) : [];
 
   const map = new Map<string, StockItem>();
 
-  validChartResults.forEach((item) => map.set(item.code, item));
-  quoteFallback.forEach((item) => map.set(item.code, item));
+  yahoo.forEach((item) => {
+    if (item.price > 0) {
+      map.set(item.code, {
+        ...item,
+        name: getStockName(item.code, item.name),
+        industry: getIndustry(item.code),
+      });
+    }
+  });
 
-  cleanCodes.forEach((code) => {
-    if (!map.has(code)) map.set(code, makeEmptyStock(code));
+  twse.forEach((item) => {
+    if (item.price > 0) {
+      map.set(item.code, {
+        ...item,
+        name: getStockName(item.code, item.name),
+        industry: getIndustry(item.code),
+      });
+    }
   });
 
   return Array.from(map.values());
@@ -631,11 +617,13 @@ function mergeByCode(primary: StockItem[], fallback: StockItem[]) {
   const map = new Map<string, StockItem>();
 
   fallback.forEach((item) => {
-    map.set(item.code, {
-      ...item,
-      name: getStockName(item.code, item.name),
-      industry: getIndustry(item.code),
-    });
+    if (item.price > 0) {
+      map.set(item.code, {
+        ...item,
+        name: getStockName(item.code, item.name),
+        industry: getIndustry(item.code),
+      });
+    }
   });
 
   primary.forEach((item) => {
@@ -717,7 +705,7 @@ export default async function handler(req: Request) {
     let rankingQuotes: StockItem[] = [];
 
     try {
-      rankingQuotes = await fetchYahooQuotes(candidateStockCodes);
+      rankingQuotes = await fetchBestQuotes(candidateStockCodes);
     } catch (error: any) {
       errors.push(error?.message || "rankingQuotes failed");
       rankingQuotes = [];
@@ -726,13 +714,14 @@ export default async function handler(req: Request) {
     let freshWatchList: StockItem[] = [];
 
     try {
-      freshWatchList = await fetchFreshWatchList(watchCodes);
+      freshWatchList = await fetchBestQuotes(watchCodes);
     } catch (error: any) {
       errors.push(error?.message || "freshWatchList failed");
       freshWatchList = watchCodes.map(makeEmptyStock);
     }
 
     const mergedRanking = mergeByCode(freshWatchList, rankingQuotes);
+
     let rankedStocks = sortTopGainers(mergedRanking).slice(0, 50);
 
     if (rankedStocks.length === 0) {
@@ -759,7 +748,7 @@ export default async function handler(req: Request) {
 
     return jsonResponse({
       ok: hasRanking || hasWatchList,
-      source: "Yahoo Finance",
+      source: "TWSE MIS + Yahoo fallback",
       updatedAt: new Date().toISOString(),
       updatedAtTaiwan: nowText(),
       cache: "no-store",
@@ -773,7 +762,7 @@ export default async function handler(req: Request) {
         hasWatchList,
         errors,
         note:
-          "股票名稱優先使用中文對照表；watchList 使用 Yahoo chart 1m；rankedStocks 使用 Yahoo quote。若 Yahoo 抓不到足夠股票，會用自選股補足。",
+          "優先使用證交所 MIS 即時資料；抓不到時才使用 Yahoo 備援。股票名稱優先使用中文對照表。",
       },
     });
   } catch (error: any) {
