@@ -1182,19 +1182,49 @@ export default function App() {
 
             <div className="mt-4 flex gap-2">
               <input
-                value={entryPrice > 0 ? String(entryPrice) : ""}
-                onChange={(e) => saveEntryPrice(selectedStock.code, n(e.target.value))}
-                inputMode="decimal"
-                placeholder="輸入我的進場價"
-                className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-              />
+  id={`entry-price-${selectedStock.code}`}
+  defaultValue={entryPrice > 0 ? String(entryPrice) : ""}
+  onChange={(e) => {
+    let value = e.currentTarget.value;
 
-              <button
-                onClick={() => addHold(selectedStock.code, entryPrice || selectedStock.price)}
-                className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-black text-black"
-              >
-                加入持有
-              </button>
+    value = value.replace(/[^0-9.]/g, "");
+
+    const parts = value.split(".");
+    if (parts.length > 2) {
+      value = `${parts[0]}.${parts.slice(1).join("")}`;
+    }
+
+    e.currentTarget.value = value;
+  }}
+  onBlur={(e) => {
+    const price = n(e.currentTarget.value);
+    if (price > 0) {
+      saveEntryPrice(selectedStock.code, price);
+    }
+  }}
+  inputMode="decimal"
+  type="text"
+  placeholder="輸入我的進場價，例如 40.5"
+  className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+/>
+
+<button
+  onClick={() => {
+    const input = document.getElementById(
+      `entry-price-${selectedStock.code}`
+    ) as HTMLInputElement | null;
+
+    const price = n(input?.value || entryPrice || selectedStock.price);
+
+    if (price > 0) {
+      saveEntryPrice(selectedStock.code, price);
+      addHold(selectedStock.code, price);
+    }
+  }}
+  className="rounded-2xl bg-emerald-500 px-4 py-3 text-sm font-black text-black"
+>
+  加入持有
+</button>
             </div>
 
             <button
