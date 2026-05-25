@@ -169,7 +169,29 @@ function priceText(value: number) {
 
 function percentText(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "資料不足";
-  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function changeText(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function changeBadgeClass(value: number, size: "sm" | "lg" = "sm") {
+  const padding =
+    size === "lg"
+      ? "rounded-xl px-3 py-2 text-lg font-black text-white"
+      : "rounded-lg px-2 py-1 text-sm font-black text-white";
+
+  if (value > 0) return `${padding} bg-red-500`;
+  if (value < 0) return `${padding} bg-green-500`;
+  return `${padding} bg-slate-600`;
+}
+
+function changeTextClass(value: number) {
+  if (value > 0) return "font-black text-red-400";
+  if (value < 0) return "font-black text-green-400";
+  return "font-black text-slate-300";
 }
 
 function numberText(value: number | null, suffix = "") {
@@ -521,10 +543,18 @@ function getRisk(stock: Stock) {
   };
 }
 
-function getMarketPower(stocks: Stock[], industryGroups: { industry: string; total: number; avgChange: number; strength: number; stocks: Stock[] }[]) {
+function getMarketPower(
+  stocks: Stock[],
+  industryGroups: {
+    industry: string;
+    total: number;
+    avgChange: number;
+    strength: number;
+    stocks: Stock[];
+  }[]
+) {
   const strongCount = stocks.filter((stock) => stock.changePercent >= 5).length;
   const alertCount = stocks.filter(isAlertStock).length;
-  const safeCount = stocks.filter(isSafeWatch).length;
   const topIndustry = industryGroups[0];
 
   if (strongCount >= 15 && alertCount >= 8 && topIndustry && topIndustry.total >= 4) {
@@ -969,9 +999,8 @@ function NoticeBox({
               </div>
             </div>
 
-            <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-              {stock.changePercent >= 0 ? "+" : ""}
-              {stock.changePercent.toFixed(2)}%
+            <div className={changeBadgeClass(stock.changePercent)}>
+              {changeText(stock.changePercent)}
             </div>
           </button>
         ))}
@@ -1131,7 +1160,7 @@ function ReviewBox({
           </div>
           <div className="mt-1 text-xs font-bold text-indigo-200">
             {topIndustries[0]
-              ? `${topIndustries[0].total} 檔｜平均 +${topIndustries[0].avgChange}%`
+              ? `${topIndustries[0].total} 檔｜平均 ${changeText(topIndustries[0].avgChange)}`
               : "尚無產業資料"}
           </div>
         </div>
@@ -1144,10 +1173,8 @@ function ReviewBox({
           <div className="mt-1 text-lg font-black">
             {topStock ? topStock.name : "資料不足"}
           </div>
-          <div className="mt-1 text-xs font-bold text-red-300">
-            {topStock
-              ? `+${topStock.changePercent.toFixed(2)}%｜${topStock.code}`
-              : "尚無個股資料"}
+          <div className={`mt-1 text-xs ${topStock ? changeTextClass(topStock.changePercent) : "font-bold text-slate-300"}`}>
+            {topStock ? `${changeText(topStock.changePercent)}｜${topStock.code}` : "尚無個股資料"}
           </div>
         </button>
       </div>
@@ -1161,10 +1188,8 @@ function ReviewBox({
           <div className="mt-1 text-base font-black">
             {bestWatch ? bestWatch.name : "資料不足"}
           </div>
-          <div className="mt-1 text-xs font-bold text-red-300">
-            {bestWatch
-              ? `${bestWatch.changePercent >= 0 ? "+" : ""}${bestWatch.changePercent.toFixed(2)}%`
-              : "尚無自選資料"}
+          <div className={`mt-1 text-xs ${bestWatch ? changeTextClass(bestWatch.changePercent) : "font-bold text-slate-300"}`}>
+            {bestWatch ? changeText(bestWatch.changePercent) : "尚無自選資料"}
           </div>
         </button>
 
@@ -1176,10 +1201,8 @@ function ReviewBox({
           <div className="mt-1 text-base font-black">
             {weakWatch ? weakWatch.name : "資料不足"}
           </div>
-          <div className="mt-1 text-xs font-bold text-slate-300">
-            {weakWatch
-              ? `${weakWatch.changePercent >= 0 ? "+" : ""}${weakWatch.changePercent.toFixed(2)}%`
-              : "尚無自選資料"}
+          <div className={`mt-1 text-xs ${weakWatch ? changeTextClass(weakWatch.changePercent) : "font-bold text-slate-300"}`}>
+            {weakWatch ? changeText(weakWatch.changePercent) : "尚無自選資料"}
           </div>
         </button>
       </div>
@@ -1333,9 +1356,8 @@ function StockRow({
           </div>
 
           <div className="shrink-0 text-right">
-            <div className="rounded-lg bg-red-500 px-2 py-1 text-sm font-black text-white">
-              {stock.changePercent >= 0 ? "+" : ""}
-              {stock.changePercent.toFixed(2)}%
+            <div className={changeBadgeClass(stock.changePercent)}>
+              {changeText(stock.changePercent)}
             </div>
 
             <MiniLine />
@@ -1386,7 +1408,6 @@ function StockRow({
     </div>
   );
 }
-
 function StockDetail({
   stock,
   onBack,
@@ -1448,9 +1469,8 @@ function StockDetail({
               </div>
             </div>
 
-            <div className="rounded-xl bg-red-500 px-3 py-2 text-lg font-black">
-              {stock.changePercent >= 0 ? "+" : ""}
-              {stock.changePercent.toFixed(2)}%
+            <div className={changeBadgeClass(stock.changePercent, "lg")}>
+              {changeText(stock.changePercent)}
             </div>
           </div>
 
@@ -1585,9 +1605,8 @@ function StockDetail({
                   </div>
 
                   <div className="text-right">
-                    <div className="font-black text-red-400">
-                      {item.changePercent >= 0 ? "+" : ""}
-                      {item.changePercent.toFixed(2)}%
+                    <div className={changeTextClass(item.changePercent)}>
+                      {changeText(item.changePercent)}
                     </div>
                     <div className="text-xs font-bold text-slate-500">
                       點我查看
@@ -1889,11 +1908,7 @@ export default function App() {
         const matchIndustry = group.industry.toLowerCase().includes(keyword);
 
         if (!keyword) {
-          return {
-            ...group,
-            stocks: filteredStocks,
-            total: filteredStocks.length,
-          };
+          return { ...group, stocks: filteredStocks, total: filteredStocks.length };
         }
 
         const searchedStocks = filteredStocks.filter((stock) => {
@@ -2311,7 +2326,7 @@ export default function App() {
                             {index + 1}. {group.industry}
                           </div>
                           <div className="mt-1 text-xs text-slate-400">
-                            平均 +{group.avgChange}%｜強度 {group.strength}
+                            平均 {changeText(group.avgChange)}｜強度 {group.strength}
                           </div>
                         </div>
 
