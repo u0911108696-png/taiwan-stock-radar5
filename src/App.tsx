@@ -37,7 +37,9 @@ type Settings = {
   mainMode: MainMode;
   topOnlyMain: boolean;
   topOnlyLowPrice: boolean;
+  topOnlyBreakout: boolean;
   topExcludeHot: boolean;
+  industryTopOnly: boolean;
 };
 
 type ApiResponse = {
@@ -53,8 +55,8 @@ const API_URL = "/api/stocks";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-main-v2-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-main-v2-last-success";
+const SETTINGS_KEY = "taiwan-stock-radar-main-v3-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-main-v3-last-success";
 
 const defaultSettings: Settings = {
   maxPrice: 200,
@@ -65,7 +67,9 @@ const defaultSettings: Settings = {
   mainMode: "標準",
   topOnlyMain: false,
   topOnlyLowPrice: false,
+  topOnlyBreakout: false,
   topExcludeHot: false,
+  industryTopOnly: false,
 };
 
 const industryMap: Record<string, string> = {
@@ -176,8 +180,13 @@ function isBreakout(stock: Stock) {
 
 function isPullback(stock: Stock, settings: Settings) {
   if (stock.openPrice <= 0) return false;
-  const nearOpen = Math.abs(stock.price - stock.openPrice) / stock.openPrice <= 0.015;
-  return stock.changePercent >= 2 && nearOpen && !isHot(stock, settings);
+  const distance = Math.abs(stock.price - stock.openPrice) / stock.openPrice;
+  return stock.changePercent >= 2 && distance <= 0.015 && !isHot(stock, settings);
+}
+
+function pullbackDistance(stock: Stock) {
+  if (stock.openPrice <= 0) return 999;
+  return Math.abs(stock.price - stock.openPrice) / stock.openPrice * 100;
 }
 
 function isAlert(stock: Stock, settings: Settings) {
@@ -186,18 +195,41 @@ function isAlert(stock: Stock, settings: Settings) {
   return stock.changePercent >= settings.alertPercent || (stock.openPremiumPercent ?? 0) >= 3;
 }
 
-function getIndustryRanking(stocks: Stock[]) {
-  const map = new Map<string, { industry: string; count: number; avg: number; stocks: Stock[]; breakoutCount: number; score: number }>();
+function getIndustryRanking(stocks: Stock[], settings: Settings) {
+  const map = new Map<
+    string,
+    {
+      industry: string;
+      count: number;
+      avg: number;
+      stocks: Stock[];
+      breakoutCount: number;
+      hotCount: number;
+      weakCount: number;
+      score: number;
+    }
+  >();
 
   stocks.forEach((stock) => {
     const key = stock.industry || "其他";
     const item =
       map.get(key) ??
-      { industry: key, count: 0, avg: 0, stocks: [], breakoutCount: 0, score: 0 };
+      {
+        industry: key,
+        count: 0,
+        avg: 0,
+        stocks: [],
+        breakoutCount: 0,
+        hotCount: 0,
+        weakCount: 0,
+        score: 0,
+      };
 
     item.count += 1;
     item.stocks.push(stock);
     if (isBreakout(stock)) item.breakoutCount += 1;
+    if (isHot(stock, settings)) item.hotCount += 1;
+    if (isWeak(stock)) item.weakCount += 1;
     map.set(key, item);
   });
 
@@ -210,7 +242,7 @@ function getIndustryRanking(stocks: Stock[]) {
       return {
         ...item,
         avg,
-        score: item.count * 10 + avg * 3 + item.breakoutCount * 5,
+        score: item.count * 10 + avg * 3 + item.breakoutCount * 5 - item.hotCount * 2 - item.weakCount * 2,
       };
     })
     .sort((a, b) => b.score - a.score);
@@ -243,18 +275,6 @@ function getMainRank(stock: Stock, mainIndustries: string[]) {
   return `主流${index + 1}`;
 }
 
-function getAvoidReason(stock: Stock, mainIndustries: string[], settings: Settings) {
-  const reasons: string[] = [];
-
-  if (isHot(stock, settings)) reasons.push("過熱");
-  if (stock.price < stock.openPrice) reasons.push("跌破開盤");
-  if (stock.changePercent < 2) reasons.push("漲幅低於2%");
-  if (!mainIndustries.includes(stock.industry)) reasons.push("非主流");
-  if (stock.price > settings.maxPrice) reasons.push(`超過${settings.maxPrice}元`);
-
-  return reasons.length ? reasons.join(" / ") : "暫無明顯風險";
-}
-
 function getStatus(stock: Stock, mainIndustries: string[], settings: Settings) {
   if (isHot(stock, settings)) return "過熱";
   if (isWeak(stock)) return "轉弱";
@@ -282,6 +302,39 @@ function getTomorrowGroup(stock: Stock, mainIndustries: string[], settings: Sett
   if (isPullback(stock, settings)) return "等回測";
   if (scoreStock(stock, mainIndustries, settings) >= 70 && !isWeak(stock)) return "優先觀察";
   return "等回測";
+}
+
+function getPickReasons(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const reasons: string[] = [];
+
+  if (mainIndustries.includes(stock.industry)) reasons.push("主流產業");
+  if (stock.price > 0 && stock.price <= settings.maxPrice) reasons.push(`${settings.maxPrice}元內`);
+  if (isBreakout(stock)) reasons.push("突破開盤");
+  if (isPullback(stock, settings)) reasons.push("接近回測");
+  if (!isHot(stock, settings)) reasons.push("未過熱");
+  if (!isWeak(stock)) reasons.push("未轉弱");
+
+  return reasons.length ? reasons.join(" / ") : "暫無明確理由";
+}
+
+function getAvoidReason(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const reasons: string[] = [];
+
+  if (isHot(stock, settings)) reasons.push("過熱");
+  if (stock.price < stock.openPrice) reasons.push("跌破開盤");
+  if (stock.changePercent < 2) reasons.push("漲幅低於2%");
+  if (!mainIndustries.includes(stock.industry)) reasons.push("非主流");
+  if (stock.price > settings.maxPrice) reasons.push(`超過${settings.maxPrice}元`);
+
+  return reasons.length ? reasons.join(" / ") : "暫無明顯風險";
+}
+
+function getRewatchCondition(stock: Stock, mainIndustries: string[], settings: Settings) {
+  if (isHot(stock, settings)) return "等漲幅降溫或回測開盤價再看";
+  if (stock.price < stock.openPrice) return "重新站回開盤價再看";
+  if (stock.changePercent < 2) return "漲幅重新站上2%再看";
+  if (!mainIndustries.includes(stock.industry)) return "等產業轉強或成為主流再看";
+  return "等回測開盤價並守住再看";
 }
 
 function getMarketSignal(top50: Stock[], alerts: Stock[], hotList: Stock[]) {
@@ -407,6 +460,7 @@ function StockCard({
   favoriteCodes,
   tomorrowCodes,
   priceDirections,
+  showReason,
   onOpen,
   onAddFavorite,
   onRemoveFavorite,
@@ -420,6 +474,7 @@ function StockCard({
   favoriteCodes: string[];
   tomorrowCodes: string[];
   priceDirections: Record<string, PriceDirection>;
+  showReason?: boolean;
   onOpen: (code: string) => void;
   onAddFavorite: (code: string) => void;
   onRemoveFavorite: (code: string) => void;
@@ -476,6 +531,12 @@ function StockCard({
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
           結論：{getConclusion(stock, mainIndustries, settings)}
         </div>
+
+        {showReason && (
+          <div className="mt-2 rounded-2xl bg-cyan-950/30 p-2 text-xs font-bold text-cyan-100">
+            理由：{getPickReasons(stock, mainIndustries, settings)}
+          </div>
+        )}
       </button>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -694,7 +755,9 @@ export default function App() {
   }, [settings.refreshSeconds, lastPriceMap]);
 
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
-  const industries = useMemo(() => getIndustryRanking(top50), [top50]);
+
+  const industries = useMemo(() => getIndustryRanking(top50, settings), [top50, settings]);
+
   const mainIndustries = useMemo(() => industries.slice(0, 3).map((item) => item.industry), [industries]);
 
   const hotList = useMemo(() => top50.filter((stock) => isHot(stock, settings)), [top50, settings]);
@@ -731,12 +794,22 @@ export default function App() {
     [top50, mainIndustries, settings]
   );
 
+  const mainBreakoutList = useMemo(
+    () => breakoutList.filter((stock) => mainIndustries.includes(stock.industry)),
+    [breakoutList, mainIndustries]
+  );
+
+  const otherBreakoutList = useMemo(
+    () => breakoutList.filter((stock) => !mainIndustries.includes(stock.industry)),
+    [breakoutList, mainIndustries]
+  );
+
   const pullbackList = useMemo(
     () =>
       top50
         .filter((stock) => isPullback(stock, settings))
         .filter((stock) => settings.mainMode === "積極" || mainIndustries.includes(stock.industry))
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
+        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b))
         .slice(0, 30),
     [top50, mainIndustries, settings]
   );
@@ -795,6 +868,22 @@ export default function App() {
 
   const signal = useMemo(() => getMarketSignal(top50, alertList, hotList), [top50, alertList, hotList]);
 
+  const mainConcentration = useMemo(() => {
+    const count = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
+    const percent = top50.length ? (count / top50.length) * 100 : 0;
+
+    if (percent >= 45) return { label: "高", text: `前三大產業佔 ${percent.toFixed(0)}%`, tone: "text-emerald-300" };
+    if (percent >= 30) return { label: "中", text: `前三大產業佔 ${percent.toFixed(0)}%`, tone: "text-yellow-300" };
+    return { label: "低", text: `前三大產業佔 ${percent.toFixed(0)}%`, tone: "text-red-300" };
+  }, [top50, mainIndustries]);
+
+  const todaySentence = useMemo(() => {
+    const main = mainIndustries[0] || "主流產業";
+    if (hotList.length >= 15) return `今日${main}偏強，但過熱股多，明天開高不要追。`;
+    if (breakoutList.length >= 8) return `今日${main}最強，先看主流突破股，不追過熱股。`;
+    return `今日先看${mainIndustries.slice(0, 3).join("、") || "主流產業"}，只挑未過熱高分股。`;
+  }, [mainIndustries, hotList, breakoutList]);
+
   const dataStatus = useMemo(() => {
     if (updating) return "更新中";
     if (error) return "API錯誤";
@@ -827,6 +916,7 @@ export default function App() {
     if (tab === "top50") {
       if (settings.topOnlyMain) arr = arr.filter((stock) => mainIndustries.includes(stock.industry));
       if (settings.topOnlyLowPrice) arr = arr.filter((stock) => stock.price <= settings.maxPrice);
+      if (settings.topOnlyBreakout) arr = arr.filter(isBreakout);
       if (settings.topExcludeHot) arr = arr.filter((stock) => !isHot(stock, settings));
     }
 
@@ -890,6 +980,12 @@ export default function App() {
     setTab("tomorrow");
   }
 
+  function addTodayMustWatch() {
+    const codes = todayMustWatch.map((stock) => stock.code);
+    saveTomorrow([...tomorrowCodes, ...codes]);
+    setTab("tomorrow");
+  }
+
   function organizeTomorrow() {
     const keep = tomorrowCombined
       .filter((stock) => !isHot(stock, settings))
@@ -901,6 +997,48 @@ export default function App() {
   function clearHotTomorrow() {
     const hotCodes = new Set(tomorrowCombined.filter((stock) => isHot(stock, settings)).map((stock) => stock.code));
     saveTomorrow(tomorrowCodes.filter((code) => !hotCodes.has(code)));
+  }
+
+  function clearTomorrow() {
+    saveTomorrow([]);
+  }
+
+  function saveSettings(next: Settings) {
+    setSettings(next);
+    setAutoSeconds(next.refreshSeconds);
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+  }
+
+  function saveFavorites(next: string[]) {
+    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean)));
+    setFavoriteCodes(clean);
+    localStorage.setItem(FAVORITE_KEY, JSON.stringify(clean));
+  }
+
+  function saveTomorrow(next: string[]) {
+    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 50);
+    setTomorrowCodes(clean);
+    localStorage.setItem(TOMORROW_KEY, JSON.stringify(clean));
+  }
+
+  function addFavorite(code: string) {
+    const clean = cleanCode(code);
+    if (!clean) return;
+    saveFavorites([...favoriteCodes, clean]);
+  }
+
+  function removeFavorite(code: string) {
+    saveFavorites(favoriteCodes.filter((item) => item !== code));
+  }
+
+  function addTomorrow(code: string) {
+    const clean = cleanCode(code);
+    if (!clean) return;
+    saveTomorrow([...tomorrowCodes, clean]);
+  }
+
+  function removeTomorrow(code: string) {
+    saveTomorrow(tomorrowCodes.filter((item) => item !== code));
   }
 
   const cardProps = {
@@ -922,6 +1060,11 @@ export default function App() {
     const direction = priceDirections[selectedStock.code];
     const isFavorite = favoriteCodes.includes(selectedStock.code);
     const isTomorrow = tomorrowCodes.includes(selectedStock.code);
+    const isMainLine =
+      mainIndustries.includes(selectedStock.industry) &&
+      selectedRank !== null &&
+      !isHot(selectedStock, settings) &&
+      !isWeak(selectedStock);
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -947,6 +1090,16 @@ export default function App() {
 
               <div className={`text-right text-3xl font-black ${selectedStock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
                 {formatPercent(selectedStock.changePercent)}
+              </div>
+            </div>
+
+            <div className={`mt-4 rounded-2xl p-4 ${isMainLine ? "bg-emerald-950/40" : "bg-red-950/30"}`}>
+              <div className="text-xs font-bold text-slate-400">是否符合主線</div>
+              <div className={`mt-1 text-2xl font-black ${isMainLine ? "text-emerald-300" : "text-red-300"}`}>
+                {isMainLine ? "符合主線" : "不符合主線"}
+              </div>
+              <div className="mt-2 text-sm font-bold text-slate-300">
+                {getPickReasons(selectedStock, mainIndustries, settings)}
               </div>
             </div>
 
@@ -980,6 +1133,7 @@ export default function App() {
                 ["漲幅3%～7.5%", selectedStock.changePercent >= 3 && selectedStock.changePercent <= 7.5 ? "+20" : "0"],
                 ["突破開盤", selectedStock.price >= selectedStock.openPrice ? "+15" : "0"],
                 ["剛突破", isBreakout(selectedStock) ? "+10" : "0"],
+                ["回測加分", isPullback(selectedStock, settings) ? "+8" : "0"],
                 ["過熱扣分", isHot(selectedStock, settings) ? "-35" : "0"],
                 ["轉弱扣分", isWeak(selectedStock) ? "-25" : "0"],
               ].map(([label, value]) => (
@@ -1015,7 +1169,13 @@ export default function App() {
           <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
             <h2 className="text-xl font-black">一鍵加入</h2>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            {isTomorrow && (
+              <div className="mb-3 rounded-2xl bg-cyan-950/40 p-3 text-sm font-black text-cyan-100">
+                加入理由：{getPickReasons(selectedStock, mainIndustries, settings)}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => (isTomorrow ? removeTomorrow(selectedStock.code) : addTomorrow(selectedStock.code))}
                 className={`rounded-2xl py-3 text-sm font-black ${
@@ -1064,10 +1224,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股主線強化版</div>
+              <div className="text-sm font-bold text-slate-400">台股主線優化新增版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">主流產業雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                50強 → 主流產業 → 明日觀察 → 避免過熱。
+                50強 → 主流產業 → 今日必看 → 明日觀察。
               </p>
             </div>
 
@@ -1097,11 +1257,21 @@ export default function App() {
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard title="盤勢燈號" value={signal.title} sub={signal.text} tone={signal.tone} onClick={() => setTab("top50")} />
+          <MiniCard title="主流集中度" value={mainConcentration.label} sub={mainConcentration.text} tone={mainConcentration.tone} onClick={() => goMore("industry")} />
           <MiniCard title="今日主流" value={mainIndustries[0] || "--"} sub={mainIndustries.slice(0, 3).join("、") || "尚無資料"} tone="text-cyan-300" onClick={() => goMore("industry")} />
           <MiniCard title="今日必看" value={todayMustWatch.length} sub="精選3檔" tone="text-yellow-300" onClick={() => setTab("home")} />
           <MiniCard title="明日觀察" value={tomorrowCombined.length} sub="自動 + 手動" tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
-          <MiniCard title="突破股" value={breakoutList.length} sub="剛突破優先" tone="text-orange-300" onClick={() => goMore("breakout")} />
           <MiniCard title="不要追" value={avoidList.length} sub="過熱 / 轉弱 / 非主流" tone="text-red-300" onClick={() => goMore("avoid")} />
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
+          <h2 className="text-xl font-black">今日操作順序</h2>
+          <div className="mt-3 grid grid-cols-2 gap-2 text-sm font-black text-slate-200">
+            <div className="rounded-2xl bg-black/30 p-3">1. 先看主流產業</div>
+            <div className="rounded-2xl bg-black/30 p-3">2. 看今日必看3檔</div>
+            <div className="rounded-2xl bg-black/30 p-3">3. 看突破 / 回測</div>
+            <div className="rounded-2xl bg-black/30 p-3">4. 加入明日觀察</div>
+          </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
@@ -1109,6 +1279,8 @@ export default function App() {
           <ActionCard title="產業熱度" sub="檔數 + 平均漲幅 + 突破" badge={industries.length} tone="text-cyan-300" onClick={() => goMore("industry")} />
           <ActionCard title="低價警報" sub={`${settings.maxPrice}元內未過熱`} badge={alertList.length} tone="text-orange-300" onClick={() => goMore("alert")} />
           <ActionCard title="回測觀察" sub="接近開盤價±1.5%" badge={pullbackList.length} tone="text-lime-300" onClick={() => goMore("pullback")} />
+          <ActionCard title="突破股" sub="主流突破優先" badge={breakoutList.length} tone="text-orange-300" onClick={() => goMore("breakout")} />
+          <ActionCard title="自選股" sub="個人追蹤" badge={favoriteStocks.length} tone="text-yellow-300" onClick={() => setTab("favorite")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
@@ -1151,14 +1323,14 @@ export default function App() {
               </div>
 
               {tab === "top50" && (
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <button
                     onClick={() => saveSettings({ ...settings, topOnlyMain: !settings.topOnlyMain })}
                     className={`rounded-2xl py-3 text-xs font-black ${
                       settings.topOnlyMain ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
                     }`}
                   >
-                    只看主流
+                    主流
                   </button>
                   <button
                     onClick={() => saveSettings({ ...settings, topOnlyLowPrice: !settings.topOnlyLowPrice })}
@@ -1166,7 +1338,15 @@ export default function App() {
                       settings.topOnlyLowPrice ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
                     }`}
                   >
-                    只看低價
+                    {settings.maxPrice}內
+                  </button>
+                  <button
+                    onClick={() => saveSettings({ ...settings, topOnlyBreakout: !settings.topOnlyBreakout })}
+                    className={`rounded-2xl py-3 text-xs font-black ${
+                      settings.topOnlyBreakout ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
+                    }`}
+                  >
+                    突破
                   </button>
                   <button
                     onClick={() => saveSettings({ ...settings, topExcludeHot: !settings.topExcludeHot })}
@@ -1174,7 +1354,7 @@ export default function App() {
                       settings.topExcludeHot ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
                     }`}
                   >
-                    排除過熱
+                    未過熱
                   </button>
                 </div>
               )}
@@ -1188,12 +1368,13 @@ export default function App() {
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <ActionCard title="產業熱度" sub="前三大產業展開" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="突破股" sub="剛突破優先" badge={breakoutList.length} tone="text-orange-300" onClick={() => setMoreView("breakout")} />
+              <ActionCard title="突破股" sub="主流 / 非主流" badge={breakoutList.length} tone="text-orange-300" onClick={() => setMoreView("breakout")} />
               <ActionCard title="回測觀察" sub="接近開盤價" badge={pullbackList.length} tone="text-lime-300" onClick={() => setMoreView("pullback")} />
               <ActionCard title="低價警報" sub="低價強勢警報" badge={alertList.length} tone="text-orange-300" onClick={() => setMoreView("alert")} />
-              <ActionCard title="不要碰" sub="附原因" badge={avoidList.length} tone="text-red-300" onClick={() => setMoreView("avoid")} />
+              <ActionCard title="不要碰" sub="附原因與再觀察條件" badge={avoidList.length} tone="text-red-300" onClick={() => setMoreView("avoid")} />
               <ActionCard title="設定" sub="主線模式" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
               <ActionCard title="資料狀態" sub="API與快取" badge={dataStatus} tone="text-blue-300" onClick={() => setMoreView("data")} />
+              <ActionCard title="加入今日必看" sub="3檔加入觀察" badge="📌" tone="text-cyan-300" onClick={addTodayMustWatch} />
               <ActionCard title="一鍵整理" sub="加入明日觀察" badge="📌" tone="text-cyan-300" onClick={addTomorrowAutoTop} />
             </div>
           </section>
@@ -1216,7 +1397,7 @@ export default function App() {
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              主線：先看產業，再挑股票，不追過熱。
+              今日一句話：{todaySentence}
             </p>
           </div>
 
@@ -1225,8 +1406,8 @@ export default function App() {
               <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
                 <h3 className="text-xl font-black">今日主流結論</h3>
                 <div className="mt-2 text-sm font-bold leading-6 text-cyan-100">
-                  今日主流集中在：{mainIndustries.slice(0, 3).join("、") || "尚無資料"}。
-                  先看主流產業，再挑突破、回測、低價未過熱股。
+                  今日主流集中在：{mainIndustries.slice(0, 3).join("、") || "尚無資料"}。  
+                  主流集中度：{mainConcentration.label}，{mainConcentration.text}。
                 </div>
               </section>
 
@@ -1235,7 +1416,7 @@ export default function App() {
 
                 <div className="mt-3 space-y-3">
                   {todayMustWatch.map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
                   ))}
 
                   {todayMustWatch.length === 0 && (
@@ -1247,11 +1428,20 @@ export default function App() {
               </section>
 
               <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">今日不要追</h3>
+                <h3 className="text-xl font-black">今日風險提醒</h3>
                 <div className="mt-2 text-sm font-bold text-red-100">
-                  過熱股 {hotList.length} 檔，轉弱股 {weakList.length} 檔。先避開漲幅過大、跌破開盤與非主流個股。
+                  過熱股 {hotList.length} 檔，轉弱股 {weakList.length} 檔。明天開高不要追，優先等回測開盤價。
                 </div>
               </section>
+            </div>
+          )}
+
+          {tab === "top50" && (
+            <div className="mb-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+              <h3 className="text-xl font-black">50強產業小統計</h3>
+              <div className="mt-2 text-sm font-bold text-cyan-100">
+                {industries.slice(0, 3).map((item) => `${item.industry} ${item.count}檔`).join("｜") || "尚無資料"}
+              </div>
             </div>
           )}
 
@@ -1262,12 +1452,23 @@ export default function App() {
                 <div className="mt-2 text-sm font-bold text-cyan-100">
                   優先 {tomorrowPriority.length}｜等回測 {tomorrowPullback.length}｜不追高 {tomorrowNoChase.length}
                 </div>
+
+                <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-yellow-100">
+                  明天開盤提醒：開高不追｜回測開盤可觀察｜跌破開盤先移除
+                </div>
+
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button onClick={organizeTomorrow} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
                     一鍵整理
                   </button>
                   <button onClick={clearHotTomorrow} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
                     清除過熱
+                  </button>
+                  <button onClick={addTodayMustWatch} className="rounded-2xl bg-yellow-500/20 py-3 text-sm font-black text-yellow-200">
+                    加入今日必看
+                  </button>
+                  <button onClick={clearTomorrow} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
+                    一鍵清空
                   </button>
                 </div>
               </section>
@@ -1286,7 +1487,7 @@ export default function App() {
                       </div>
                     )}
                     {list.map((stock: Stock, index: number) => (
-                      <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
+                      <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
                     ))}
                   </div>
                 </section>
@@ -1296,7 +1497,16 @@ export default function App() {
 
           {tab === "more" && moreView === "industry" && (
             <div className="space-y-3">
-              {industries.slice(0, 12).map((item, index) => (
+              <button
+                onClick={() => saveSettings({ ...settings, industryTopOnly: !settings.industryTopOnly })}
+                className={`w-full rounded-2xl py-3 text-sm font-black ${
+                  settings.industryTopOnly ? "bg-cyan-500 text-white" : "bg-slate-800 text-slate-200"
+                }`}
+              >
+                只看前三大產業：{settings.industryTopOnly ? "開" : "關"}
+              </button>
+
+              {(settings.industryTopOnly ? industries.slice(0, 3) : industries.slice(0, 12)).map((item, index) => (
                 <div key={item.industry} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
                   <div className="flex items-center justify-between">
                     <div>
@@ -1310,7 +1520,10 @@ export default function App() {
                         平均 {formatPercent(item.avg)}
                       </div>
                       <div className="text-xs font-black text-cyan-300">
-                        突破 {item.breakoutCount}｜強度 {item.score.toFixed(0)}
+                        突破 {item.breakoutCount}｜過熱 {item.hotCount}｜轉弱 {item.weakCount}
+                      </div>
+                      <div className="text-xs font-black text-yellow-300">
+                        強度 {item.score.toFixed(0)}
                       </div>
                     </div>
                   </div>
@@ -1324,6 +1537,38 @@ export default function App() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === "more" && moreView === "breakout" && (
+            <div className="space-y-5">
+              <section>
+                <h3 className="mb-2 text-xl font-black">主流突破</h3>
+                <div className="space-y-3">
+                  {mainBreakoutList.length === 0 && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">
+                      目前沒有主流突破
+                    </div>
+                  )}
+                  {mainBreakoutList.map((stock, index) => (
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
+                  ))}
+                </div>
+              </section>
+
+              <section>
+                <h3 className="mb-2 text-xl font-black">非主流突破</h3>
+                <div className="space-y-3">
+                  {otherBreakoutList.length === 0 && (
+                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">
+                      目前沒有非主流突破
+                    </div>
+                  )}
+                  {otherBreakoutList.map((stock, index) => (
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
+                  ))}
+                </div>
+              </section>
             </div>
           )}
 
@@ -1460,7 +1705,7 @@ export default function App() {
 
           {tab !== "home" &&
             tab !== "tomorrow" &&
-            !(tab === "more" && ["industry", "settings", "data", "menu"].includes(moreView)) && (
+            !(tab === "more" && ["industry", "settings", "data", "menu", "breakout"].includes(moreView)) && (
               <div className="space-y-3">
                 {currentList.length === 0 && (
                   <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
@@ -1470,10 +1715,30 @@ export default function App() {
 
                 {currentList.map((stock, index) => (
                   <div key={`${stock.code}-${index}`}>
-                    <StockCard stock={stock} rank={index + 1} {...cardProps} />
+                    <StockCard
+                      stock={stock}
+                      rank={index + 1}
+                      showReason={tab === "more" && (moreView === "alert" || moreView === "pullback")}
+                      {...cardProps}
+                    />
+
+                    {tab === "more" && moreView === "pullback" && (
+                      <div className="mt-1 rounded-2xl bg-lime-950/40 p-3 text-xs font-black text-lime-100">
+                        回測接近度：距離開盤價 {pullbackDistance(stock).toFixed(2)}%
+                      </div>
+                    )}
+
+                    {tab === "more" && moreView === "alert" && (
+                      <div className="mt-1 rounded-2xl bg-orange-950/40 p-3 text-xs font-black text-orange-100">
+                        警報原因：{getPickReasons(stock, mainIndustries, settings)}
+                      </div>
+                    )}
+
                     {tab === "more" && moreView === "avoid" && (
                       <div className="mt-1 rounded-2xl bg-red-950/40 p-3 text-xs font-black text-red-100">
                         原因：{getAvoidReason(stock, mainIndustries, settings)}
+                        <br />
+                        可重新觀察：{getRewatchCondition(stock, mainIndustries, settings)}
                       </div>
                     )}
                   </div>
