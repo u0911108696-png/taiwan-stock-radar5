@@ -18,22 +18,25 @@ type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
 type MoreView =
   | "menu"
   | "industry"
+  | "mainStrong"
+  | "mainWeak"
+  | "mainPullback"
+  | "lowMain"
+  | "highScore"
+  | "hotRadar"
+  | "nonMainStrong"
   | "breakout"
   | "pullback"
   | "alert"
   | "avoid"
   | "data"
-  | "settings"
-  | "mainStrong"
-  | "mainWeak"
-  | "nonMainStrong"
-  | "realtimeUp"
-  | "realtimeDown";
+  | "settings";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 type MainMode = "保守" | "標準" | "積極";
 type WeakRule = "跌破開盤" | "跌破昨收" | "兩者都要";
-type SortKey = "score" | "change" | "price" | "realtime";
+type SortKey = "score" | "instant" | "change" | "price";
+type TopFilter = "全部" | "即時轉強" | "即時轉弱" | "非主流強漲" | "主流" | "低價" | "未過熱";
 
 type Settings = {
   maxPrice: number;
@@ -44,6 +47,7 @@ type Settings = {
   mainMode: MainMode;
   weakRule: WeakRule;
   dataSaver: boolean;
+  topFilter: TopFilter;
 };
 
 type ApiResponse = {
@@ -63,6 +67,7 @@ type IndustryItem = {
   breakoutCount: number;
   hotCount: number;
   weakCount: number;
+  realtimeStrongCount: number;
   score: number;
 };
 
@@ -70,8 +75,8 @@ const API_URL = "/api/stocks";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-precise-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-precise-last-success";
+const SETTINGS_KEY = "taiwan-stock-radar-advanced-realtime-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-advanced-realtime-last-success";
 
 const defaultSettings: Settings = {
   maxPrice: 200,
@@ -82,6 +87,7 @@ const defaultSettings: Settings = {
   mainMode: "標準",
   weakRule: "跌破開盤",
   dataSaver: false,
+  topFilter: "全部",
 };
 
 const industryMap: Record<string, string> = {
@@ -210,13 +216,61 @@ function pullbackDistance(stock: Stock) {
   return (Math.abs(stock.price - stock.openPrice) / stock.openPrice) * 100;
 }
 
+function previousPriceOf(stock: Stock, previousPriceMap: Record<string, number>) {
+  return previousPriceMap[stock.code];
+}
+
+function instantChange(stock: Stock, previousPriceMap: Record<string, number>) {
+  const prev = previousPriceOf(stock, previousPriceMap);
+  if (!prev || prev <= 0) return 0;
+  return stock.price - prev;
+}
+
+function instantPercent(stock: Stock, previousPriceMap: Record<string, number>) {
+  const prev = previousPriceOf(stock, previousPriceMap);
+  if (!prev || prev <= 0) return 0;
+  return ((stock.price - prev) / prev) * 100;
+}
+
 function isAlert(stock: Stock, settings: Settings) {
   if (stock.price <= 0 || stock.price > settings.maxPrice) return false;
   if (settings.excludeHot && isHot(stock, settings)) return false;
   return stock.changePercent >= settings.alertPercent || (stock.openPremiumPercent ?? 0) >= 3;
 }
 
-function getIndustryRanking(stocks: Stock[], settings: Settings): IndustryItem[] {
+function isRealtimeStrong(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
+  return (
+    priceDirections[stock.code] === "up" &&
+    stock.price >= stock.openPrice &&
+    mainIndustries.includes(stock.industry) &&
+    !isHot(stock, settings)
+  );
+}
+
+function isRealtimeWeak(
+  stock: Stock,
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
+  return (
+    priceDirections[stock.code] === "down" ||
+    stock.price < stock.openPrice ||
+    stock.price < stock.previousClose ||
+    isWeak(stock, settings)
+  );
+}
+
+function getIndustryRanking(
+  stocks: Stock[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  mainIndustriesForRealtime: string[] = []
+): IndustryItem[] {
   const map = new Map<string, IndustryItem>();
 
   stocks.forEach((stock) => {
@@ -231,6 +285,7 @@ function getIndustryRanking(stocks: Stock[], settings: Settings): IndustryItem[]
         breakoutCount: 0,
         hotCount: 0,
         weakCount: 0,
+        realtimeStrongCount: 0,
         score: 0,
       };
 
@@ -239,6 +294,10 @@ function getIndustryRanking(stocks: Stock[], settings: Settings): IndustryItem[]
     if (isBreakout(stock)) item.breakoutCount += 1;
     if (isHot(stock, settings)) item.hotCount += 1;
     if (isWeak(stock, settings)) item.weakCount += 1;
+    if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) {
+      item.realtimeStrongCount += 1;
+    }
+
     map.set(key, item);
   });
 
@@ -248,15 +307,19 @@ function getIndustryRanking(stocks: Stock[], settings: Settings): IndustryItem[]
         item.stocks.reduce((sum, stock) => sum + stock.changePercent, 0) /
         Math.max(item.stocks.length, 1);
 
+      const mainBonus = mainIndustriesForRealtime.includes(item.industry) ? 8 : 0;
+
       return {
         ...item,
         avg,
         score:
           item.count * 10 +
           avg * 3 +
-          item.breakoutCount * 5 -
-          item.hotCount * 2 -
-          item.weakCount * 2,
+          item.breakoutCount * 5 +
+          item.realtimeStrongCount * 6 +
+          mainBonus -
+          item.hotCount * 3 -
+          item.weakCount * 3,
       };
     })
     .sort((a, b) => b.score - a.score);
@@ -283,23 +346,33 @@ function scoreStock(stock: Stock, mainIndustries: string[], settings: Settings) 
   return Math.max(0, Math.round(score));
 }
 
-function getPreviousPrice(code: string, previousPriceMap: Record<string, number>) {
-  return previousPriceMap[code];
+function instantScore(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
+  let score = 0;
+
+  if (priceDirections[stock.code] === "up") score += 30;
+  if (stock.price >= stock.openPrice) score += 25;
+  if (mainIndustries.includes(stock.industry)) score += 20;
+  if (!isHot(stock, settings)) score += 15;
+  if (stock.volume > 0) score += 10;
+  if (isBreakout(stock)) score += 10;
+  if (isWeak(stock, settings)) score -= 30;
+  if (isHot(stock, settings)) score -= 25;
+
+  return Math.max(0, Math.round(score));
 }
 
-function getPriceChangeValue(stock: Stock, previousPriceMap: Record<string, number>) {
-  const previous = getPreviousPrice(stock.code, previousPriceMap);
-  if (previous === undefined || previous <= 0) return 0;
-  return stock.price - previous;
+function mainRank(stock: Stock, mainIndustries: string[]) {
+  const index = mainIndustries.indexOf(stock.industry);
+  if (index === -1) return "";
+  return `主流${index + 1}`;
 }
 
-function getPriceChangePercent(stock: Stock, previousPriceMap: Record<string, number>) {
-  const previous = getPreviousPrice(stock.code, previousPriceMap);
-  if (previous === undefined || previous <= 0) return 0;
-  return ((stock.price - previous) / previous) * 100;
-}
-
-function getDirectionText(direction?: PriceDirection) {
+function directionText(direction?: PriceDirection) {
   if (direction === "up") return "↑ 股價上升";
   if (direction === "down") return "↓ 股價下降";
   if (direction === "same") return "→ 股價持平";
@@ -307,40 +380,21 @@ function getDirectionText(direction?: PriceDirection) {
   return "--";
 }
 
-function getDirectionTone(direction?: PriceDirection) {
+function directionTone(direction?: PriceDirection) {
   if (direction === "up") return "text-red-300";
   if (direction === "down") return "text-emerald-300";
   if (direction === "same") return "text-slate-300";
   return "text-cyan-300";
 }
 
-function getMainRank(stock: Stock, mainIndustries: string[]) {
-  const index = mainIndustries.indexOf(stock.industry);
-  if (index === -1) return "";
-  return `主流${index + 1}`;
-}
-
-function isRealtimeStrong(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections: Record<string, PriceDirection>) {
-  return (
-    priceDirections[stock.code] === "up" &&
-    stock.price >= stock.openPrice &&
-    mainIndustries.includes(stock.industry) &&
-    !isHot(stock, settings)
-  );
-}
-
-function isRealtimeWeak(stock: Stock, settings: Settings, priceDirections: Record<string, PriceDirection>) {
-  return (
-    priceDirections[stock.code] === "down" ||
-    stock.price < stock.openPrice ||
-    stock.price < stock.previousClose ||
-    isWeak(stock, settings)
-  );
-}
-
-function getStatus(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections?: Record<string, PriceDirection>) {
-  if (priceDirections && isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "即時轉強";
-  if (priceDirections && isRealtimeWeak(stock, settings, priceDirections)) return "即時轉弱";
+function statusText(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
+  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "即時轉強";
+  if (isRealtimeWeak(stock, settings, priceDirections)) return "即時轉弱";
   if (isHot(stock, settings)) return "過熱";
   if (isWeak(stock, settings)) return "轉弱";
   if (isAlert(stock, settings)) return "警報";
@@ -350,7 +404,7 @@ function getStatus(stock: Stock, mainIndustries: string[], settings: Settings, p
   return "觀察";
 }
 
-function getConclusion(stock: Stock, mainIndustries: string[], settings: Settings) {
+function conclusion(stock: Stock, mainIndustries: string[], settings: Settings) {
   const score = scoreStock(stock, mainIndustries, settings);
 
   if (isHot(stock, settings)) return "不追高";
@@ -362,20 +416,32 @@ function getConclusion(stock: Stock, mainIndustries: string[], settings: Setting
   return "暫不追";
 }
 
-function getTomorrowDecision(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections: Record<string, PriceDirection>) {
+function tomorrowDecision(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
   if (isHot(stock, settings)) return "過熱不追";
-  if (isRealtimeWeak(stock, settings, priceDirections)) return "移除";
-  if (isPullback(stock, settings)) return "等回測";
-  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "保留";
-  if (scoreStock(stock, mainIndustries, settings) >= 70 && !isWeak(stock, settings)) return "保留";
-  return "等回測";
+  if (isRealtimeWeak(stock, settings, priceDirections)) return "轉弱移除";
+  if (isPullback(stock, settings)) return "主流回測";
+  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "主流轉強";
+  if (!mainIndustries.includes(stock.industry) && stock.changePercent >= settings.alertPercent) return "非主流強漲觀察";
+  if (scoreStock(stock, mainIndustries, settings) >= 70) return "主流轉強";
+  return "主流回測";
 }
 
-function getPickReasons(stock: Stock, mainIndustries: string[], settings: Settings) {
+function pickReasons(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
   const reasons: string[] = [];
 
-  if (mainIndustries.includes(stock.industry)) reasons.push("主流產業");
-  if (stock.price > 0 && stock.price <= settings.maxPrice) reasons.push(`${settings.maxPrice}元內`);
+  if (mainIndustries.includes(stock.industry)) reasons.push("主流");
+  if (stock.price <= settings.maxPrice) reasons.push(`${settings.maxPrice}內`);
+  if (priceDirections[stock.code] === "up") reasons.push("即時上升");
   if (isBreakout(stock)) reasons.push("突破開盤");
   if (isPullback(stock, settings)) reasons.push("接近回測");
   if (!isHot(stock, settings)) reasons.push("未過熱");
@@ -384,22 +450,24 @@ function getPickReasons(stock: Stock, mainIndustries: string[], settings: Settin
   return reasons.length ? reasons.join(" / ") : "暫無明確理由";
 }
 
-function getAvoidReason(stock: Stock, mainIndustries: string[], settings: Settings) {
+function removeReasons(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections: Record<string, PriceDirection>) {
   const reasons: string[] = [];
 
-  if (isHot(stock, settings)) reasons.push("過熱");
+  if (priceDirections[stock.code] === "down") reasons.push("即時下跌");
   if (stock.price < stock.openPrice) reasons.push("跌破開盤");
   if (stock.price < stock.previousClose) reasons.push("跌破昨收");
-  if (stock.changePercent < 2) reasons.push("漲幅低於2%");
+  if (isHot(stock, settings)) reasons.push("過熱");
   if (!mainIndustries.includes(stock.industry)) reasons.push("非主流");
-  if (stock.price > settings.maxPrice) reasons.push(`超過${settings.maxPrice}元`);
 
-  return reasons.length ? reasons.join(" / ") : "暫無明顯風險";
+  return reasons.length ? reasons.join(" / ") : "沒有明顯移除理由";
 }
 
-function getRealtimeSentence(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections: Record<string, PriceDirection>) {
-  const direction = priceDirections[stock.code];
-
+function realtimeSentence(
+  stock: Stock,
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>
+) {
   if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) {
     return "股價剛上升，仍站上開盤，主線偏強。";
   }
@@ -408,13 +476,13 @@ function getRealtimeSentence(stock: Stock, mainIndustries: string[], settings: S
     return "股價轉弱或跌破關鍵價，先保守觀察。";
   }
 
-  if (direction === "same") return "股價暫時持平，等待下一次更新確認。";
-  if (direction === "new") return "新資料，等待下一筆更新比對。";
+  if (priceDirections[stock.code] === "same") return "股價暫時持平，等待下一次更新確認。";
+  if (priceDirections[stock.code] === "new") return "新資料，等待下一筆更新比對。";
 
   return "目前未出現明確即時訊號。";
 }
 
-function getKLinks(code: string, name: string) {
+function kLinks(code: string, name: string) {
   return {
     yahoo: `https://tw.stock.yahoo.com/quote/${code}.TW/technical-analysis`,
     tradingView: `https://www.tradingview.com/chart/?symbol=TWSE%3A${code}`,
@@ -513,15 +581,16 @@ function StockCard({
   onAddTomorrow: (code: string) => void;
   onRemoveTomorrow: (code: string) => void;
 }) {
-  const score = scoreStock(stock, mainIndustries, settings);
+  const baseScore = scoreStock(stock, mainIndustries, settings);
+  const liveScore = instantScore(stock, mainIndustries, settings, priceDirections);
   const isFavorite = favoriteCodes.includes(stock.code);
   const isTomorrow = tomorrowCodes.includes(stock.code);
   const direction = priceDirections[stock.code];
-  const mainRank = getMainRank(stock, mainIndustries);
-  const previousPrice = getPreviousPrice(stock.code, previousPriceMap);
-  const changeValue = getPriceChangeValue(stock, previousPriceMap);
-  const changePercent = getPriceChangePercent(stock, previousPriceMap);
-  const status = getStatus(stock, mainIndustries, settings, priceDirections);
+  const mr = mainRank(stock, mainIndustries);
+  const prevPrice = previousPriceOf(stock, previousPriceMap);
+  const diff = instantChange(stock, previousPriceMap);
+  const diffPercent = instantPercent(stock, previousPriceMap);
+  const st = statusText(stock, mainIndustries, settings, priceDirections);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -531,7 +600,7 @@ function StockCard({
             <div className="text-xs font-bold text-slate-500">#{rank}　{stock.code}</div>
             <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
-              {stock.industry} {mainRank && `｜${mainRank}`}
+              {stock.industry} {mr && `｜${mr}`}
             </div>
           </div>
 
@@ -544,34 +613,29 @@ function StockCard({
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
-          <span className="rounded-full bg-slate-800 px-3 py-1">{status}</span>
-          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">分數 {score}</span>
-          <span className={`rounded-full bg-black/30 px-3 py-1 ${getDirectionTone(direction)}`}>{getDirectionText(direction)}</span>
-          {isRealtimeStrong(stock, mainIndustries, settings, priceDirections) && (
-            <span className="rounded-full bg-red-500/20 px-3 py-1 text-red-300">即時轉強</span>
-          )}
-          {isRealtimeWeak(stock, settings, priceDirections) && (
-            <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-emerald-300">即時轉弱</span>
-          )}
-          {mainRank && <span className="rounded-full bg-purple-500/20 px-3 py-1 text-purple-200">{mainRank}</span>}
+          <span className="rounded-full bg-slate-800 px-3 py-1">{st}</span>
+          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">主線 {baseScore}</span>
+          <span className="rounded-full bg-orange-950 px-3 py-1 text-orange-200">即時 {liveScore}</span>
+          <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
+          {mr && <span className="rounded-full bg-purple-500/20 px-3 py-1 text-purple-200">{mr}</span>}
           {isTomorrow && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">明日觀察</span>}
           {isFavorite && <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-yellow-300">自選</span>}
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          結論：{getConclusion(stock, mainIndustries, settings)}
+          結論：{conclusion(stock, mainIndustries, settings)}
         </div>
 
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${getDirectionTone(direction)}`}>
-          即時：{getDirectionText(direction)}　
-          {previousPrice !== undefined ? `上一筆 ${previousPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
-          {previousPrice !== undefined && (
+        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
+          即時：{directionText(direction)}　
+          {prevPrice !== undefined ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
+          {prevPrice !== undefined && (
             <>
               {" ｜ "}
-              {changeValue > 0 ? "+" : ""}
-              {changeValue.toFixed(2)}
+              {diff > 0 ? "+" : ""}
+              {diff.toFixed(2)}
               {" / "}
-              {formatPercent(changePercent)}
+              {formatPercent(diffPercent)}
             </>
           )}
           <br />
@@ -580,7 +644,9 @@ function StockCard({
 
         {showReason && (
           <div className="mt-2 rounded-2xl bg-cyan-950/30 p-2 text-xs font-bold text-cyan-100">
-            理由：{getPickReasons(stock, mainIndustries, settings)}
+            保留原因：{pickReasons(stock, mainIndustries, settings, priceDirections)}
+            <br />
+            移除原因：{removeReasons(stock, mainIndustries, settings, priceDirections)}
           </div>
         )}
       </button>
@@ -622,6 +688,7 @@ export default function App() {
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("score");
   const [showFilters, setShowFilters] = useState(false);
+  const [customMaxPrice, setCustomMaxPrice] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
@@ -643,6 +710,7 @@ export default function App() {
     const mergedSettings = { ...defaultSettings, ...savedSettings };
     setSettings(mergedSettings);
     setAutoSeconds(mergedSettings.refreshSeconds);
+    setCustomMaxPrice(String(mergedSettings.maxPrice));
 
     setFavoriteCodes(safeParse(localStorage.getItem(FAVORITE_KEY), []));
     setTomorrowCodes(safeParse(localStorage.getItem(TOMORROW_KEY), []));
@@ -678,7 +746,7 @@ export default function App() {
   }
 
   function saveTomorrow(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 50);
+    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 80);
     setTomorrowCodes(clean);
     localStorage.setItem(TOMORROW_KEY, JSON.stringify(clean));
   }
@@ -711,9 +779,7 @@ export default function App() {
 
       const response = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
 
-      if (!response.ok) {
-        throw new Error(`API錯誤：${response.status}`);
-      }
+      if (!response.ok) throw new Error(`API錯誤：${response.status}`);
 
       const json: ApiResponse = await response.json();
 
@@ -734,9 +800,7 @@ export default function App() {
         .filter((stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
         .sort((a, b) => b.changePercent - a.changePercent);
 
-      if (normalized.length === 0) {
-        throw new Error("API回傳空資料");
-      }
+      if (normalized.length === 0) throw new Error("API回傳空資料");
 
       const oldPriceMap = { ...lastPriceMap };
       const nextPriceMap: Record<string, number> = {};
@@ -804,32 +868,29 @@ export default function App() {
   }, [settings.refreshSeconds, settings.dataSaver, lastPriceMap]);
 
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
-  const industries = useMemo(() => getIndustryRanking(top50, settings), [top50, settings]);
-  const mainIndustries = useMemo(() => industries.slice(0, 3).map((item) => item.industry), [industries]);
+
+  const baseIndustries = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections),
+    [top50, settings, priceDirections]
+  );
+
+  const mainIndustries = useMemo(
+    () => baseIndustries.slice(0, 3).map((item) => item.industry),
+    [baseIndustries]
+  );
+
+  const industries = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections, mainIndustries),
+    [top50, settings, priceDirections, mainIndustries]
+  );
 
   const hotList = useMemo(() => top50.filter((stock) => isHot(stock, settings)), [top50, settings]);
-
-  const realtimeUpList = useMemo(
-    () =>
-      top50
-        .filter((stock) => priceDirections[stock.code] === "up")
-        .sort((a, b) => getPriceChangePercent(b, previousPriceMap) - getPriceChangePercent(a, previousPriceMap)),
-    [top50, priceDirections, previousPriceMap]
-  );
-
-  const realtimeDownList = useMemo(
-    () =>
-      top50
-        .filter((stock) => priceDirections[stock.code] === "down")
-        .sort((a, b) => getPriceChangePercent(a, previousPriceMap) - getPriceChangePercent(b, previousPriceMap)),
-    [top50, priceDirections, previousPriceMap]
-  );
 
   const mainStrongList = useMemo(
     () =>
       top50
         .filter((stock) => isRealtimeStrong(stock, mainIndustries, settings, priceDirections))
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
+        .sort((a, b) => instantScore(b, mainIndustries, settings, priceDirections) - instantScore(a, mainIndustries, settings, priceDirections)),
     [top50, mainIndustries, settings, priceDirections]
   );
 
@@ -848,9 +909,44 @@ export default function App() {
         .filter((stock) => stock.changePercent >= settings.alertPercent)
         .filter((stock) => priceDirections[stock.code] === "up" || isBreakout(stock))
         .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => b.changePercent - a.changePercent)
-        .slice(0, 30),
+        .sort((a, b) => b.changePercent - a.changePercent),
     [top50, mainIndustries, settings, priceDirections]
+  );
+
+  const mainPullbackList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainIndustries.includes(stock.industry))
+        .filter((stock) => isPullback(stock, settings))
+        .filter((stock) => stock.price >= stock.previousClose)
+        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b)),
+    [top50, mainIndustries, settings]
+  );
+
+  const lowMainList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainIndustries.includes(stock.industry))
+        .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
+        .filter((stock) => !isHot(stock, settings))
+        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
+    [top50, mainIndustries, settings]
+  );
+
+  const highScoreList = useMemo(
+    () =>
+      top50
+        .filter((stock) => scoreStock(stock, mainIndustries, settings) >= 70)
+        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
+    [top50, mainIndustries, settings]
+  );
+
+  const hotRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => isHot(stock, settings))
+        .sort((a, b) => b.changePercent - a.changePercent),
+    [top50, settings]
   );
 
   const breakoutList = useMemo(
@@ -858,8 +954,7 @@ export default function App() {
       top50
         .filter(isBreakout)
         .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
-        .slice(0, 30),
+        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
     [top50, mainIndustries, settings]
   );
 
@@ -867,8 +962,7 @@ export default function App() {
     () =>
       top50
         .filter((stock) => isPullback(stock, settings))
-        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b))
-        .slice(0, 30),
+        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b)),
     [top50, settings]
   );
 
@@ -912,21 +1006,6 @@ export default function App() {
       .slice(0, 20);
   }, [top50, mainIndustries, settings]);
 
-  const todayStrong3 = useMemo(() => mainStrongList.slice(0, 3), [mainStrongList]);
-  const todayWeak3 = useMemo(() => mainWeakList.slice(0, 3), [mainWeakList]);
-
-  const mainLeaders = useMemo(
-    () =>
-      mainIndustries.map((industry) => {
-        const leader = top50
-          .filter((stock) => stock.industry === industry)
-          .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))[0];
-
-        return { industry, leader };
-      }),
-    [mainIndustries, top50, settings]
-  );
-
   const favoriteStocks = useMemo(
     () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
     [favoriteCodes, stocks]
@@ -943,23 +1022,28 @@ export default function App() {
     return Array.from(map.values());
   }, [tomorrowStocksManual, tomorrowAutoList]);
 
-  const tomorrowKeep = useMemo(
-    () => tomorrowCombined.filter((stock) => getTomorrowDecision(stock, mainIndustries, settings, priceDirections) === "保留"),
+  const tomorrowMainStrong = useMemo(
+    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "主流轉強"),
     [tomorrowCombined, mainIndustries, settings, priceDirections]
   );
 
-  const tomorrowPullback = useMemo(
-    () => tomorrowCombined.filter((stock) => getTomorrowDecision(stock, mainIndustries, settings, priceDirections) === "等回測"),
+  const tomorrowMainPullback = useMemo(
+    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "主流回測"),
     [tomorrowCombined, mainIndustries, settings, priceDirections]
   );
 
-  const tomorrowRemove = useMemo(
-    () => tomorrowCombined.filter((stock) => getTomorrowDecision(stock, mainIndustries, settings, priceDirections) === "移除"),
+  const tomorrowNonMainStrong = useMemo(
+    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "非主流強漲觀察"),
     [tomorrowCombined, mainIndustries, settings, priceDirections]
   );
 
-  const tomorrowNoChase = useMemo(
-    () => tomorrowCombined.filter((stock) => getTomorrowDecision(stock, mainIndustries, settings, priceDirections) === "過熱不追"),
+  const tomorrowHot = useMemo(
+    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "過熱不追"),
+    [tomorrowCombined, mainIndustries, settings, priceDirections]
+  );
+
+  const tomorrowWeakRemove = useMemo(
+    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "轉弱移除"),
     [tomorrowCombined, mainIndustries, settings, priceDirections]
   );
 
@@ -971,6 +1055,28 @@ export default function App() {
     if (ratio >= 0.3) return "資金偏集中";
     return "資金擴散";
   }, [top50, mainIndustries]);
+
+  const marketScore = useMemo(() => {
+    const mainCount = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
+    const mainRatio = top50.length ? (mainCount / top50.length) * 100 : 0;
+
+    let score = 40;
+    score += Math.min(25, mainRatio * 0.5);
+    score += Math.min(20, mainStrongList.length * 4);
+    score += Math.min(15, breakoutList.length);
+    score -= Math.min(25, hotList.length * 1.5);
+    score -= Math.min(25, mainWeakList.length * 3);
+
+    return Math.max(0, Math.min(100, Math.round(score)));
+  }, [top50, mainIndustries, mainStrongList, breakoutList, hotList, mainWeakList]);
+
+  const todayMode = useMemo(() => {
+    if (hotList.length >= 15) return { label: "不追高", tone: "text-red-300" };
+    if (mainWeakList.length >= 8) return { label: "保守觀察", tone: "text-yellow-300" };
+    if (mainPullbackList.length >= 5) return { label: "等回測", tone: "text-yellow-300" };
+    if (mainStrongList.length >= 5 && marketScore >= 70) return { label: "積極觀察", tone: "text-red-300" };
+    return { label: "保守觀察", tone: "text-cyan-300" };
+  }, [hotList, mainWeakList, mainPullbackList, mainStrongList, marketScore]);
 
   const dataStatus = useMemo(() => {
     if (updating) return "更新中";
@@ -1004,8 +1110,38 @@ export default function App() {
     return index >= 0 ? index + 1 : null;
   }, [selectedStock, sameIndustryStocks]);
 
+  function filterTopList(list: Stock[]) {
+    if (tab !== "top50") return list;
+
+    if (settings.topFilter === "即時轉強") {
+      return list.filter((stock) => isRealtimeStrong(stock, mainIndustries, settings, priceDirections));
+    }
+
+    if (settings.topFilter === "即時轉弱") {
+      return list.filter((stock) => isRealtimeWeak(stock, settings, priceDirections));
+    }
+
+    if (settings.topFilter === "非主流強漲") {
+      return list.filter((stock) => !mainIndustries.includes(stock.industry) && stock.changePercent >= settings.alertPercent);
+    }
+
+    if (settings.topFilter === "主流") {
+      return list.filter((stock) => mainIndustries.includes(stock.industry));
+    }
+
+    if (settings.topFilter === "低價") {
+      return list.filter((stock) => stock.price <= settings.maxPrice);
+    }
+
+    if (settings.topFilter === "未過熱") {
+      return list.filter((stock) => !isHot(stock, settings));
+    }
+
+    return list;
+  }
+
   function sortList(list: Stock[]) {
-    let arr = [...list];
+    let arr = filterTopList([...list]);
 
     const keyword = searchText.trim();
     if (keyword) {
@@ -1014,8 +1150,8 @@ export default function App() {
 
     if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
     if (sortKey === "price") return arr.sort((a, b) => a.price - b.price);
-    if (sortKey === "realtime") {
-      return arr.sort((a, b) => getPriceChangePercent(b, previousPriceMap) - getPriceChangePercent(a, previousPriceMap));
+    if (sortKey === "instant") {
+      return arr.sort((a, b) => instantScore(b, mainIndustries, settings, priceDirections) - instantScore(a, mainIndustries, settings, priceDirections));
     }
 
     return arr.sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings));
@@ -1026,11 +1162,14 @@ export default function App() {
     if (tab === "favorite") return sortList(favoriteStocks);
 
     if (tab === "more") {
+      if (moreView === "industry") return [];
       if (moreView === "mainStrong") return sortList(mainStrongList);
       if (moreView === "mainWeak") return sortList(mainWeakList);
+      if (moreView === "mainPullback") return sortList(mainPullbackList);
+      if (moreView === "lowMain") return sortList(lowMainList);
+      if (moreView === "highScore") return sortList(highScoreList);
+      if (moreView === "hotRadar") return sortList(hotRadarList);
       if (moreView === "nonMainStrong") return sortList(nonMainStrongList);
-      if (moreView === "realtimeUp") return sortList(realtimeUpList);
-      if (moreView === "realtimeDown") return sortList(realtimeDownList);
       if (moreView === "breakout") return sortList(breakoutList);
       if (moreView === "pullback") return sortList(pullbackList);
       if (moreView === "alert") return sortList(alertList);
@@ -1045,9 +1184,11 @@ export default function App() {
     favoriteStocks,
     mainStrongList,
     mainWeakList,
+    mainPullbackList,
+    lowMainList,
+    highScoreList,
+    hotRadarList,
     nonMainStrongList,
-    realtimeUpList,
-    realtimeDownList,
     breakoutList,
     pullbackList,
     alertList,
@@ -1056,7 +1197,7 @@ export default function App() {
     sortKey,
     mainIndustries,
     settings,
-    previousPriceMap,
+    priceDirections,
   ]);
 
   function goMore(view: MoreView) {
@@ -1070,7 +1211,7 @@ export default function App() {
   }
 
   function removeWeakTomorrow() {
-    const removeSet = new Set(tomorrowRemove.map((stock) => stock.code));
+    const removeSet = new Set(tomorrowWeakRemove.map((stock) => stock.code));
     saveTomorrow(tomorrowCodes.filter((code) => !removeSet.has(code)));
   }
 
@@ -1104,14 +1245,18 @@ export default function App() {
   };
 
   if (selectedStock) {
-    const links = getKLinks(selectedStock.code, selectedStock.name);
+    const links = kLinks(selectedStock.code, selectedStock.name);
     const direction = priceDirections[selectedStock.code];
     const isFavorite = favoriteCodes.includes(selectedStock.code);
     const isTomorrow = tomorrowCodes.includes(selectedStock.code);
-    const previousPrice = previousPriceMap[selectedStock.code];
-    const instantChange = getPriceChangeValue(selectedStock, previousPriceMap);
-    const instantChangePercent = getPriceChangePercent(selectedStock, previousPriceMap);
-    const decision = getTomorrowDecision(selectedStock, mainIndustries, settings, priceDirections);
+    const prevPrice = previousPriceMap[selectedStock.code];
+    const diff = instantChange(selectedStock, previousPriceMap);
+    const diffPercent = instantPercent(selectedStock, previousPriceMap);
+    const decision = tomorrowDecision(selectedStock, mainIndustries, settings, priceDirections);
+    const suggestion =
+      decision === "轉弱移除" || decision === "過熱不追"
+        ? `建議移除：${removeReasons(selectedStock, mainIndustries, settings, priceDirections)}`
+        : `可觀察：${pickReasons(selectedStock, mainIndustries, settings, priceDirections)}`;
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -1139,25 +1284,31 @@ export default function App() {
 
             <div className="mt-4 rounded-2xl bg-black/30 p-4">
               <div className="text-xs font-bold text-slate-500">即時判斷一句話</div>
-              <div className={`mt-1 text-xl font-black ${getDirectionTone(direction)}`}>
-                {getRealtimeSentence(selectedStock, mainIndustries, settings, priceDirections)}
+              <div className={`mt-1 text-xl font-black ${directionTone(direction)}`}>
+                {realtimeSentence(selectedStock, mainIndustries, settings, priceDirections)}
               </div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                {previousPrice !== undefined
-                  ? `上一筆 ${previousPrice.toFixed(2)} → 現在 ${selectedStock.price.toFixed(2)}｜${instantChange > 0 ? "+" : ""}${instantChange.toFixed(2)}｜${formatPercent(instantChangePercent)}`
+                {prevPrice !== undefined
+                  ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${selectedStock.price.toFixed(2)}｜${diff > 0 ? "+" : ""}${diff.toFixed(2)}｜${formatPercent(diffPercent)}`
                   : "尚無上一筆股價，等待下一次更新比對。"}
               </div>
             </div>
 
+            <div className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
+              <div className="text-xs font-bold text-yellow-300">明日觀察判斷</div>
+              <div className="mt-1 text-2xl font-black text-yellow-100">{decision}</div>
+              <div className="mt-2 text-sm font-bold text-slate-300">{suggestion}</div>
+            </div>
+
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <DetailRow label="明日是否保留" value={decision} />
+              <DetailRow label="主線分數" value={scoreStock(selectedStock, mainIndustries, settings)} />
+              <DetailRow label="即時強度分" value={instantScore(selectedStock, mainIndustries, settings, priceDirections)} />
               <DetailRow label="同產業排名" value={selectedIndustryRank ? `${selectedStock.industry} 第 ${selectedIndustryRank}` : "--"} />
+              <DetailRow label="狀態" value={statusText(selectedStock, mainIndustries, settings, priceDirections)} />
               <DetailRow label="目前股價" value={formatNumber(selectedStock.price)} />
-              <DetailRow label="股價方向" value={getDirectionText(direction)} />
+              <DetailRow label="股價方向" value={directionText(direction)} />
               <DetailRow label="開盤價" value={formatNumber(selectedStock.openPrice)} />
               <DetailRow label="昨收價" value={formatNumber(selectedStock.previousClose)} />
-              <DetailRow label="分數" value={scoreStock(selectedStock, mainIndustries, settings)} />
-              <DetailRow label="狀態" value={getStatus(selectedStock, mainIndustries, settings, priceDirections)} />
             </div>
           </section>
 
@@ -1175,7 +1326,13 @@ export default function App() {
           <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
             <h2 className="text-xl font-black">一鍵加入</h2>
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            {isTomorrow && (
+              <div className="mb-3 rounded-2xl bg-cyan-950/40 p-3 text-sm font-black text-cyan-100">
+                進入明日觀察原因：{pickReasons(selectedStock, mainIndustries, settings, priceDirections)}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2">
               <button
                 onClick={() => (isTomorrow ? removeTomorrow(selectedStock.code) : addTomorrow(selectedStock.code))}
                 className={`rounded-2xl py-3 text-sm font-black ${
@@ -1206,7 +1363,7 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股即時主線精準版</div>
+              <div className="text-sm font-bold text-slate-400">台股即時主線進階判斷版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">即時主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 即時股價 → 主流產業 → 轉強 / 轉弱 → 明日觀察。
@@ -1236,43 +1393,65 @@ export default function App() {
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="目前最強主流" value={mainIndustries[0] || "--"} sub={`${fundFlowText}｜${mainIndustries.slice(0, 3).join("、")}`} tone="text-cyan-300" onClick={() => goMore("industry")} />
-          <MiniCard title="即時轉強" value={todayStrong3.length} sub="主流 + 上升 + 站上開盤" tone="text-red-300" onClick={() => goMore("mainStrong")} />
-          <MiniCard title="即時轉弱" value={todayWeak3.length} sub="下跌 / 跌破開盤 / 跌破昨收" tone="text-emerald-300" onClick={() => goMore("mainWeak")} />
-          <MiniCard title="非主流強漲" value={nonMainStrongList.length} sub="可能新題材，先觀察" tone="text-yellow-300" onClick={() => goMore("nonMainStrong")} />
+          <MiniCard title="今日主線分數" value={marketScore} sub={`${todayMode.label}｜${fundFlowText}`} tone={todayMode.tone} onClick={() => setTab("home")} />
+          <MiniCard title="今日適合模式" value={todayMode.label} sub="依主流/過熱/轉弱判斷" tone={todayMode.tone} onClick={() => setTab("home")} />
+          <MiniCard title="主流轉強" value={mainStrongList.length} sub="股價上升 + 站上開盤" tone="text-red-300" onClick={() => goMore("mainStrong")} />
+          <MiniCard title="主流轉弱" value={mainWeakList.length} sub="下跌 / 跌破開盤 / 跌破昨收" tone="text-emerald-300" onClick={() => goMore("mainWeak")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-          <h2 className="text-xl font-black">主流內最強3檔</h2>
-          <div className="mt-3 space-y-2 text-sm font-black text-cyan-100">
-            {mainLeaders.map((item) => (
+          <h2 className="text-xl font-black">最強主流產業排行</h2>
+
+          <div className="mt-3 space-y-3">
+            {industries.slice(0, 3).map((item, index) => (
               <button
                 key={item.industry}
-                onClick={() => item.leader && setSelectedCode(item.leader.code)}
+                onClick={() => goMore("industry")}
                 className="w-full rounded-2xl bg-black/30 p-3 text-left"
               >
-                {item.industry}：{item.leader ? `${item.leader.code} ${item.leader.name} ${formatPercent(item.leader.changePercent)}` : "--"}
+                <div className="flex justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500">#{index + 1}</div>
+                    <div className="text-xl font-black text-white">{item.industry}</div>
+                    <div className="mt-1 text-xs font-bold text-cyan-200">
+                      即時轉強 {item.realtimeStrongCount}｜突破 {item.breakoutCount}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-black text-yellow-300">強度 {item.score.toFixed(0)}</div>
+                    <div className="text-xs font-black text-slate-400">平均 {formatPercent(item.avg)}</div>
+                  </div>
+                </div>
               </button>
             ))}
           </div>
         </section>
 
+        {mainWeakList.length >= 6 && (
+          <section className="mt-4 rounded-3xl border border-red-500/40 bg-red-950/30 p-5">
+            <h2 className="text-xl font-black text-red-200">主流轉弱提醒</h2>
+            <div className="mt-2 text-sm font-bold text-red-100">
+              主流產業內轉弱股增加，先不要追高，等回測或重新站回開盤。
+            </div>
+          </section>
+        )}
+
         {hotList.length >= 10 && (
           <section className="mt-4 rounded-3xl border border-red-500/40 bg-red-950/30 p-5">
             <h2 className="text-xl font-black text-red-200">今日不追高提醒</h2>
             <div className="mt-2 text-sm font-bold text-red-100">
-              今天過熱股偏多，明天開高不要追，優先等回測開盤價。
+              過熱股偏多，明天開高不要追，優先等回測開盤價。
             </div>
           </section>
         )}
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <ActionCard title="50強" sub="分數 / 即時 / 漲幅 / 低價" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
-          <ActionCard title="明日觀察" sub={`保留 ${tomorrowKeep.length}｜移除 ${tomorrowRemove.length}`} badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
-          <ActionCard title="主流轉強雷達" sub="主流 + 股價上升" badge={mainStrongList.length} tone="text-red-300" onClick={() => goMore("mainStrong")} />
-          <ActionCard title="主流轉弱雷達" sub="主流 + 轉弱" badge={mainWeakList.length} tone="text-emerald-300" onClick={() => goMore("mainWeak")} />
-          <ActionCard title="突破股" sub="突破開盤" badge={breakoutList.length} tone="text-orange-300" onClick={() => goMore("breakout")} />
-          <ActionCard title="回測觀察" sub="接近開盤價" badge={pullbackList.length} tone="text-lime-300" onClick={() => goMore("pullback")} />
+          <ActionCard title="明日觀察" sub={`轉強 ${tomorrowMainStrong.length}｜移除 ${tomorrowWeakRemove.length}`} badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
+          <ActionCard title="主流回測雷達" sub="主流 + 接近開盤 + 未跌昨收" badge={mainPullbackList.length} tone="text-lime-300" onClick={() => goMore("mainPullback")} />
+          <ActionCard title="低價主流雷達" sub={`${settings.maxPrice}內 + 主流 + 未過熱`} badge={lowMainList.length} tone="text-cyan-300" onClick={() => goMore("lowMain")} />
+          <ActionCard title="高分觀察雷達" sub="主線分數70以上" badge={highScoreList.length} tone="text-yellow-300" onClick={() => goMore("highScore")} />
+          <ActionCard title="過熱警示雷達" sub="漲幅過大 / 溢價過高" badge={hotRadarList.length} tone="text-red-300" onClick={() => goMore("hotRadar")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
@@ -1295,23 +1474,41 @@ export default function App() {
           />
 
           {showFilters && (
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              {[
-                ["score", "分數"],
-                ["realtime", "即時"],
-                ["change", "漲幅"],
-                ["price", "低價"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setSortKey(key as SortKey)}
-                  className={`rounded-2xl py-3 text-xs font-black ${
-                    sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="mt-3 space-y-3">
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  ["score", "主線"],
+                  ["instant", "即時"],
+                  ["change", "漲幅"],
+                  ["price", "低價"],
+                ].map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setSortKey(key as SortKey)}
+                    className={`rounded-2xl py-3 text-xs font-black ${
+                      sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {tab === "top50" && (
+                <div className="grid grid-cols-3 gap-2">
+                  {(["全部", "即時轉強", "即時轉弱", "非主流強漲", "主流", "低價", "未過熱"] as TopFilter[]).map((filter) => (
+                    <button
+                      key={filter}
+                      onClick={() => saveSettings({ ...settings, topFilter: filter })}
+                      className={`rounded-2xl py-3 text-xs font-black ${
+                        settings.topFilter === filter ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {filter}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </section>
@@ -1323,11 +1520,13 @@ export default function App() {
             <div className="mt-4 grid grid-cols-2 gap-3">
               <ActionCard title="主流轉強" sub="主流 + 上升 + 未過熱" badge={mainStrongList.length} tone="text-red-300" onClick={() => setMoreView("mainStrong")} />
               <ActionCard title="主流轉弱" sub="下跌 / 跌破關鍵價" badge={mainWeakList.length} tone="text-emerald-300" onClick={() => setMoreView("mainWeak")} />
+              <ActionCard title="主流回測" sub="接近開盤價" badge={mainPullbackList.length} tone="text-lime-300" onClick={() => setMoreView("mainPullback")} />
+              <ActionCard title="低價主流" sub={`${settings.maxPrice}內`} badge={lowMainList.length} tone="text-cyan-300" onClick={() => setMoreView("lowMain")} />
+              <ActionCard title="高分觀察" sub="70分以上" badge={highScoreList.length} tone="text-yellow-300" onClick={() => setMoreView("highScore")} />
+              <ActionCard title="過熱警示" sub="獨立警示" badge={hotRadarList.length} tone="text-red-300" onClick={() => setMoreView("hotRadar")} />
               <ActionCard title="非主流強漲" sub="可能新題材" badge={nonMainStrongList.length} tone="text-yellow-300" onClick={() => setMoreView("nonMainStrong")} />
-              <ActionCard title="即時上升" sub="這次更新上升" badge={realtimeUpList.length} tone="text-red-300" onClick={() => setMoreView("realtimeUp")} />
-              <ActionCard title="即時下跌" sub="這次更新下跌" badge={realtimeDownList.length} tone="text-emerald-300" onClick={() => setMoreView("realtimeDown")} />
               <ActionCard title="產業熱度" sub="集中 / 擴散判斷" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="轉弱條件 / 更新頻率" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
+              <ActionCard title="設定" sub="自訂股價 / 轉弱條件" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
               <ActionCard title="資料健康" sub="API / 快取 / 筆數" badge={dataStatus} tone="text-blue-300" onClick={() => setMoreView("data")} />
             </div>
           </section>
@@ -1343,9 +1542,11 @@ export default function App() {
               {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
               {tab === "more" && moreView === "mainStrong" && "📈 主流轉強雷達"}
               {tab === "more" && moreView === "mainWeak" && "📉 主流轉弱雷達"}
-              {tab === "more" && moreView === "nonMainStrong" && "⚡ 非主流強漲雷達"}
-              {tab === "more" && moreView === "realtimeUp" && "📈 即時上升"}
-              {tab === "more" && moreView === "realtimeDown" && "📉 即時下跌"}
+              {tab === "more" && moreView === "mainPullback" && "↩️ 主流回測雷達"}
+              {tab === "more" && moreView === "lowMain" && "💰 低價主流雷達"}
+              {tab === "more" && moreView === "highScore" && "⭐ 高分觀察雷達"}
+              {tab === "more" && moreView === "hotRadar" && "🔥 過熱警示雷達"}
+              {tab === "more" && moreView === "nonMainStrong" && "⚡ 非主流強漲"}
               {tab === "more" && moreView === "breakout" && "🚀 突破股"}
               {tab === "more" && moreView === "pullback" && "↩️ 回測觀察"}
               {tab === "more" && moreView === "alert" && "🚨 警報股"}
@@ -1362,28 +1563,28 @@ export default function App() {
           {tab === "home" && (
             <div className="space-y-4">
               <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">即時轉強3檔</h3>
+                <h3 className="text-xl font-black">主流轉強前5檔</h3>
                 <div className="mt-3 space-y-3">
-                  {todayStrong3.length === 0 && (
+                  {mainStrongList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯即時轉強股。
+                      目前沒有明顯主流轉強股。
                     </div>
                   )}
-                  {todayStrong3.map((stock, index) => (
+                  {mainStrongList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
                   ))}
                 </div>
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">即時轉弱3檔</h3>
+                <h3 className="text-xl font-black">主流轉弱提醒</h3>
                 <div className="mt-3 space-y-3">
-                  {todayWeak3.length === 0 && (
+                  {mainWeakList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯即時轉弱股。
+                      目前沒有明顯主流轉弱股。
                     </div>
                   )}
-                  {todayWeak3.map((stock, index) => (
+                  {mainWeakList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
                   ))}
                 </div>
@@ -1394,9 +1595,9 @@ export default function App() {
           {tab === "tomorrow" && (
             <div className="space-y-5">
               <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">明日觀察整理</h3>
+                <h3 className="text-xl font-black">明日優先順序</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  保留 {tomorrowKeep.length}｜等回測 {tomorrowPullback.length}｜轉弱移除 {tomorrowRemove.length}｜過熱不追 {tomorrowNoChase.length}
+                  1主流轉強 → 2主流回測 → 3非主流強漲觀察 → 4過熱不追 → 5轉弱移除
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1413,10 +1614,11 @@ export default function App() {
               </section>
 
               {[
-                ["轉強可觀察", tomorrowKeep],
-                ["等回測", tomorrowPullback],
-                ["轉弱移除", tomorrowRemove],
-                ["過熱不追", tomorrowNoChase],
+                ["1 主流轉強", tomorrowMainStrong],
+                ["2 主流回測", tomorrowMainPullback],
+                ["3 非主流強漲觀察", tomorrowNonMainStrong],
+                ["4 過熱不追", tomorrowHot],
+                ["5 轉弱移除", tomorrowWeakRemove],
               ].map(([title, list]: any) => (
                 <section key={title}>
                   <h3 className="mb-2 text-xl font-black">{title}</h3>
@@ -1451,12 +1653,18 @@ export default function App() {
                     <div>
                       <div className="text-sm font-bold text-slate-500">#{index + 1}</div>
                       <div className="text-2xl font-black">{item.industry}</div>
+                      <div className="mt-1 text-xs font-bold text-cyan-300">
+                        即時轉強 {item.realtimeStrongCount}｜突破 {item.breakoutCount}
+                      </div>
                     </div>
 
                     <div className="text-right">
                       <div className="text-2xl font-black text-yellow-300">{item.count} 檔</div>
                       <div className={`text-sm font-black ${item.avg >= 0 ? "text-red-300" : "text-emerald-300"}`}>
                         平均 {formatPercent(item.avg)}
+                      </div>
+                      <div className="text-xs font-black text-slate-400">
+                        過熱 {item.hotCount}｜轉弱 {item.weakCount}
                       </div>
                     </div>
                   </div>
@@ -1467,6 +1675,49 @@ export default function App() {
 
           {tab === "more" && moreView === "settings" && (
             <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
+              <div>
+                <div className="mb-2 text-lg font-black">低價上限自訂</div>
+                <div className="flex gap-2">
+                  <input
+                    value={customMaxPrice}
+                    onChange={(e) => setCustomMaxPrice(e.target.value.replace(/[^\d]/g, ""))}
+                    inputMode="numeric"
+                    placeholder="例如 180"
+                    className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+                  />
+                  <button
+                    onClick={() => {
+                      const value = n(customMaxPrice, settings.maxPrice);
+                      if (value > 0) saveSettings({ ...settings, maxPrice: value });
+                    }}
+                    className="rounded-2xl bg-purple-500 px-4 py-3 text-sm font-black text-white"
+                  >
+                    套用
+                  </button>
+                </div>
+                <div className="mt-2 text-xs font-bold text-slate-400">目前低價上限：{settings.maxPrice}</div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-lg font-black">快速股價上限</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[100, 150, 200, 300].map((price) => (
+                    <button
+                      key={price}
+                      onClick={() => {
+                        setCustomMaxPrice(String(price));
+                        saveSettings({ ...settings, maxPrice: price });
+                      }}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.maxPrice === price ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {price}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <div className="mb-2 text-lg font-black">轉弱條件</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -1548,8 +1799,6 @@ export default function App() {
                 <div>資料來源：{source || "讀取中"}</div>
                 <div>是否使用快取：{usingCache ? "是" : "否"}</div>
                 <div>更新失敗原因：{error || "無"}</div>
-                <div>即時上升：{realtimeUpList.length}</div>
-                <div>即時下跌：{realtimeDownList.length}</div>
                 <div>主流轉強：{mainStrongList.length}</div>
                 <div>主流轉弱：{mainWeakList.length}</div>
                 <div>自動更新頻率：{settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${settings.refreshSeconds}秒`}</div>
