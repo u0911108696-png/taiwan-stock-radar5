@@ -13,6 +13,7 @@ type Stock = {
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
+  sparkline?: number[];
 };
 
 type RiskLevel = "low" | "medium" | "high";
@@ -269,6 +270,9 @@ function normalizeStock(item: any): Stock {
     turnoverRate: nullableNum(item.turnoverRate),
     volumeRatio: nullableNum(item.volumeRatio),
     floatMarketCapYi: nullableNum(item.floatMarketCapYi),
+    sparkline: Array.isArray(item.sparkline)
+      ? item.sparkline.map((value: any) => num(value)).filter((value: number) => value > 0)
+      : [],
   };
 }
 
@@ -844,7 +848,55 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
 
   return reasons.length > 0 ? reasons : ["目前屬於一般觀察"];
 }
-function MiniLine() {
+function MiniLine({
+  points,
+  changePercent,
+}: {
+  points?: number[];
+  changePercent: number;
+}) {
+  const values = Array.isArray(points)
+    ? points.filter((value) => Number.isFinite(value) && value > 0)
+    : [];
+
+  if (values.length < 2) {
+    return (
+      <div className="mt-2 text-right text-[10px] font-bold text-slate-500">
+        無走勢
+      </div>
+    );
+  }
+
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+
+  const svgPoints = values
+    .map((value, index) => {
+      const x = values.length === 1 ? 50 : (index / (values.length - 1)) * 100;
+      const y = 32 - ((value - min) / range) * 26;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  const stroke =
+    changePercent > 0 ? "#ef4444" : changePercent < 0 ? "#22c55e" : "#94a3b8";
+
+  return (
+    <div className="mt-2 h-7 w-20">
+      <svg viewBox="0 0 100 36" className="h-full w-full">
+        <polyline
+          points={svgPoints}
+          fill="none"
+          stroke={stroke}
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </div>
+  );
+}
   return (
     <div className="mt-1 h-6 w-16">
       <svg viewBox="0 0 100 36" className="h-full w-full">
@@ -1141,7 +1193,7 @@ function StockRow({
               {changeText(stock.changePercent)}
             </div>
 
-            <MiniLine />
+            <MiniLine points={stock.sparkline} changePercent={stock.changePercent} />
 
             <div
               className={
