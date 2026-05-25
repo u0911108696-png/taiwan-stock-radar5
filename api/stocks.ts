@@ -28,6 +28,90 @@ type StockItem = {
   floatMarketCapYi: number | null;
 };
 
+const stockNameMap: Record<string, string> = {
+  "1101": "台泥",
+  "1102": "亞泥",
+  "1216": "統一",
+  "1227": "佳格",
+  "1301": "台塑",
+  "1303": "南亞",
+  "6505": "台塑化",
+
+  "1717": "長興",
+  "1722": "台肥",
+  "4722": "國精化",
+
+  "2002": "中鋼",
+  "2014": "中鴻",
+  "2027": "大成鋼",
+
+  "2201": "裕隆",
+  "2207": "和泰車",
+  "2227": "裕日車",
+
+  "2301": "光寶科",
+  "2303": "聯電",
+  "2308": "台達電",
+  "2313": "華通",
+  "2317": "鴻海",
+  "2327": "國巨",
+  "2330": "台積電",
+  "2354": "鴻準",
+  "2356": "英業達",
+  "2357": "華碩",
+  "2367": "燿華",
+  "2379": "瑞昱",
+  "2382": "廣達",
+  "2408": "南亞科",
+  "2409": "友達",
+  "2454": "聯發科",
+
+  "2603": "長榮",
+  "2609": "陽明",
+  "2615": "萬海",
+  "2618": "長榮航",
+
+  "2881": "富邦金",
+  "2882": "國泰金",
+  "2884": "玉山金",
+  "2886": "兆豐金",
+  "2891": "中信金",
+  "2892": "第一金",
+  "2911": "麗嬰房",
+  "2912": "統一超",
+
+  "3008": "大立光",
+  "3017": "奇鋐",
+  "3034": "聯詠",
+  "3035": "智原",
+  "3037": "欣興",
+  "3042": "晶技",
+  "3231": "緯創",
+  "3406": "玉晶光",
+  "3443": "創意",
+  "3481": "群創",
+  "3661": "世芯-KY",
+  "3711": "日月光投控",
+  "3714": "富采",
+
+  "4938": "和碩",
+  "4958": "臻鼎-KY",
+  "5871": "中租-KY",
+  "5876": "上海商銀",
+  "5903": "全家",
+  "6168": "宏齊",
+  "6278": "台表科",
+  "6405": "悅城",
+  "6669": "緯穎",
+  "8046": "南電",
+  "8374": "羅昇",
+
+  "9904": "寶成",
+  "9907": "統一實",
+  "9914": "美利達",
+  "9926": "新海",
+};
+
 const stockIndustryMap: Record<string, string> = {
   "1101": "水泥",
   "1102": "水泥",
@@ -218,6 +302,11 @@ function cleanCode(code: string) {
     .slice(0, 4);
 }
 
+function getStockName(code: string, fallback = "") {
+  const clean = cleanCode(code);
+  return stockNameMap[clean] || fallback.replace(".TW", "").trim() || clean;
+}
+
 function getIndustry(code: string) {
   return stockIndustryMap[cleanCode(code)] || "其他";
 }
@@ -263,13 +352,12 @@ function nowText() {
     hour12: false,
   });
 }
-
 function makeEmptyStock(code: string): StockItem {
   const clean = cleanCode(code);
 
   return {
     code: clean,
-    name: clean,
+    name: getStockName(clean),
     price: 0,
     change: 0,
     changePercent: 0,
@@ -283,6 +371,7 @@ function makeEmptyStock(code: string): StockItem {
     floatMarketCapYi: null,
   };
 }
+
 function normalizeYahooItem(item: any): StockItem | null {
   const symbol = String(item?.symbol || "");
   const code = cleanCode(symbol);
@@ -308,10 +397,7 @@ function normalizeYahooItem(item: any): StockItem | null {
 
   return {
     code,
-    name:
-      String(item.shortName || item.longName || "")
-        .replace(".TW", "")
-        .trim() || code,
+    name: getStockName(code, String(item.shortName || item.longName || "")),
     price,
     change: Number(change.toFixed(2)),
     changePercent: Number(changePercent.toFixed(2)),
@@ -399,7 +485,7 @@ async function fetchYahooQuotes(codes: string[]) {
       if (!map.has(item.code)) map.set(item.code, item);
     });
 
-    if (map.size >= Math.min(uniqueCodes(codes).length, 10)) {
+    if (map.size >= Math.min(uniqueCodes(codes).length, 30)) {
       break;
     }
   }
@@ -407,7 +493,10 @@ async function fetchYahooQuotes(codes: string[]) {
   return Array.from(map.values());
 }
 
-async function fetchYahooChartQuoteFromHost(code: string, host: string): Promise<StockItem | null> {
+async function fetchYahooChartQuoteFromHost(
+  code: string,
+  host: string
+): Promise<StockItem | null> {
   const clean = cleanCode(code);
 
   if (!/^\d{4}$/.test(clean)) return null;
@@ -480,9 +569,7 @@ async function fetchYahooChartQuoteFromHost(code: string, host: string): Promise
 
     return {
       code: clean,
-      name: String(meta.shortName || meta.longName || clean)
-        .replace(".TW", "")
-        .trim(),
+      name: getStockName(clean, String(meta.shortName || meta.longName || clean)),
       price,
       change: Number(change.toFixed(2)),
       changePercent,
@@ -543,9 +630,22 @@ async function fetchFreshWatchList(codes: string[]) {
 function mergeByCode(primary: StockItem[], fallback: StockItem[]) {
   const map = new Map<string, StockItem>();
 
-  fallback.forEach((item) => map.set(item.code, item));
+  fallback.forEach((item) => {
+    map.set(item.code, {
+      ...item,
+      name: getStockName(item.code, item.name),
+      industry: getIndustry(item.code),
+    });
+  });
+
   primary.forEach((item) => {
-    if (item.price > 0) map.set(item.code, item);
+    if (item.price > 0) {
+      map.set(item.code, {
+        ...item,
+        name: getStockName(item.code, item.name),
+        industry: getIndustry(item.code),
+      });
+    }
   });
 
   return Array.from(map.values());
@@ -556,13 +656,50 @@ function sortTopGainers(stocks: StockItem[]) {
     .filter((stock) => stock.price > 0)
     .sort((a, b) => b.changePercent - a.changePercent);
 }
+function buildFallbackRanking(watchList: StockItem[]) {
+  return watchList
+    .filter((stock) => stock.price > 0)
+    .map((stock) => ({
+      ...stock,
+      name: getStockName(stock.code, stock.name),
+      industry: getIndustry(stock.code),
+    }))
+    .sort((a, b) => b.changePercent - a.changePercent);
+}
+
+function padRankingToFifty(rankedStocks: StockItem[], watchList: StockItem[]) {
+  const map = new Map<string, StockItem>();
+
+  rankedStocks.forEach((stock) => {
+    if (stock.price > 0) {
+      map.set(stock.code, {
+        ...stock,
+        name: getStockName(stock.code, stock.name),
+        industry: getIndustry(stock.code),
+      });
+    }
+  });
+
+  watchList.forEach((stock) => {
+    if (stock.price > 0 && !map.has(stock.code)) {
+      map.set(stock.code, {
+        ...stock,
+        name: getStockName(stock.code, stock.name),
+        industry: getIndustry(stock.code),
+      });
+    }
+  });
+
+  return Array.from(map.values())
+    .sort((a, b) => b.changePercent - a.changePercent)
+    .slice(0, 50);
+}
+
 function jsonResponse(data: any, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
-
-      // 關鍵：避免 Vercel / 瀏覽器快取
       "cache-control":
         "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
       pragma: "no-cache",
@@ -572,18 +709,11 @@ function jsonResponse(data: any, status = 200) {
   });
 }
 
-function buildFallbackRanking(watchList: StockItem[]) {
-  return watchList
-    .filter((stock) => stock.price > 0)
-    .sort((a, b) => b.changePercent - a.changePercent);
-}
-
 export default async function handler(req: Request) {
   const watchCodes = getWatchCodesFromRequest(req);
   const errors: string[] = [];
 
   try {
-    // 1. 漲幅排行：Yahoo quote
     let rankingQuotes: StockItem[] = [];
 
     try {
@@ -593,7 +723,6 @@ export default async function handler(req: Request) {
       rankingQuotes = [];
     }
 
-    // 2. 自選股：Yahoo chart 1 分 K，比 quote 更接近即時
     let freshWatchList: StockItem[] = [];
 
     try {
@@ -603,22 +732,26 @@ export default async function handler(req: Request) {
       freshWatchList = watchCodes.map(makeEmptyStock);
     }
 
-    // 3. 自選若剛好在排行裡，用自選較新的資料覆蓋
     const mergedRanking = mergeByCode(freshWatchList, rankingQuotes);
-
     let rankedStocks = sortTopGainers(mergedRanking).slice(0, 50);
 
-    // 4. 如果 Yahoo ranking 完全抓不到，至少不要讓 App 掛掉
     if (rankedStocks.length === 0) {
       rankedStocks = buildFallbackRanking(freshWatchList).slice(0, 50);
     }
 
+    rankedStocks = padRankingToFifty(rankedStocks, freshWatchList);
+
     const watchList = watchCodes.map((code) => {
-      return (
+      const found =
         freshWatchList.find((stock) => stock.code === code) ||
         rankedStocks.find((stock) => stock.code === code) ||
-        makeEmptyStock(code)
-      );
+        makeEmptyStock(code);
+
+      return {
+        ...found,
+        name: getStockName(found.code, found.name),
+        industry: getIndustry(found.code),
+      };
     });
 
     const hasRanking = rankedStocks.length > 0;
@@ -640,11 +773,10 @@ export default async function handler(req: Request) {
         hasWatchList,
         errors,
         note:
-          "watchList 使用 Yahoo chart 1m 資料；rankedStocks 使用 Yahoo quote。若 Yahoo 被擋，API 仍會回傳 200，避免前端整個失敗。",
+          "股票名稱優先使用中文對照表；watchList 使用 Yahoo chart 1m；rankedStocks 使用 Yahoo quote。若 Yahoo 抓不到足夠股票，會用自選股補足。",
       },
     });
   } catch (error: any) {
-    // 最後保底：永遠回 200，避免 App 直接 0/5
     const fallbackWatchList = watchCodes.map(makeEmptyStock);
 
     return jsonResponse({
