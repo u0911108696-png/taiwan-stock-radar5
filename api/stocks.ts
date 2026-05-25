@@ -23,7 +23,6 @@ type StockItem = {
   previousClose: number;
   openPremiumPercent: number | null;
   industry: string;
-
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
@@ -264,109 +263,161 @@ function nowText() {
     hour12: false,
   });
 }
-async function fetchYahooQuotes(codes: string[]) {
+
+function makeEmptyStock(code: string): StockItem {
+  const clean = cleanCode(code);
+
+  return {
+    code: clean,
+    name: clean,
+    price: 0,
+    change: 0,
+    changePercent: 0,
+    volume: 0,
+    openPrice: 0,
+    previousClose: 0,
+    openPremiumPercent: null,
+    industry: getIndustry(clean),
+    turnoverRate: null,
+    volumeRatio: null,
+    floatMarketCapYi: null,
+  };
+}
+function normalizeYahooItem(item: any): StockItem | null {
+  const symbol = String(item?.symbol || "");
+  const code = cleanCode(symbol);
+
+  if (!/^\d{4}$/.test(code)) return null;
+
+  const price = toNumber(item.regularMarketPrice);
+  const change = toNumber(item.regularMarketChange);
+  const changePercent = toNumber(item.regularMarketChangePercent);
+  const volume = toNumber(item.regularMarketVolume);
+  const openPrice = toNumber(item.regularMarketOpen);
+  const previousClose = toNumber(item.regularMarketPreviousClose);
+
+  if (price <= 0) return null;
+
+  let openPremiumPercent: number | null = null;
+
+  if (openPrice > 0 && previousClose > 0) {
+    openPremiumPercent = Number(
+      (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
+    );
+  }
+
+  return {
+    code,
+    name:
+      String(item.shortName || item.longName || "")
+        .replace(".TW", "")
+        .trim() || code,
+    price,
+    change: Number(change.toFixed(2)),
+    changePercent: Number(changePercent.toFixed(2)),
+    volume,
+    openPrice,
+    previousClose,
+    openPremiumPercent,
+    industry: getIndustry(code),
+    turnoverRate: null,
+    volumeRatio: null,
+    floatMarketCapYi: null,
+  };
+}
+
+async function fetchWithTimeout(url: string, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const res = await fetch(url, {
+      cache: "no-store",
+      signal: controller.signal,
+      headers: {
+        "cache-control": "no-cache, no-store, must-revalidate",
+        pragma: "no-cache",
+        expires: "0",
+        "user-agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
+        accept: "application/json,text/plain,*/*",
+      },
+    });
+
+    return res;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchYahooQuotesFromHost(codes: string[], host: string) {
   const cleanCodes = uniqueCodes(codes);
-  const chunks = chunkArray(cleanCodes, 40);
+  const chunks = chunkArray(cleanCodes, 35);
   const allResults: StockItem[] = [];
 
   for (const chunk of chunks) {
     const symbols = buildYahooSymbols(chunk).join(",");
 
     const url =
-      "https://query1.finance.yahoo.com/v7/finance/quote?symbols=" +
+      `https://${host}/v7/finance/quote?symbols=` +
       encodeURIComponent(symbols) +
       "&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,regularMarketOpen,regularMarketPreviousClose,shortName,longName,symbol" +
       "&t=" +
       Date.now();
 
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        "cache-control": "no-cache, no-store, must-revalidate",
-        pragma: "no-cache",
-        expires: "0",
-        "user-agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-      },
-    });
+    try {
+      const res = await fetchWithTimeout(url);
 
-    if (!res.ok) {
-      throw new Error("Yahoo 台股資料取得失敗");
-    }
+      if (!res.ok) continue;
 
-    const data = await res.json();
-    const result = data?.quoteResponse?.result;
+      const data = await res.json();
+      const result = data?.quoteResponse?.result;
 
-    if (!Array.isArray(result)) continue;
+      if (!Array.isArray(result)) continue;
 
-    for (const item of result) {
-      const symbol = String(item.symbol || "");
-      const code = cleanCode(symbol);
+      for (const item of result) {
+        const normalized = normalizeYahooItem(item);
 
-      if (!/^\d{4}$/.test(code)) continue;
-
-      const price = toNumber(item.regularMarketPrice);
-      const change = toNumber(item.regularMarketChange);
-      const changePercent = toNumber(item.regularMarketChangePercent);
-      const volume = toNumber(item.regularMarketVolume);
-      const openPrice = toNumber(item.regularMarketOpen);
-      const previousClose = toNumber(item.regularMarketPreviousClose);
-
-      if (price <= 0) continue;
-
-      let openPremiumPercent: number | null = null;
-
-      if (openPrice > 0 && previousClose > 0) {
-        openPremiumPercent = Number(
-          (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
-        );
+        if (normalized) allResults.push(normalized);
       }
-
-      allResults.push({
-        code,
-        name:
-          String(item.shortName || item.longName || "")
-            .replace(".TW", "")
-            .trim() || code,
-        price,
-        change,
-        changePercent: Number(changePercent.toFixed(2)),
-        volume,
-        openPrice,
-        previousClose,
-        openPremiumPercent,
-        industry: getIndustry(code),
-
-        turnoverRate: null,
-        volumeRatio: null,
-        floatMarketCapYi: null,
-      });
+    } catch {
+      continue;
     }
   }
 
   return allResults;
 }
 
-async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
+async function fetchYahooQuotes(codes: string[]) {
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+  const map = new Map<string, StockItem>();
+
+  for (const host of hosts) {
+    const results = await fetchYahooQuotesFromHost(codes, host);
+
+    results.forEach((item) => {
+      if (!map.has(item.code)) map.set(item.code, item);
+    });
+
+    if (map.size >= Math.min(uniqueCodes(codes).length, 10)) {
+      break;
+    }
+  }
+
+  return Array.from(map.values());
+}
+
+async function fetchYahooChartQuoteFromHost(code: string, host: string): Promise<StockItem | null> {
   const clean = cleanCode(code);
 
   if (!/^\d{4}$/.test(clean)) return null;
 
   const url =
-    `https://query1.finance.yahoo.com/v8/finance/chart/${clean}.TW` +
+    `https://${host}/v8/finance/chart/${clean}.TW` +
     `?range=1d&interval=1m&includePrePost=false&t=${Date.now()}`;
 
   try {
-    const res = await fetch(url, {
-      cache: "no-store",
-      headers: {
-        "cache-control": "no-cache, no-store, must-revalidate",
-        pragma: "no-cache",
-        expires: "0",
-        "user-agent":
-          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15",
-      },
-    });
+    const res = await fetchWithTimeout(url);
 
     if (!res.ok) return null;
 
@@ -377,14 +428,12 @@ async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
 
     const meta = result.meta || {};
     const quote = result.indicators?.quote?.[0] || {};
-    const timestamps = Array.isArray(result.timestamp) ? result.timestamp : [];
 
     const closes = Array.isArray(quote.close) ? quote.close : [];
     const volumes = Array.isArray(quote.volume) ? quote.volume : [];
     const opens = Array.isArray(quote.open) ? quote.open : [];
 
     let latestPrice = 0;
-    let latestVolume = 0;
 
     for (let i = closes.length - 1; i >= 0; i--) {
       const close = toNumber(closes[i]);
@@ -395,7 +444,10 @@ async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
       }
     }
 
-    latestVolume = volumes.reduce((sum: number, item: any) => sum + toNumber(item), 0);
+    const latestVolume = volumes.reduce(
+      (sum: number, item: any) => sum + toNumber(item),
+      0
+    );
 
     const previousClose = toNumber(meta.previousClose);
     const regularPrice = toNumber(meta.regularMarketPrice);
@@ -428,7 +480,9 @@ async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
 
     return {
       code: clean,
-      name: String(meta.shortName || meta.longName || clean).replace(".TW", "").trim(),
+      name: String(meta.shortName || meta.longName || clean)
+        .replace(".TW", "")
+        .trim(),
       price,
       change: Number(change.toFixed(2)),
       changePercent,
@@ -437,7 +491,6 @@ async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
       previousClose,
       openPremiumPercent,
       industry: getIndustry(clean),
-
       turnoverRate: null,
       volumeRatio: null,
       floatMarketCapYi: null,
@@ -445,6 +498,18 @@ async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
   } catch {
     return null;
   }
+}
+
+async function fetchYahooChartQuote(code: string): Promise<StockItem | null> {
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+
+  for (const host of hosts) {
+    const result = await fetchYahooChartQuoteFromHost(code, host);
+
+    if (result && result.price > 0) return result;
+  }
+
+  return null;
 }
 
 async function fetchFreshWatchList(codes: string[]) {
@@ -460,14 +525,17 @@ async function fetchFreshWatchList(codes: string[]) {
     (code) => !validChartResults.some((item) => item.code === code)
   );
 
-  if (missingCodes.length === 0) return validChartResults;
-
-  const quoteFallback = await fetchYahooQuotes(missingCodes);
+  const quoteFallback =
+    missingCodes.length > 0 ? await fetchYahooQuotes(missingCodes) : [];
 
   const map = new Map<string, StockItem>();
 
   validChartResults.forEach((item) => map.set(item.code, item));
   quoteFallback.forEach((item) => map.set(item.code, item));
+
+  cleanCodes.forEach((code) => {
+    if (!map.has(code)) map.set(code, makeEmptyStock(code));
+  });
 
   return Array.from(map.values());
 }
@@ -476,7 +544,9 @@ function mergeByCode(primary: StockItem[], fallback: StockItem[]) {
   const map = new Map<string, StockItem>();
 
   fallback.forEach((item) => map.set(item.code, item));
-  primary.forEach((item) => map.set(item.code, item));
+  primary.forEach((item) => {
+    if (item.price > 0) map.set(item.code, item);
+  });
 
   return Array.from(map.values());
 }
@@ -493,7 +563,8 @@ function jsonResponse(data: any, status = 200) {
       "content-type": "application/json; charset=utf-8",
 
       // 關鍵：避免 Vercel / 瀏覽器快取
-      "cache-control": "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
+      "cache-control":
+        "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0",
       pragma: "no-cache",
       expires: "0",
       "surrogate-control": "no-store",
@@ -501,34 +572,60 @@ function jsonResponse(data: any, status = 200) {
   });
 }
 
+function buildFallbackRanking(watchList: StockItem[]) {
+  return watchList
+    .filter((stock) => stock.price > 0)
+    .sort((a, b) => b.changePercent - a.changePercent);
+}
+
 export default async function handler(req: Request) {
+  const watchCodes = getWatchCodesFromRequest(req);
+  const errors: string[] = [];
+
   try {
-    const watchCodes = getWatchCodesFromRequest(req);
+    // 1. 漲幅排行：Yahoo quote
+    let rankingQuotes: StockItem[] = [];
 
-    // 1. 先抓候選股票，用來做漲幅排行
-    const rankingQuotes = await fetchYahooQuotes(candidateStockCodes);
+    try {
+      rankingQuotes = await fetchYahooQuotes(candidateStockCodes);
+    } catch (error: any) {
+      errors.push(error?.message || "rankingQuotes failed");
+      rankingQuotes = [];
+    }
 
-    // 2. 再針對自選股用 1 分 K chart 抓最新資料
-    // 這個比 quote 更接近即時，解決個股頁不更新問題
-    const freshWatchList = await fetchFreshWatchList(watchCodes);
+    // 2. 自選股：Yahoo chart 1 分 K，比 quote 更接近即時
+    let freshWatchList: StockItem[] = [];
 
-    // 3. 若自選股剛好也在候選清單裡，用較新的 chart 資料覆蓋
+    try {
+      freshWatchList = await fetchFreshWatchList(watchCodes);
+    } catch (error: any) {
+      errors.push(error?.message || "freshWatchList failed");
+      freshWatchList = watchCodes.map(makeEmptyStock);
+    }
+
+    // 3. 自選若剛好在排行裡，用自選較新的資料覆蓋
     const mergedRanking = mergeByCode(freshWatchList, rankingQuotes);
 
-    const rankedStocks = sortTopGainers(mergedRanking).slice(0, 50);
+    let rankedStocks = sortTopGainers(mergedRanking).slice(0, 50);
 
-    const watchList = watchCodes
-      .map((code) => {
-        return (
-          freshWatchList.find((stock) => stock.code === code) ||
-          rankedStocks.find((stock) => stock.code === code) ||
-          null
-        );
-      })
-      .filter(Boolean) as StockItem[];
+    // 4. 如果 Yahoo ranking 完全抓不到，至少不要讓 App 掛掉
+    if (rankedStocks.length === 0) {
+      rankedStocks = buildFallbackRanking(freshWatchList).slice(0, 50);
+    }
 
-    const response = {
-      ok: true,
+    const watchList = watchCodes.map((code) => {
+      return (
+        freshWatchList.find((stock) => stock.code === code) ||
+        rankedStocks.find((stock) => stock.code === code) ||
+        makeEmptyStock(code)
+      );
+    });
+
+    const hasRanking = rankedStocks.length > 0;
+    const hasWatchList = watchList.some((stock) => stock.price > 0);
+
+    return jsonResponse({
+      ok: hasRanking || hasWatchList,
       source: "Yahoo Finance",
       updatedAt: new Date().toISOString(),
       updatedAtTaiwan: nowText(),
@@ -539,22 +636,34 @@ export default async function handler(req: Request) {
         rankedCount: rankedStocks.length,
         watchCount: watchList.length,
         watchCodes,
-        note: "watchList 使用 Yahoo chart 1m 資料，較接近即時；rankedStocks 使用 Yahoo quote 資料。",
+        hasRanking,
+        hasWatchList,
+        errors,
+        note:
+          "watchList 使用 Yahoo chart 1m 資料；rankedStocks 使用 Yahoo quote。若 Yahoo 被擋，API 仍會回傳 200，避免前端整個失敗。",
       },
-    };
-
-    return jsonResponse(response);
+    });
   } catch (error: any) {
-    return jsonResponse(
-      {
-        ok: false,
-        error: error?.message || "股票資料取得失敗",
-        updatedAt: new Date().toISOString(),
-        updatedAtTaiwan: nowText(),
-        rankedStocks: [],
-        watchList: [],
+    // 最後保底：永遠回 200，避免 App 直接 0/5
+    const fallbackWatchList = watchCodes.map(makeEmptyStock);
+
+    return jsonResponse({
+      ok: false,
+      source: "fallback",
+      error: error?.message || "股票資料取得失敗",
+      updatedAt: new Date().toISOString(),
+      updatedAtTaiwan: nowText(),
+      cache: "no-store",
+      rankedStocks: [],
+      watchList: fallbackWatchList,
+      meta: {
+        rankedCount: 0,
+        watchCount: fallbackWatchList.length,
+        watchCodes,
+        errors: [error?.message || "unknown error"],
+        note:
+          "API 發生錯誤，但仍回傳 200，避免 App 畫面整個壞掉。請稍後再按立即更新。",
       },
-      500
-    );
+    });
   }
 }
