@@ -4,671 +4,1401 @@ type Stock = {
   code: string;
   name: string;
   price: number;
-  changePercent: number;
-  volume: number;
   openPrice: number;
   previousClose: number;
   openPremiumPercent: number | null;
+  changePercent: number;
+  volume: number;
   industry: string;
-  updatedAt?: string;
+  turnoverRate: number | null;
+  volumeRatio: number | null;
+  floatMarketCapYi: number | null;
 };
 
-type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
+type RiskLevel = "low" | "medium" | "high";
+type BuyPointLevel = "watch" | "pullback" | "avoid" | "weak";
+type MarketPowerLevel = "strong" | "normal" | "weak";
 
-type MoreView =
-  | "menu"
+type TabKey =
+  | "top50"
+  | "watch"
+  | "observe"
+  | "tomorrow"
   | "industry"
-  | "mainStrong"
-  | "mainWeak"
-  | "mainPullback"
-  | "lowMain"
-  | "highScore"
-  | "hotRadar"
-  | "nonMainStrong"
   | "breakout"
-  | "pullback"
+  | "alert";
+
+type SortKey = "change" | "volume" | "score" | "openPremium";
+
+type FilterKey =
+  | "all"
+  | "strong"
+  | "breakout"
   | "alert"
-  | "avoid"
-  | "data"
-  | "settings";
+  | "lowVolume"
+  | "openStrong"
+  | "highOpenContinue"
+  | "mainContinue"
+  | "chipActive"
+  | "safeWatch"
+  | "tomorrowWatch";
 
-type PriceDirection = "up" | "down" | "same" | "new";
-type MainMode = "保守" | "標準" | "積極";
-type WeakRule = "跌破開盤" | "跌破昨收" | "兩者都要";
-type SortKey = "score" | "instant" | "change" | "price";
-type TopFilter = "全部" | "即時轉強" | "即時轉弱" | "非主流強漲" | "主流" | "低價" | "未過熱";
+type ModeKey = "open" | "normal" | "strong910" | "tomorrow";
 
-type Settings = {
-  maxPrice: number;
-  alertPercent: number;
-  hotPercent: number;
-  refreshSeconds: number;
-  excludeHot: boolean;
-  mainMode: MainMode;
-  weakRule: WeakRule;
-  dataSaver: boolean;
-  topFilter: TopFilter;
-};
-
-type ApiResponse = {
-  stocks?: any[];
-  data?: any[];
-  rankedStocks?: any[];
-  updatedAt?: string;
-  updatedAtTaiwan?: string;
-  source?: string;
-};
-
-type IndustryItem = {
-  industry: string;
-  count: number;
-  avg: number;
-  stocks: Stock[];
-  breakoutCount: number;
-  hotCount: number;
-  weakCount: number;
-  realtimeStrongCount: number;
-  score: number;
-};
-
-const API_URL = "/api/stocks";
-
-const FAVORITE_KEY = "taiwan-stock-radar-favorites";
-const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-advanced-realtime-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-advanced-realtime-last-success";
-
-const defaultSettings: Settings = {
-  maxPrice: 200,
-  alertPercent: 5,
-  hotPercent: 8,
-  refreshSeconds: 30,
-  excludeHot: true,
-  mainMode: "標準",
-  weakRule: "跌破開盤",
-  dataSaver: false,
-  topFilter: "全部",
-};
+const defaultWatchCodes = ["2330", "3042", "3714", "3481", "2356", "6168", "6405"];
 
 const industryMap: Record<string, string> = {
-  "1101": "水泥", "1102": "水泥",
-  "1216": "食品", "1227": "食品",
-  "1301": "塑化", "1303": "塑化", "6505": "塑化",
-  "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
-  "2201": "汽車", "2207": "汽車",
-  "2301": "電子", "2303": "半導體", "2308": "電源能源",
-  "2313": "電子零組件", "2317": "電子代工", "2327": "電子零組件",
-  "2330": "半導體", "2354": "電子", "2356": "電腦週邊", "2357": "電腦週邊",
-  "2367": "電子零組件", "2379": "半導體", "2382": "電子代工",
-  "2408": "半導體", "2409": "面板", "2454": "半導體",
-  "2603": "航運", "2609": "航運", "2615": "航運", "2618": "航運",
-  "2881": "金融", "2882": "金融", "2884": "金融", "2886": "金融",
-  "2891": "金融", "2892": "金融",
-  "3008": "光學", "3017": "電子零組件",
-  "3034": "半導體", "3035": "半導體", "3037": "電子零組件",
-  "3042": "光電", "3231": "電子代工", "3406": "光學",
-  "3443": "半導體", "3481": "面板",
-  "3711": "半導體", "3714": "半導體",
-  "4966": "半導體", "6415": "半導體", "6669": "電子代工",
+  "2911": "百貨",
+  "3042": "PCB",
+  "3711": "半導體",
+  "3714": "光電",
+  "6168": "光電",
+  "8374": "電機機械",
+  "2356": "電腦週邊",
+  "3481": "面板",
+  "4722": "化工",
+  "6405": "光電",
+  "6278": "光電",
+
+  "2330": "半導體",
+  "2303": "半導體",
+  "2454": "半導體",
+  "3034": "半導體",
+  "3035": "半導體",
+  "3443": "半導體",
+  "2379": "半導體",
+  "3661": "半導體",
+  "2408": "半導體",
+
+  "2317": "電子代工",
+  "4938": "電子代工",
+  "2354": "電子代工",
+  "2382": "電腦週邊",
+  "2357": "電腦週邊",
+  "3231": "電腦週邊",
+  "2301": "電腦週邊",
+  "6669": "電腦週邊",
+  "3017": "電腦週邊",
+
+  "2308": "電子零組件",
+  "2327": "電子零組件",
+  "3037": "電子零組件",
+  "8046": "電子零組件",
+
+  "2313": "PCB",
+  "2367": "PCB",
+  "4958": "PCB",
+
+  "3008": "光電",
+  "2409": "面板",
+  "3406": "光電",
+
+  "2881": "金融",
+  "2882": "金融",
+  "2884": "金融",
+  "2886": "金融",
+  "2891": "金融",
+  "2892": "金融",
+  "5871": "金融",
+  "5876": "金融",
+
+  "2603": "航運",
+  "2609": "航運",
+  "2615": "航運",
+  "2618": "航空",
+
+  "1301": "塑化",
+  "1303": "塑化",
+  "6505": "塑化",
+  "1717": "化工",
+  "1722": "化工",
+
+  "2002": "鋼鐵",
+  "2014": "鋼鐵",
+  "2027": "鋼鐵",
+
+  "1101": "水泥",
+  "1102": "水泥",
+
+  "2201": "汽車",
+  "2207": "汽車",
+  "2227": "汽車",
+
+  "1216": "食品",
+  "1227": "食品",
+
+  "1707": "生技",
+  "1760": "生技",
+  "1783": "生技",
+
+  "2912": "百貨",
+  "5903": "百貨",
+  "9904": "消費",
+  "9907": "消費",
+  "9914": "消費",
+  "9926": "消費",
 };
 
-function n(value: unknown, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
+function num(value: any) {
+  const n = Number(String(value ?? "0").replaceAll(",", ""));
+  return Number.isFinite(n) ? n : 0;
 }
 
-function safeParse<T>(text: string | null, fallback: T): T {
-  try {
-    if (!text) return fallback;
-    return JSON.parse(text);
-  } catch {
-    return fallback;
+function nullableNum(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(String(value).replaceAll(",", ""));
+  return Number.isFinite(n) ? n : null;
+}
+
+function getIndustry(code: string) {
+  const cleanCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
+  return industryMap[cleanCode] || "其他";
+}
+
+function formatTime(date: Date) {
+  return date.toLocaleTimeString("zh-TW", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function priceText(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "-";
+  return value.toFixed(value >= 100 ? 0 : 2);
+}
+
+function percentText(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return "資料不足";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function changeText(value: number) {
+  if (!Number.isFinite(value)) return "-";
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function changeBadgeClass(value: number, size: "sm" | "lg" = "sm") {
+  const padding =
+    size === "lg"
+      ? "rounded-xl px-3 py-2 text-lg font-black text-white"
+      : "rounded-lg px-2 py-1 text-sm font-black text-white";
+
+  if (value > 0) return `${padding} bg-red-500`;
+  if (value < 0) return `${padding} bg-green-500`;
+  return `${padding} bg-slate-600`;
+}
+
+function changeTextClass(value: number) {
+  if (value > 0) return "font-black text-red-400";
+  if (value < 0) return "font-black text-green-400";
+  return "font-black text-slate-300";
+}
+
+function numberText(value: number | null, suffix = "") {
+  if (value === null || !Number.isFinite(value)) return "資料不足";
+  return `${value.toFixed(2)}${suffix}`;
+}
+
+function normalizeStock(item: any): Stock {
+  const code = String(item.Code ?? item.code ?? "").trim();
+  const name = String(item.Name ?? item.name ?? "").trim();
+
+  const price = num(
+    item.ClosingPrice ??
+      item.Close ??
+      item.close ??
+      item.price ??
+      item.LastPrice ??
+      item.lastPrice
+  );
+
+  const openPrice = num(
+    item.OpeningPrice ??
+      item.OpenPrice ??
+      item.open ??
+      item.Open ??
+      item.openPrice
+  );
+
+  const change = num(item.Change ?? item.change ?? item.PriceChange);
+
+  let previousClose = num(
+    item.PreviousClose ??
+      item.previousClose ??
+      item.YesterdayClose ??
+      item.yesterdayClose ??
+      item.ReferencePrice
+  );
+
+  if (previousClose <= 0 && price > 0) {
+    previousClose = price - change;
   }
-}
 
-function cleanCode(value: string) {
-  return value.replace(/\D/g, "").slice(0, 6);
-}
+  let changePercent = num(item.ChangePercent ?? item.changePercent);
 
-function nowText() {
-  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
-}
+  if ((!Number.isFinite(changePercent) || changePercent === 0) && previousClose > 0) {
+    changePercent = Number((((price - previousClose) / previousClose) * 100).toFixed(2));
+  }
 
-function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "--";
-  return value.toLocaleString("zh-TW");
-}
+  let openPremiumPercent: number | null = null;
 
-function formatPercent(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "--";
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
-function normalizeStock(raw: any, updateTime: string): Stock {
-  const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "");
-  const name = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
-
-  const price = n(raw.price ?? raw.close ?? raw.lastPrice ?? raw.z);
-  const previousClose = n(raw.previousClose ?? raw.prevClose ?? raw.yesterdayClose ?? raw.y);
-  const openPrice = n(raw.openPrice ?? raw.open ?? raw.o ?? price);
-
-  const changePercent =
-    raw.changePercent !== undefined
-      ? n(raw.changePercent)
-      : previousClose > 0
-        ? ((price - previousClose) / previousClose) * 100
-        : 0;
-
-  const openPremiumPercent =
-    raw.openPremiumPercent !== undefined && raw.openPremiumPercent !== null
-      ? n(raw.openPremiumPercent)
-      : previousClose > 0
-        ? ((openPrice - previousClose) / previousClose) * 100
-        : null;
+  if (openPrice > 0 && previousClose > 0) {
+    openPremiumPercent = Number((((openPrice - previousClose) / previousClose) * 100).toFixed(2));
+  }
 
   return {
     code,
     name,
     price,
-    changePercent,
-    volume: n(raw.volume ?? raw.tradeVolume ?? raw.totalVolume ?? raw.v),
     openPrice,
     previousClose,
     openPremiumPercent,
-    industry:
-      raw.industry && raw.industry !== "其他"
-        ? String(raw.industry)
-        : industryMap[code] ?? "其他",
-    updatedAt: String(raw.updatedAt ?? raw.time ?? raw.updateTime ?? updateTime),
+    changePercent,
+    volume: num(item.TradeVolume ?? item.volume ?? item.Volume),
+    industry: item.industry || getIndustry(code),
+    turnoverRate: nullableNum(item.turnoverRate),
+    volumeRatio: nullableNum(item.volumeRatio),
+    floatMarketCapYi: nullableNum(item.floatMarketCapYi),
   };
 }
 
-function isHot(stock: Stock, settings: Settings) {
-  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
+function volumeLots(volume: number) {
+  return Math.round(volume / 1000);
 }
 
-function isBreakout(stock: Stock) {
-  return stock.changePercent >= 3 && stock.price >= stock.openPrice;
+function isNineTenWindow() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const start = 9 * 60;
+  const end = 9 * 60 + 15;
+
+  return isWeekday && totalMinutes >= start && totalMinutes <= end;
 }
 
-function isWeakByRule(stock: Stock, settings: Settings) {
-  const belowOpen = stock.price < stock.openPrice;
-  const belowPrev = stock.price < stock.previousClose;
+function isAfterCloseReviewWindow() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
 
-  if (settings.weakRule === "跌破開盤") return belowOpen;
-  if (settings.weakRule === "跌破昨收") return belowPrev;
-  return belowOpen && belowPrev;
+  const isWeekday = day >= 1 && day <= 5;
+  const start = 13 * 60 + 30;
+  const end = 23 * 60 + 59;
+
+  return isWeekday && totalMinutes >= start && totalMinutes <= end;
 }
 
-function isWeak(stock: Stock, settings: Settings) {
-  return isWeakByRule(stock, settings) || stock.changePercent < 2;
+function getMarketStatus() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const preOpenStart = 8 * 60 + 30;
+  const marketOpen = 9 * 60;
+  const marketClose = 13 * 60 + 30;
+
+  if (!isWeekday) {
+    return {
+      title: "⚠️ 非交易日",
+      text: "目前可能是最近一次交易資料，請注意資料日期。",
+      color: "border-yellow-900 bg-yellow-950/50 text-yellow-200",
+    };
+  }
+
+  if (totalMinutes < preOpenStart) {
+    return {
+      title: "⚠️ 開盤前",
+      text: "目前可能是昨日或最近一次交易資料。",
+      color: "border-yellow-900 bg-yellow-950/50 text-yellow-200",
+    };
+  }
+
+  if (totalMinutes >= preOpenStart && totalMinutes < marketOpen) {
+    return {
+      title: "⏳ 開盤前準備",
+      text: "接近開盤，資料可能尚未完整更新。",
+      color: "border-orange-900 bg-orange-950/50 text-orange-200",
+    };
+  }
+
+  if (totalMinutes >= marketOpen && totalMinutes <= marketClose) {
+    return {
+      title: "✅ 今日盤中資料",
+      text: "目前為台股盤中時間，資料較接近即時。",
+      color: "border-green-900 bg-green-950/50 text-green-200",
+    };
+  }
+
+  return {
+    title: "⚠️ 收盤後",
+    text: "目前可能是今日收盤或最近一次交易資料，適合做復盤觀察。",
+    color: "border-slate-700 bg-slate-900 text-slate-300",
+  };
 }
 
-function isPullback(stock: Stock, settings: Settings) {
-  if (stock.openPrice <= 0) return false;
-  const distance = Math.abs(stock.price - stock.openPrice) / stock.openPrice;
-  return stock.changePercent >= 2 && distance <= 0.015 && !isHot(stock, settings);
+function getStockLinks(code: string) {
+  const cleanCode = String(code).trim().replace(/\D/g, "").slice(0, 4);
+
+  return {
+    kline: `https://tw.tradingview.com/chart/?symbol=TWSE:${cleanCode}`,
+    yahoo: `https://tw.stock.yahoo.com/quote/${cleanCode}.TW`,
+  };
 }
 
-function pullbackDistance(stock: Stock) {
-  if (stock.openPrice <= 0) return 999;
-  return (Math.abs(stock.price - stock.openPrice) / stock.openPrice) * 100;
-}
-
-function previousPriceOf(stock: Stock, previousPriceMap: Record<string, number>) {
-  return previousPriceMap[stock.code];
-}
-
-function instantChange(stock: Stock, previousPriceMap: Record<string, number>) {
-  const prev = previousPriceOf(stock, previousPriceMap);
-  if (!prev || prev <= 0) return 0;
-  return stock.price - prev;
-}
-
-function instantPercent(stock: Stock, previousPriceMap: Record<string, number>) {
-  const prev = previousPriceOf(stock, previousPriceMap);
-  if (!prev || prev <= 0) return 0;
-  return ((stock.price - prev) / prev) * 100;
-}
-
-function isAlert(stock: Stock, settings: Settings) {
-  if (stock.price <= 0 || stock.price > settings.maxPrice) return false;
-  if (settings.excludeHot && isHot(stock, settings)) return false;
-  return stock.changePercent >= settings.alertPercent || (stock.openPremiumPercent ?? 0) >= 3;
-}
-
-function isRealtimeStrong(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
-) {
+function isHighOpenContinue(stock: Stock) {
   return (
-    priceDirections[stock.code] === "up" &&
-    stock.price >= stock.openPrice &&
-    mainIndustries.includes(stock.industry) &&
-    !isHot(stock, settings)
+    stock.openPremiumPercent !== null &&
+    stock.openPremiumPercent >= 3 &&
+    stock.changePercent >= 5
   );
 }
 
-function isRealtimeWeak(
-  stock: Stock,
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
-) {
+function isMainContinue(stock: Stock, strongIndustryNames: string[]) {
+  return isHighOpenContinue(stock) && strongIndustryNames.includes(stock.industry);
+}
+
+function isChipActive(stock: Stock) {
   return (
-    priceDirections[stock.code] === "down" ||
-    stock.price < stock.openPrice ||
-    stock.price < stock.previousClose ||
-    isWeak(stock, settings)
+    stock.turnoverRate !== null &&
+    stock.volumeRatio !== null &&
+    stock.floatMarketCapYi !== null &&
+    stock.turnoverRate >= 3 &&
+    stock.turnoverRate <= 10 &&
+    stock.volumeRatio > 1 &&
+    stock.floatMarketCapYi < 5
   );
 }
 
-function getIndustryRanking(
+function isLowVolumeStrongStock(stock: Stock) {
+  return stock.changePercent >= 5 && volumeLots(stock.volume) < 10000;
+}
+
+function stockScore(stock: Stock) {
+  let score = 50;
+
+  if (stock.changePercent >= 9.8) score += 35;
+  else if (stock.changePercent >= 7) score += 25;
+  else if (stock.changePercent >= 5) score += 15;
+  else if (stock.changePercent >= 3) score += 8;
+  else if (stock.changePercent < 0) score -= 20;
+
+  if (volumeLots(stock.volume) >= 10000) score += 10;
+  else if (volumeLots(stock.volume) >= 3000) score += 6;
+
+  if (stock.openPremiumPercent !== null) {
+    if (stock.openPremiumPercent >= 5) score += 8;
+    else if (stock.openPremiumPercent >= 3) score += 5;
+    else if (stock.openPremiumPercent <= -3) score -= 5;
+  }
+
+  if (isHighOpenContinue(stock)) score += 8;
+  if (isLowVolumeStrongStock(stock)) score += 4;
+  if (isChipActive(stock)) score += 10;
+
+  return Math.max(0, Math.min(99, score));
+}
+
+function isSafeWatch(stock: Stock) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const lots = volumeLots(stock.volume);
+
+  return (
+    stock.changePercent >= 0 &&
+    stock.changePercent < 7 &&
+    stockScore(stock) < 90 &&
+    openPremium < 5 &&
+    lots >= 300
+  );
+}
+
+function isTomorrowWatchStock(stock: Stock, strongIndustryNames: string[]) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const score = stockScore(stock);
+
+  const notOverheated =
+    stock.changePercent >= 0 &&
+    stock.changePercent < 7 &&
+    score < 90 &&
+    openPremium < 5;
+
+  const hasReason =
+    strongIndustryNames.includes(stock.industry) ||
+    isSafeWatch(stock) ||
+    isMainContinue(stock, strongIndustryNames) ||
+    isChipActive(stock);
+
+  return notOverheated && hasReason;
+}
+function getBuyPoint(stock: Stock) {
+  const score = stockScore(stock);
+  const openPremium = stock.openPremiumPercent ?? 0;
+
+  if (stock.changePercent < 0) {
+    return {
+      level: "weak" as BuyPointLevel,
+      title: "⚪ 不建議",
+      text: "目前股價轉弱，先不要急著進場，等重新站回強勢再觀察。",
+      reason: "漲幅為負，代表今日目前不是強勢股。",
+    };
+  }
+
+  if (stock.changePercent >= 9 || score >= 90) {
+    return {
+      level: "avoid" as BuyPointLevel,
+      title: "🔴 避免追高",
+      text: "目前已經偏熱，短線容易震盪或拉回，不建議盲目追價。",
+      reason: "漲幅接近高檔，或強度分數已達過熱區。",
+    };
+  }
+
+  if (stock.changePercent >= 5 || openPremium >= 5) {
+    return {
+      level: "pullback" as BuyPointLevel,
+      title: "🟡 等拉回",
+      text: "動能不錯，但已經有漲幅，建議等拉回、量縮或重新轉強。",
+      reason: "漲幅超過 5%，或開盤溢價偏高，追高風險增加。",
+    };
+  }
+
+  return {
+    level: "watch" as BuyPointLevel,
+    title: "🟢 可觀察",
+    text: "目前沒有明顯過熱，可以列入觀察，但仍要搭配大盤與產業強度。",
+    reason: "漲幅未過熱，強度未過高，較適合等轉強或拉回觀察。",
+  };
+}
+
+function stockStatus(stock: Stock) {
+  if (stock.changePercent >= 9.8) return "強勢";
+  if (stock.changePercent >= 5) return "突破";
+  if (isSafeWatch(stock)) return "安全觀察";
+  if (stock.changePercent >= 0) return "觀察";
+  return "轉弱";
+}
+
+function isAlertStock(stock: Stock) {
+  return (
+    stock.changePercent >= 7 ||
+    stockScore(stock) >= 85 ||
+    volumeLots(stock.volume) >= 10000 ||
+    isChipActive(stock)
+  );
+}
+
+function isWatchAlertStock(stock: Stock) {
+  return (
+    stock.changePercent >= 5 ||
+    stockScore(stock) >= 85 ||
+    isHighOpenContinue(stock) ||
+    stock.changePercent >= 9.8
+  );
+}
+
+function getRisk(stock: Stock) {
+  const openPremium = stock.openPremiumPercent ?? 0;
+  const lots = volumeLots(stock.volume);
+  const score = stockScore(stock);
+
+  if (stock.changePercent >= 9 || score >= 90 || openPremium >= 8) {
+    return {
+      level: "high" as RiskLevel,
+      title: "🔴 過熱，避免追高",
+      text: "漲幅、強度或開盤溢價已偏高，短線容易震盪，建議不要盲目追價。",
+    };
+  }
+
+  if (stock.changePercent >= 5 || openPremium >= 5 || lots >= 10000 || score >= 80) {
+    return {
+      level: "medium" as RiskLevel,
+      title: "🟡 偏熱，觀察拉回",
+      text: "動能不錯，但已有一定漲幅或量能放大，適合觀察拉回或轉強點。",
+    };
+  }
+
+  return {
+    level: "low" as RiskLevel,
+    title: "🟢 低風險觀察",
+    text: "目前尚未明顯過熱，可先列入觀察，但仍要搭配大盤與產業強度。",
+  };
+}
+
+function getMarketPower(
   stocks: Stock[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>,
-  mainIndustriesForRealtime: string[] = []
-): IndustryItem[] {
-  const map = new Map<string, IndustryItem>();
-
-  stocks.forEach((stock) => {
-    const key = stock.industry || "其他";
-    const item =
-      map.get(key) ??
-      {
-        industry: key,
-        count: 0,
-        avg: 0,
-        stocks: [],
-        breakoutCount: 0,
-        hotCount: 0,
-        weakCount: 0,
-        realtimeStrongCount: 0,
-        score: 0,
-      };
-
-    item.count += 1;
-    item.stocks.push(stock);
-    if (isBreakout(stock)) item.breakoutCount += 1;
-    if (isHot(stock, settings)) item.hotCount += 1;
-    if (isWeak(stock, settings)) item.weakCount += 1;
-    if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) {
-      item.realtimeStrongCount += 1;
-    }
-
-    map.set(key, item);
-  });
-
-  return Array.from(map.values())
-    .map((item) => {
-      const avg =
-        item.stocks.reduce((sum, stock) => sum + stock.changePercent, 0) /
-        Math.max(item.stocks.length, 1);
-
-      const mainBonus = mainIndustriesForRealtime.includes(item.industry) ? 8 : 0;
-
-      return {
-        ...item,
-        avg,
-        score:
-          item.count * 10 +
-          avg * 3 +
-          item.breakoutCount * 5 +
-          item.realtimeStrongCount * 6 +
-          mainBonus -
-          item.hotCount * 3 -
-          item.weakCount * 3,
-      };
-    })
-    .sort((a, b) => b.score - a.score);
-}
-
-function scoreStock(stock: Stock, mainIndustries: string[], settings: Settings) {
-  let score = 0;
-
-  if (mainIndustries.includes(stock.industry)) score += 30;
-  if (stock.price > 0 && stock.price <= settings.maxPrice) score += 25;
-  if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 20;
-  if (stock.price >= stock.openPrice) score += 15;
-  if ((stock.openPremiumPercent ?? 0) >= 0 && (stock.openPremiumPercent ?? 0) <= 4) score += 10;
-  if (isBreakout(stock)) score += 10;
-  if (isPullback(stock, settings)) score += 8;
-
-  if (isHot(stock, settings)) score -= 35;
-  if (isWeak(stock, settings)) score -= 25;
-
-  if (settings.mainMode === "保守" && !mainIndustries.includes(stock.industry)) score -= 30;
-  if (settings.mainMode === "保守" && stock.price > settings.maxPrice) score -= 30;
-  if (settings.mainMode === "積極" && isBreakout(stock)) score += 15;
-
-  return Math.max(0, Math.round(score));
-}
-
-function instantScore(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
+  industryGroups: {
+    industry: string;
+    total: number;
+    avgChange: number;
+    strength: number;
+    stocks: Stock[];
+  }[]
 ) {
-  let score = 0;
+  const strongCount = stocks.filter((stock) => stock.changePercent >= 5).length;
+  const alertCount = stocks.filter(isAlertStock).length;
+  const topIndustry = industryGroups[0];
 
-  if (priceDirections[stock.code] === "up") score += 30;
-  if (stock.price >= stock.openPrice) score += 25;
-  if (mainIndustries.includes(stock.industry)) score += 20;
-  if (!isHot(stock, settings)) score += 15;
-  if (stock.volume > 0) score += 10;
-  if (isBreakout(stock)) score += 10;
-  if (isWeak(stock, settings)) score -= 30;
-  if (isHot(stock, settings)) score -= 25;
+  if (strongCount >= 15 && alertCount >= 8 && topIndustry && topIndustry.total >= 4) {
+    return {
+      level: "strong" as MarketPowerLevel,
+      title: "✅ 大盤偏強",
+      text: "強勢股與警報股數量偏多，可以優先看主流產業、主流續強與突破股。",
+      action: "策略：可積極觀察主流股，但仍避免追高過熱股。",
+      color: "border-green-500 bg-green-950/60 text-green-100",
+    };
+  }
 
-  return Math.max(0, Math.round(score));
+  if (strongCount <= 5 || alertCount <= 2) {
+    return {
+      level: "weak" as MarketPowerLevel,
+      title: "🔴 大盤偏弱",
+      text: "強勢股數量不足，代表盤面動能較弱，不適合亂追高。",
+      action: "策略：只看自選股、安全觀察與低風險標的。",
+      color: "border-red-500 bg-red-950/60 text-red-100",
+    };
+  }
+
+  return {
+    level: "normal" as MarketPowerLevel,
+    title: "⚠️ 大盤震盪",
+    text: "盤面有強勢股，但還沒有全面擴散，適合保守篩選。",
+    action: "策略：優先看安全觀察、明日觀察、主流產業前幾名。",
+    color: "border-yellow-500 bg-yellow-950/60 text-yellow-100",
+  };
 }
 
-function mainRank(stock: Stock, mainIndustries: string[]) {
-  const index = mainIndustries.indexOf(stock.industry);
-  if (index === -1) return "";
-  return `主流${index + 1}`;
-}
-
-function directionText(direction?: PriceDirection) {
-  if (direction === "up") return "↑ 股價上升";
-  if (direction === "down") return "↓ 股價下降";
-  if (direction === "same") return "→ 股價持平";
-  if (direction === "new") return "新資料";
-  return "--";
-}
-
-function directionTone(direction?: PriceDirection) {
-  if (direction === "up") return "text-red-300";
-  if (direction === "down") return "text-emerald-300";
-  if (direction === "same") return "text-slate-300";
-  return "text-cyan-300";
-}
-
-function statusText(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
+function getSyncStatus(
+  lastSuccessAt: string,
+  apiUpdatedAtTaiwan: string,
+  dataSource: string,
+  lastFailReason: string
 ) {
-  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "即時轉強";
-  if (isRealtimeWeak(stock, settings, priceDirections)) return "即時轉弱";
-  if (isHot(stock, settings)) return "過熱";
-  if (isWeak(stock, settings)) return "轉弱";
-  if (isAlert(stock, settings)) return "警報";
-  if (isBreakout(stock)) return "突破";
-  if (isPullback(stock, settings)) return "回測";
-  if (mainIndustries.includes(stock.industry)) return "主流";
+  if (lastFailReason) {
+    return {
+      title: "🔴 同步異常",
+      text: `最近一次更新失敗：${lastFailReason}`,
+      color: "border-red-500 bg-red-950/60 text-red-100",
+    };
+  }
+
+  if (!lastSuccessAt) {
+    return {
+      title: "⚠️ 尚未同步成功",
+      text: "請按立即更新，確認 API 是否有回傳資料。",
+      color: "border-yellow-500 bg-yellow-950/60 text-yellow-100",
+    };
+  }
+
+  if (apiUpdatedAtTaiwan && dataSource) {
+    return {
+      title: "✅ API 有同步",
+      text: "API資料時間有顯示，代表前端有收到 API 回傳。",
+      color: "border-green-500 bg-green-950/60 text-green-100",
+    };
+  }
+
+  return {
+    title: "⚠️ 前端有更新，但 API時間未顯示",
+    text: "可能是 API 沒有回傳 updatedAtTaiwan / source，或前端版本還不是最新。",
+    color: "border-yellow-500 bg-yellow-950/60 text-yellow-100",
+  };
+}
+
+function getIndustryRole(stock: Stock, groupStocks: Stock[]) {
+  if (groupStocks.length === 0) return "";
+
+  const leader = [...groupStocks].sort((a, b) => b.changePercent - a.changePercent)[0];
+
+  if (stock.code === leader.code) return "龍頭";
+  if (stock.changePercent >= 5) return "跟漲";
+  if (isSafeWatch(stock)) return "安全";
   return "觀察";
 }
 
-function conclusion(stock: Stock, mainIndustries: string[], settings: Settings) {
-  const score = scoreStock(stock, mainIndustries, settings);
+function getObserveTags(stock: Stock, strongIndustryNames: string[]) {
+  const tags: string[] = [];
 
-  if (isHot(stock, settings)) return "不追高";
-  if (isWeak(stock, settings)) return "轉弱小心";
-  if (!mainIndustries.includes(stock.industry) && settings.mainMode !== "積極") return "非主流先觀察";
-  if (isPullback(stock, settings)) return "等回測";
-  if (isBreakout(stock) && score >= 70) return "明日優先觀察";
-  if (score >= 70) return "可列觀察";
-  return "暫不追";
+  if (isMainContinue(stock, strongIndustryNames)) tags.push("主流續強");
+  else if (isHighOpenContinue(stock)) tags.push("高開續強");
+
+  if (isChipActive(stock)) tags.push("籌碼活躍");
+  if (isSafeWatch(stock)) tags.push("安全觀察");
+  if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
+  if (isAlertStock(stock)) tags.push("警報股");
+  if (isWatchAlertStock(stock)) tags.push("自選警報");
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) tags.push("明日觀察");
+  if (stock.changePercent >= 5) tags.push("突破");
+  if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
+
+  return Array.from(new Set(tags));
 }
 
-function tomorrowDecision(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
-) {
-  if (isHot(stock, settings)) return "過熱不追";
-  if (isRealtimeWeak(stock, settings, priceDirections)) return "轉弱移除";
-  if (isPullback(stock, settings)) return "主流回測";
-  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) return "主流轉強";
-  if (!mainIndustries.includes(stock.industry) && stock.changePercent >= settings.alertPercent) return "非主流強漲觀察";
-  if (scoreStock(stock, mainIndustries, settings) >= 70) return "主流轉強";
-  return "主流回測";
+function getAlertTags(stock: Stock, strongIndustryNames: string[]) {
+  const tags: string[] = [];
+
+  if (stock.changePercent >= 9.8) tags.push("漲停附近");
+  else if (stock.changePercent >= 7) tags.push("急漲");
+
+  if (stock.changePercent >= 5) tags.push("突破");
+
+  if (isMainContinue(stock, strongIndustryNames)) tags.push("主流續強");
+  else if (isHighOpenContinue(stock)) tags.push("高開續強");
+
+  if (isChipActive(stock)) tags.push("籌碼活躍");
+  if (isSafeWatch(stock)) tags.push("安全觀察");
+  if (isWatchAlertStock(stock)) tags.push("自選警報");
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) tags.push("明日觀察");
+
+  if (volumeLots(stock.volume) >= 10000) tags.push("爆量");
+  else if (volumeLots(stock.volume) >= 3000) tags.push("放量");
+
+  if (isLowVolumeStrongStock(stock)) tags.push("低量強漲");
+  if (stockScore(stock) >= 85) tags.push("強度高");
+  if (strongIndustryNames.includes(stock.industry)) tags.push("主流產業");
+
+  return Array.from(new Set(tags)).slice(0, 8);
 }
 
-function pickReasons(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
-) {
-  const reasons: string[] = [];
+function sortStocks(list: Stock[], sortKey: SortKey) {
+  const copied = [...list];
 
-  if (mainIndustries.includes(stock.industry)) reasons.push("主流");
-  if (stock.price <= settings.maxPrice) reasons.push(`${settings.maxPrice}內`);
-  if (priceDirections[stock.code] === "up") reasons.push("即時上升");
-  if (isBreakout(stock)) reasons.push("突破開盤");
-  if (isPullback(stock, settings)) reasons.push("接近回測");
-  if (!isHot(stock, settings)) reasons.push("未過熱");
-  if (!isWeak(stock, settings)) reasons.push("未轉弱");
+  if (sortKey === "volume") return copied.sort((a, b) => b.volume - a.volume);
+  if (sortKey === "score") return copied.sort((a, b) => stockScore(b) - stockScore(a));
 
-  return reasons.length ? reasons.join(" / ") : "暫無明確理由";
-}
-
-function removeReasons(stock: Stock, mainIndustries: string[], settings: Settings, priceDirections: Record<string, PriceDirection>) {
-  const reasons: string[] = [];
-
-  if (priceDirections[stock.code] === "down") reasons.push("即時下跌");
-  if (stock.price < stock.openPrice) reasons.push("跌破開盤");
-  if (stock.price < stock.previousClose) reasons.push("跌破昨收");
-  if (isHot(stock, settings)) reasons.push("過熱");
-  if (!mainIndustries.includes(stock.industry)) reasons.push("非主流");
-
-  return reasons.length ? reasons.join(" / ") : "沒有明顯移除理由";
-}
-
-function realtimeSentence(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>
-) {
-  if (isRealtimeStrong(stock, mainIndustries, settings, priceDirections)) {
-    return "股價剛上升，仍站上開盤，主線偏強。";
+  if (sortKey === "openPremium") {
+    return copied.sort((a, b) => {
+      const aValue = a.openPremiumPercent ?? -999;
+      const bValue = b.openPremiumPercent ?? -999;
+      return bValue - aValue;
+    });
   }
 
-  if (isRealtimeWeak(stock, settings, priceDirections)) {
-    return "股價轉弱或跌破關鍵價，先保守觀察。";
-  }
-
-  if (priceDirections[stock.code] === "same") return "股價暫時持平，等待下一次更新確認。";
-  if (priceDirections[stock.code] === "new") return "新資料，等待下一筆更新比對。";
-
-  return "目前未出現明確即時訊號。";
+  return copied.sort((a, b) => b.changePercent - a.changePercent);
 }
 
-function kLinks(code: string, name: string) {
+function filterByQuick(
+  list: Stock[],
+  filterKey: FilterKey,
+  strongIndustryNames: string[] = []
+) {
+  if (filterKey === "strong") return list.filter((s) => s.changePercent >= 9.8);
+  if (filterKey === "breakout") return list.filter((s) => s.changePercent >= 5);
+  if (filterKey === "alert") return list.filter(isAlertStock);
+  if (filterKey === "lowVolume") return list.filter((s) => s.volume > 0 && s.volume < 300000);
+  if (filterKey === "openStrong") return list.filter((s) => s.openPremiumPercent !== null && s.openPremiumPercent >= 3);
+  if (filterKey === "highOpenContinue") return list.filter(isHighOpenContinue);
+  if (filterKey === "mainContinue") return list.filter((s) => isMainContinue(s, strongIndustryNames));
+  if (filterKey === "chipActive") return list.filter(isChipActive);
+  if (filterKey === "safeWatch") return list.filter(isSafeWatch);
+  if (filterKey === "tomorrowWatch") return list.filter((s) => isTomorrowWatchStock(s, strongIndustryNames));
+
+  return list;
+}
+
+function loadSavedWatchCodes() {
+  try {
+    const saved = localStorage.getItem("watchCodes");
+    if (!saved) return defaultWatchCodes;
+
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return defaultWatchCodes;
+
+    const codes = parsed
+      .map((code) => String(code).trim())
+      .filter((code) => /^\d{4}$/.test(code));
+
+    return codes.length > 0 ? codes : defaultWatchCodes;
+  } catch {
+    return defaultWatchCodes;
+  }
+}
+
+function buildIndustryGroups(stocks: Stock[], sortKey: SortKey) {
+  const map: Record<string, Stock[]> = {};
+
+  stocks.forEach((stock) => {
+    map[stock.industry] = map[stock.industry] || [];
+    map[stock.industry].push(stock);
+  });
+
+  return Object.entries(map)
+    .map(([industry, groupStocks]) => {
+      const avgChange =
+        groupStocks.reduce((sum, stock) => sum + stock.changePercent, 0) /
+        groupStocks.length;
+
+      const strength = Math.round(groupStocks.length * avgChange * 10);
+
+      return {
+        industry,
+        total: groupStocks.length,
+        avgChange: Number(avgChange.toFixed(2)),
+        strength,
+        stocks: sortStocks(groupStocks, sortKey),
+      };
+    })
+    .sort((a, b) => b.strength - a.strength);
+}
+
+function getDataCheckStatus(stocks: Stock[], watchListStocks: Stock[], lastSuccessAt: string) {
+  const hasRanking = stocks.length > 0;
+  const hasWatchList = watchListStocks.length > 0;
+  const hasPrice = stocks.some((stock) => stock.price > 0);
+  const hasVolume = stocks.some((stock) => stock.volume > 0);
+  const hasUpdated = Boolean(lastSuccessAt);
+
+  const okCount = [hasRanking, hasWatchList, hasPrice, hasVolume, hasUpdated].filter(Boolean).length;
+  const isGood = okCount >= 4;
+
   return {
-    yahoo: `https://tw.stock.yahoo.com/quote/${code}.TW/technical-analysis`,
-    tradingView: `https://www.tradingview.com/chart/?symbol=TWSE%3A${code}`,
-    goodinfo: `https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID=${code}`,
-    google: `https://www.google.com/search?q=${code}+${encodeURIComponent(name)}+K線`,
+    isGood,
+    okCount,
+    title: isGood ? "✅ 資料檢查正常" : "⚠️ 資料可能異常",
+    text: isGood
+      ? "漲幅排行、自選股、股價與成交量都有取得。"
+      : "部分資料可能沒有成功取得，請按立即更新或稍後再試。",
   };
 }
 
-function MiniCard({
-  title,
-  value,
-  sub,
-  tone,
-  onClick,
-}: {
-  title: string;
-  value: string | number;
-  sub: string;
-  tone: string;
-  onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-left active:scale-95">
-      <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className={`mt-1 text-xl font-black ${tone}`}>{value}</div>
-      <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
-    </button>
-  );
+function buildObserveStocks(stocks: Stock[], strongIndustryNames: string[]) {
+  const map = new Map<string, Stock>();
+
+  stocks.forEach((stock) => {
+    const shouldObserve =
+      isMainContinue(stock, strongIndustryNames) ||
+      isHighOpenContinue(stock) ||
+      isLowVolumeStrongStock(stock) ||
+      isChipActive(stock) ||
+      isSafeWatch(stock) ||
+      isAlertStock(stock) ||
+      isTomorrowWatchStock(stock, strongIndustryNames);
+
+    if (shouldObserve) map.set(stock.code, stock);
+  });
+
+  return sortStocks(Array.from(map.values()), "score");
 }
 
-function ActionCard({
-  title,
-  sub,
-  badge,
-  tone,
-  onClick,
-}: {
-  title: string;
-  sub: string;
-  badge: string | number;
-  tone: string;
-  onClick: () => void;
-}) {
-  return (
-    <button onClick={onClick} className="rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-lg font-black text-white">{title}</div>
-          <div className="mt-1 text-sm font-bold text-slate-400">{sub}</div>
-        </div>
-        <div className={`rounded-2xl bg-black/40 px-3 py-2 text-lg font-black ${tone}`}>{badge}</div>
-      </div>
-    </button>
-  );
+function getTradeAdvice(stock: Stock) {
+  const advice: string[] = [];
+  const risk = getRisk(stock);
+  const buyPoint = getBuyPoint(stock);
+
+  advice.push(`買點提醒：${buyPoint.title}`);
+
+  if (risk.level === "high") advice.push("🔴 風險偏高：目前已過熱，避免追高，先等拉回或量縮整理");
+  else if (risk.level === "medium") advice.push("🟡 偏熱觀察：動能不錯，但不要急追，可觀察拉回轉強");
+  else advice.push("🟢 低風險觀察：目前未明顯過熱，可列入追蹤");
+
+  if (isSafeWatch(stock)) advice.push("✅ 安全觀察：漲幅未過熱、強度未過高，較適合等轉強或拉回觀察");
+  if (isChipActive(stock)) advice.push("✅ 籌碼活躍：換手率 3～10%、量比 > 1、流通市值 < 5 億");
+  if (isHighOpenContinue(stock)) advice.push("🚀 高開續強：開盤溢價率超過 3%，目前漲幅也超過 5%");
+  if (stock.changePercent >= 9.8) advice.push("🔥 強勢追蹤：漲幅接近漲停，屬於今日強勢股");
+  else if (stock.changePercent >= 7) advice.push("🚨 警報股：漲幅超過 7%，短線動能強");
+  else if (stock.changePercent >= 5) advice.push("⚡ 突破股：漲幅超過 5%，可列入觀察");
+  else if (stock.changePercent < 0) advice.push("🔴 轉弱股：目前漲幅為負，先保守觀察");
+
+  return advice;
 }
 
-function DetailRow({ label, value }: { label: string; value: string | number }) {
+function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
+  const reasons: string[] = [];
+  const risk = getRisk(stock);
+  const buyPoint = getBuyPoint(stock);
+
+  reasons.push(`買點提醒：${buyPoint.title}`);
+  reasons.push(`買點原因：${buyPoint.reason}`);
+  reasons.push(`風險燈號：${risk.title}`);
+
+  if (isTomorrowWatchStock(stock, strongIndustryNames)) reasons.push("明日觀察：主流產業或安全觀察，且漲幅與強度未過熱");
+  if (isWatchAlertStock(stock)) reasons.push("自選警報：漲幅 ≥ 5%、強度 ≥ 85、或高開續強");
+  if (isSafeWatch(stock)) reasons.push("安全觀察：漲幅 < 7%，強度 < 90，開盤溢價 < 5%，成交量不太低");
+  if (isChipActive(stock)) reasons.push("籌碼活躍：換手率 3～10%，量比 > 1，流通市值 < 5 億");
+  if (isMainContinue(stock, strongIndustryNames)) reasons.push("主流續強：高開續強，且屬於今日最強主流前 5 名產業");
+  if (stock.changePercent >= 9.8) reasons.push("漲幅接近漲停");
+  else if (stock.changePercent >= 7) reasons.push("漲幅超過 7%");
+  else if (stock.changePercent >= 5) reasons.push("漲幅超過 5%，屬於突破股");
+  if (strongIndustryNames.includes(stock.industry)) reasons.push("屬於今日強勢產業");
+
+  return reasons.length > 0 ? reasons : ["目前屬於一般觀察"];
+}
+function MiniLine() {
   return (
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-bold text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-black text-white">{value}</div>
+    <div className="mt-1 h-6 w-16">
+      <svg viewBox="0 0 100 36" className="h-full w-full">
+        <polyline
+          points="4,29 18,27 32,19 46,19 58,17 70,24 82,12 96,14"
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
     </div>
   );
 }
 
-function StockCard({
+function AlertTags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
+
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className={
+            tag === "明日觀察"
+              ? "rounded-full bg-indigo-400 px-2 py-0.5 text-xs font-black text-black"
+              : tag === "漲停附近" || tag === "急漲"
+                ? "rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+                : tag === "自選警報"
+                  ? "rounded-full bg-red-400 px-2 py-0.5 text-xs font-black text-black"
+                  : tag === "安全觀察"
+                    ? "rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                    : tag === "籌碼活躍"
+                      ? "rounded-full bg-cyan-400 px-2 py-0.5 text-xs font-black text-black"
+                      : tag === "主流續強"
+                        ? "rounded-full bg-green-500 px-2 py-0.5 text-xs font-black text-black"
+                        : tag === "高開續強"
+                          ? "rounded-full bg-lime-500 px-2 py-0.5 text-xs font-black text-black"
+                          : tag === "低量強漲" || tag === "高開" || tag === "開盤強"
+                            ? "rounded-full bg-yellow-500 px-2 py-0.5 text-xs font-black text-black"
+                            : tag === "主流產業"
+                              ? "rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                              : tag === "強度高"
+                                ? "rounded-full bg-purple-500 px-2 py-0.5 text-xs font-black text-white"
+                                : "rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-100"
+          }
+        >
+          {tag}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function StatusBox({
+  title,
+  text,
+  color,
+}: {
+  title: string;
+  text: string;
+  color: string;
+}) {
+  return (
+    <div className={`mb-3 rounded-2xl border p-3 ${color}`}>
+      <div className="text-sm font-black">{title}</div>
+      <div className="mt-1 text-xs font-bold">{text}</div>
+    </div>
+  );
+}
+
+function MarketPowerBox({
+  marketPower,
+  strongCount,
+  alertCount,
+  safeCount,
+}: {
+  marketPower: ReturnType<typeof getMarketPower>;
+  strongCount: number;
+  alertCount: number;
+  safeCount: number;
+}) {
+  return (
+    <div className={`mb-3 rounded-2xl border p-3 ${marketPower.color}`}>
+      <div className="text-sm font-black">{marketPower.title}</div>
+      <div className="mt-1 text-xs font-bold">{marketPower.text}</div>
+      <div className="mt-2 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
+        {marketPower.action}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          突破股
+          <div className="mt-1 text-lg">{strongCount}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          警報股
+          <div className="mt-1 text-lg">{alertCount}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 px-2 py-2">
+          安全觀察
+          <div className="mt-1 text-lg">{safeCount}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoticeBox({
+  title,
+  text,
+  stocks,
+  tone,
+  onSelectStock,
+}: {
+  title: string;
+  text: string;
+  stocks: Stock[];
+  tone: "green" | "yellow" | "cyan" | "emerald" | "red" | "indigo";
+  onSelectStock: (stock: Stock) => void;
+}) {
+  if (stocks.length === 0) return null;
+
+  const boxClass =
+    tone === "indigo"
+      ? "rounded-2xl border border-indigo-500 bg-indigo-950/70 p-3 text-indigo-100"
+      : tone === "red"
+        ? "rounded-2xl border border-red-500 bg-red-950/70 p-3 text-red-100"
+        : tone === "emerald"
+          ? "rounded-2xl border border-emerald-400 bg-emerald-950/70 p-3 text-emerald-100"
+          : tone === "cyan"
+            ? "rounded-2xl border border-cyan-400 bg-cyan-950/70 p-3 text-cyan-100"
+            : tone === "green"
+              ? "rounded-2xl border border-green-500 bg-green-950/70 p-3 text-green-100"
+              : "rounded-2xl border border-yellow-500 bg-yellow-950/70 p-3 text-yellow-100";
+
+  return (
+    <div className={boxClass}>
+      <div className="text-sm font-black">{title}</div>
+      <div className="mt-1 text-xs font-bold">{text}</div>
+
+      <div className="mt-3 space-y-2">
+        {stocks.slice(0, 3).map((stock) => (
+          <button
+            key={stock.code}
+            onClick={() => onSelectStock(stock)}
+            className="flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left active:scale-[0.99]"
+          >
+            <div>
+              <div className="font-black text-white">
+                {stock.name}
+                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+              </div>
+
+              <div className="mt-1 text-xs font-bold opacity-90">
+                {stock.industry}｜強度 {stockScore(stock)}｜成交量{" "}
+                {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+            </div>
+
+            <div className={changeBadgeClass(stock.changePercent)}>
+              {changeText(stock.changePercent)}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AlertCenter({
+  watchAlertStocks,
+  tomorrowWatchStocks,
+  chipActiveStocks,
+  mainContinueStocks,
+  lowVolumeStrongStocks,
+  safeWatchStocks,
+  onSelectStock,
+  onOpenTomorrow,
+}: {
+  watchAlertStocks: Stock[];
+  tomorrowWatchStocks: Stock[];
+  chipActiveStocks: Stock[];
+  mainContinueStocks: Stock[];
+  lowVolumeStrongStocks: Stock[];
+  safeWatchStocks: Stock[];
+  onSelectStock: (stock: Stock) => void;
+  onOpenTomorrow: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const alertCount =
+    watchAlertStocks.length +
+    tomorrowWatchStocks.length +
+    chipActiveStocks.length +
+    mainContinueStocks.length +
+    lowVolumeStrongStocks.length +
+    safeWatchStocks.length;
+
+  if (alertCount === 0) return null;
+
+  return (
+    <div className="mb-3 rounded-2xl border border-slate-700 bg-slate-950 p-3">
+      <button
+        onClick={() => setOpen(!open)}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <div>
+          <div className="text-sm font-black text-white">🔔 提醒中心</div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            目前共有 {alertCount} 個提醒，點我{open ? "收起" : "展開"}。
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-red-500 px-3 py-1 text-sm font-black text-white">
+          {alertCount}
+        </div>
+      </button>
+
+      {!open && tomorrowWatchStocks.length > 0 && (
+        <button
+          onClick={onOpenTomorrow}
+          className="mt-3 w-full rounded-xl bg-indigo-500 px-3 py-2 text-sm font-black text-white"
+        >
+          📌 直接查看明日觀察清單
+        </button>
+      )}
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          <NoticeBox
+            title="🚨 自選股警報"
+            text={`自選股中有 ${watchAlertStocks.length} 檔符合強勢提醒條件。`}
+            stocks={watchAlertStocks}
+            tone="red"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="📌 明日觀察"
+            text={`有 ${tomorrowWatchStocks.length} 檔適合列入隔日觀察。`}
+            stocks={tomorrowWatchStocks}
+            tone="indigo"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="💎 籌碼活躍"
+            text="換手率 3～10%，量比 > 1，流通市值 < 5 億。"
+            stocks={chipActiveStocks}
+            tone="cyan"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🚀 主流續強"
+            text="高開續強，而且屬於今日最強主流前 5 名產業。"
+            stocks={mainContinueStocks}
+            tone="green"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🚨 低量強漲"
+            text="漲幅 ≥ 5%，成交量低於 10,000 張。"
+            stocks={lowVolumeStrongStocks}
+            tone="yellow"
+            onSelectStock={onSelectStock}
+          />
+
+          <NoticeBox
+            title="🟢 安全觀察"
+            text="漲幅未過熱、強度未過高，較適合等轉強或拉回觀察。"
+            stocks={safeWatchStocks.slice(0, 5)}
+            tone="emerald"
+            onSelectStock={onSelectStock}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StockRow({
   stock,
   rank,
-  mainIndustries,
-  settings,
-  favoriteCodes,
-  tomorrowCodes,
-  priceDirections,
-  previousPriceMap,
-  lastSuccessAt,
-  showReason,
-  onOpen,
-  onAddFavorite,
-  onRemoveFavorite,
-  onAddTomorrow,
-  onRemoveTomorrow,
+  onClick,
+  compact = false,
+  badge = "",
+  alertTags = [],
+  onRemove,
 }: {
   stock: Stock;
   rank: number;
-  mainIndustries: string[];
-  settings: Settings;
-  favoriteCodes: string[];
-  tomorrowCodes: string[];
-  priceDirections: Record<string, PriceDirection>;
-  previousPriceMap: Record<string, number>;
-  lastSuccessAt: string;
-  showReason?: boolean;
-  onOpen: (code: string) => void;
-  onAddFavorite: (code: string) => void;
-  onRemoveFavorite: (code: string) => void;
-  onAddTomorrow: (code: string) => void;
-  onRemoveTomorrow: (code: string) => void;
+  onClick: () => void;
+  compact?: boolean;
+  badge?: string;
+  alertTags?: string[];
+  onRemove?: () => void;
 }) {
-  const baseScore = scoreStock(stock, mainIndustries, settings);
-  const liveScore = instantScore(stock, mainIndustries, settings, priceDirections);
-  const isFavorite = favoriteCodes.includes(stock.code);
-  const isTomorrow = tomorrowCodes.includes(stock.code);
-  const direction = priceDirections[stock.code];
-  const mr = mainRank(stock, mainIndustries);
-  const prevPrice = previousPriceOf(stock, previousPriceMap);
-  const diff = instantChange(stock, previousPriceMap);
-  const diffPercent = instantPercent(stock, previousPriceMap);
-  const st = statusText(stock, mainIndustries, settings, priceDirections);
+  const status = stockStatus(stock);
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-      <button onClick={() => onOpen(stock.code)} className="w-full text-left">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-bold text-slate-500">#{rank}　{stock.code}</div>
-            <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
-            <div className="mt-1 text-xs font-bold text-slate-400">
-              {stock.industry} {mr && `｜${mr}`}
+    <div className="mb-2 rounded-2xl border border-slate-800 bg-gradient-to-br from-slate-900 to-black p-3">
+      <button onClick={onClick} className="w-full text-left active:scale-[0.99]">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="w-6 text-xl font-black text-red-500">{rank}</div>
+
+            <div className="min-w-0">
+              <div className="truncate text-lg font-black text-white">
+                {stock.name}
+                <span className="ml-2 text-xs text-slate-400">{stock.code}</span>
+              </div>
+
+              <div
+                className={
+                  compact
+                    ? "mt-1 text-xl font-black text-white"
+                    : "mt-1 text-2xl font-black text-white"
+                }
+              >
+                {priceText(stock.price)}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                {stock.industry}｜成交量 {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+
+              <AlertTags tags={alertTags} />
             </div>
           </div>
 
-          <div className="text-right">
-            <div className={`text-xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-              {formatPercent(stock.changePercent)}
+          <div className="shrink-0 text-right">
+            <div className={changeBadgeClass(stock.changePercent)}>
+              {changeText(stock.changePercent)}
             </div>
-            <div className="mt-1 text-sm font-black text-white">{formatNumber(stock.price)}</div>
+
+            <MiniLine />
+
+            <div
+              className={
+                status === "強勢"
+                  ? "text-xs font-bold text-green-400"
+                  : status === "突破"
+                    ? "text-xs font-bold text-yellow-400"
+                    : status === "安全觀察"
+                      ? "text-xs font-bold text-emerald-400"
+                      : status === "轉弱"
+                        ? "text-xs font-bold text-slate-400"
+                        : "text-xs font-bold text-orange-300"
+              }
+            >
+              {status}
+            </div>
+
+            {badge && (
+              <div
+                className={
+                  badge === "龍頭"
+                    ? "mt-1 rounded-full bg-red-500 px-2 py-0.5 text-xs font-black text-white"
+                    : badge === "跟漲"
+                      ? "mt-1 rounded-full bg-orange-500 px-2 py-0.5 text-xs font-black text-white"
+                      : badge === "安全"
+                        ? "mt-1 rounded-full bg-emerald-400 px-2 py-0.5 text-xs font-black text-black"
+                        : "mt-1 rounded-full bg-slate-700 px-2 py-0.5 text-xs font-black text-slate-200"
+                }
+              >
+                {badge}
+              </div>
+            )}
           </div>
         </div>
-
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
-          <span className="rounded-full bg-slate-800 px-3 py-1">{st}</span>
-          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">主線 {baseScore}</span>
-          <span className="rounded-full bg-orange-950 px-3 py-1 text-orange-200">即時 {liveScore}</span>
-          <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
-          {mr && <span className="rounded-full bg-purple-500/20 px-3 py-1 text-purple-200">{mr}</span>}
-          {isTomorrow && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">明日觀察</span>}
-          {isFavorite && <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-yellow-300">自選</span>}
-        </div>
-
-        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          結論：{conclusion(stock, mainIndustries, settings)}
-        </div>
-
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
-          即時：{directionText(direction)}　
-          {prevPrice !== undefined ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
-          {prevPrice !== undefined && (
-            <>
-              {" ｜ "}
-              {diff > 0 ? "+" : ""}
-              {diff.toFixed(2)}
-              {" / "}
-              {formatPercent(diffPercent)}
-            </>
-          )}
-          <br />
-          更新：{stock.updatedAt || lastSuccessAt || "--"}
-        </div>
-
-        {showReason && (
-          <div className="mt-2 rounded-2xl bg-cyan-950/30 p-2 text-xs font-bold text-cyan-100">
-            保留原因：{pickReasons(stock, mainIndustries, settings, priceDirections)}
-            <br />
-            移除原因：{removeReasons(stock, mainIndustries, settings, priceDirections)}
-          </div>
-        )}
       </button>
 
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      {onRemove && (
         <button
-          onClick={() => (isTomorrow ? onRemoveTomorrow(stock.code) : onAddTomorrow(stock.code))}
-          className={`rounded-2xl py-2 text-sm font-black ${
-            isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
-          }`}
+          onClick={onRemove}
+          className="mt-3 w-full rounded-xl bg-slate-800 px-3 py-2 text-xs font-black text-slate-200"
         >
-          {isTomorrow ? "📌 移除觀察" : "📌 明日觀察"}
+          從自選刪除
         </button>
+      )}
+    </div>
+  );
+}
 
-        <button
-          onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
-          className={`rounded-2xl py-2 text-sm font-black ${
-            isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
-          }`}
+function StockDetail({
+  stock,
+  onBack,
+  isWatch,
+  onToggleWatch,
+  sameIndustryStocks,
+  alertReasons,
+  onSelectStock,
+  strongIndustryNames,
+}: {
+  stock: Stock;
+  onBack: () => void;
+  isWatch: boolean;
+  onToggleWatch: () => void;
+  sameIndustryStocks: Stock[];
+  alertReasons: string[];
+  onSelectStock: (stock: Stock) => void;
+  strongIndustryNames: string[];
+}) {
+  const links = getStockLinks(stock.code);
+  const tradeAdvice = getTradeAdvice(stock);
+
+  return (
+    <div className="min-h-screen bg-black pb-24 text-white">
+      <div
+        className="mx-auto max-w-md px-4 pb-5"
+        style={{ paddingTop: "calc(env(safe-area-inset-top) + 56px)" }}
+      >
+        <div
+          className="sticky z-50 mb-4 flex items-center justify-between rounded-2xl bg-black/90 px-1 pb-3 backdrop-blur"
+          style={{ top: "calc(env(safe-area-inset-top) + 8px)" }}
         >
-          {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
-        </button>
+          <button
+            onClick={onBack}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-black text-white"
+          >
+            ← 返回
+          </button>
+
+          <button
+            onClick={onToggleWatch}
+            className={
+              isWatch
+                ? "rounded-xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200"
+                : "rounded-xl bg-red-500 px-4 py-2 text-sm font-black text-white"
+            }
+          >
+            {isWatch ? "移除自選" : "加入自選"}
+          </button>
+        </div>
+
+        <section className="rounded-3xl bg-gradient-to-br from-slate-900 to-black p-5">
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="text-3xl font-black">{stock.name}</div>
+              <div className="mt-1 text-slate-400">
+                {stock.code}｜{stock.industry}
+              </div>
+            </div>
+
+            <div className={changeBadgeClass(stock.changePercent, "lg")}>
+              {changeText(stock.changePercent)}
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <div className="text-sm font-bold text-slate-500">即時價</div>
+            <div className="text-6xl font-black">{priceText(stock.price)}</div>
+          </div>
+
+          <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
+
+          <div className="mt-6 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">成交量</div>
+              <div className="mt-1 text-2xl font-black">
+                {volumeLots(stock.volume).toLocaleString()} 張
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">強度</div>
+              <div className="mt-1 text-2xl font-black text-red-400">
+                {stockScore(stock)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">開盤溢價率</div>
+              <div className="mt-1 text-2xl font-black">
+                {percentText(stock.openPremiumPercent)}
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-slate-900 p-4">
+              <div className="text-sm text-slate-400">昨收</div>
+              <div className="mt-1 text-2xl font-black">
+                {priceText(stock.previousClose)}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            <a
+              href={links.kline}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl bg-slate-800 px-4 py-3 text-center text-sm font-black text-white"
+            >
+              看 K 線
+            </a>
+
+            <a
+              href={links.yahoo}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-2xl bg-red-500 px-4 py-3 text-center text-sm font-black text-white"
+            >
+              Yahoo 股價
+            </a>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">操作提醒</div>
+            <div className="space-y-2">
+              {tradeAdvice.map((item) => (
+                <div
+                  key={item}
+                  className="rounded-xl bg-black/40 px-3 py-2 text-sm font-bold text-slate-200"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">警報原因</div>
+            <div className="space-y-2">
+              {alertReasons.map((reason) => (
+                <div
+                  key={reason}
+                  className="rounded-xl bg-black/40 px-3 py-2 text-sm font-bold text-slate-200"
+                >
+                  ✅ {reason}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl bg-slate-900 p-4">
+            <div className="mb-3 text-lg font-black">
+              同產業強勢股｜{stock.industry}
+            </div>
+
+            {sameIndustryStocks.length === 0 ? (
+              <div className="text-sm text-slate-400">
+                目前沒有其他同產業強勢股
+              </div>
+            ) : (
+              sameIndustryStocks.map((item, index) => (
+                <button
+                  key={item.code}
+                  onClick={() => onSelectStock(item)}
+                  className="mb-2 flex w-full items-center justify-between rounded-xl bg-black/40 px-3 py-2 text-left active:scale-[0.99]"
+                >
+                  <div>
+                    <div className="font-black">
+                      {index + 1}. {item.name}{" "}
+                      <span className="text-xs text-slate-400">{item.code}</span>
+                    </div>
+                    <div className="text-xs text-slate-500">
+                      即時價 {priceText(item.price)}
+                    </div>
+                  </div>
+
+                  <div className={changeTextClass(item.changePercent)}>
+                    {changeText(item.changePercent)}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );
@@ -676,1186 +1406,802 @@ function StockCard({
 
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
-  const [settings, setSettings] = useState<Settings>(defaultSettings);
-
-  const [tab, setTab] = useState<TabKey>("home");
-  const [moreView, setMoreView] = useState<MoreView>("menu");
-
-  const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
-  const [tomorrowCodes, setTomorrowCodes] = useState<string[]>([]);
-  const [selectedCode, setSelectedCode] = useState("");
-
-  const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("score");
-  const [showFilters, setShowFilters] = useState(false);
-  const [customMaxPrice, setCustomMaxPrice] = useState("");
-
+  const [watchListStocks, setWatchListStocks] = useState<Stock[]>([]);
+  const [watchCodes, setWatchCodes] = useState<string[]>(defaultWatchCodes);
+  const [newWatchCode, setNewWatchCode] = useState("");
+  const [watchMessage, setWatchMessage] = useState("");
   const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [usingCache, setUsingCache] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
-
   const [lastSuccessAt, setLastSuccessAt] = useState("");
-  const [lastAttemptAt, setLastAttemptAt] = useState("");
-  const [apiDataTime, setApiDataTime] = useState("");
-  const [source, setSource] = useState("");
-  const [autoSeconds, setAutoSeconds] = useState(defaultSettings.refreshSeconds);
+  const [apiUpdatedAtTaiwan, setApiUpdatedAtTaiwan] = useState("");
+  const [dataSource, setDataSource] = useState("");
+  const [lastFailAt, setLastFailAt] = useState("");
+  const [lastFailReason, setLastFailReason] = useState("");
+  const [nextRefresh, setNextRefresh] = useState(60);
+  const [tab, setTab] = useState<TabKey>("top50");
+  const [expandedIndustry, setExpandedIndustry] = useState<string>("");
+  const [selectedStock, setSelectedStock] = useState<Stock | null>(null);
+  const [searchText, setSearchText] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("change");
+  const [filterKey, setFilterKey] = useState<FilterKey>("all");
+  const [mode, setMode] = useState<ModeKey>("normal");
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const [lastPriceMap, setLastPriceMap] = useState<Record<string, number>>({});
-  const [previousPriceMap, setPreviousPriceMap] = useState<Record<string, number>>({});
-  const [priceDirections, setPriceDirections] = useState<Record<string, PriceDirection>>({});
-
-  useEffect(() => {
-    const savedSettings = safeParse(localStorage.getItem(SETTINGS_KEY), defaultSettings);
-    const mergedSettings = { ...defaultSettings, ...savedSettings };
-    setSettings(mergedSettings);
-    setAutoSeconds(mergedSettings.refreshSeconds);
-    setCustomMaxPrice(String(mergedSettings.maxPrice));
-
-    setFavoriteCodes(safeParse(localStorage.getItem(FAVORITE_KEY), []));
-    setTomorrowCodes(safeParse(localStorage.getItem(TOMORROW_KEY), []));
-
-    const cached = safeParse<any>(localStorage.getItem(LAST_SUCCESS_KEY), null);
-
-    if (cached && Array.isArray(cached.stocks)) {
-      setStocks(cached.stocks);
-      setUsingCache(true);
-
-      const prices: Record<string, number> = {};
-      cached.stocks.forEach((stock: Stock) => {
-        prices[stock.code] = stock.price;
-      });
-      setLastPriceMap(prices);
-
-      if (cached.lastSuccessAt) setLastSuccessAt(cached.lastSuccessAt);
-      if (cached.apiDataTime) setApiDataTime(cached.apiDataTime);
-      if (cached.source) setSource(cached.source);
-    }
-  }, []);
-
-  function saveSettings(next: Settings) {
-    setSettings(next);
-    setAutoSeconds(next.refreshSeconds);
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  }
-
-  function saveFavorites(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean)));
-    setFavoriteCodes(clean);
-    localStorage.setItem(FAVORITE_KEY, JSON.stringify(clean));
-  }
-
-  function saveTomorrow(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 80);
-    setTomorrowCodes(clean);
-    localStorage.setItem(TOMORROW_KEY, JSON.stringify(clean));
-  }
-
-  function addFavorite(code: string) {
-    const clean = cleanCode(code);
-    if (!clean) return;
-    saveFavorites([...favoriteCodes, clean]);
-  }
-
-  function removeFavorite(code: string) {
-    saveFavorites(favoriteCodes.filter((item) => item !== code));
-  }
-
-  function addTomorrow(code: string) {
-    const clean = cleanCode(code);
-    if (!clean) return;
-    saveTomorrow([...tomorrowCodes, clean]);
-  }
-
-  function removeTomorrow(code: string) {
-    saveTomorrow(tomorrowCodes.filter((item) => item !== code));
-  }
-
-  async function loadStocks() {
+  async function loadStocks(codes = watchCodes, manual = false) {
     try {
-      setUpdating(true);
+      if (manual) setRefreshing(true);
+      if (stocks.length === 0) setLoading(true);
+
       setError("");
-      setLastAttemptAt(nowText());
+      setLastFailReason("");
 
-      const response = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
-
-      if (!response.ok) throw new Error(`API錯誤：${response.status}`);
-
-      const json: ApiResponse = await response.json();
-
-      const list = Array.isArray(json.rankedStocks)
-        ? json.rankedStocks
-        : Array.isArray(json.stocks)
-          ? json.stocks
-          : Array.isArray(json.data)
-            ? json.data
-            : [];
-
-      const dataTime =
-        json.updatedAtTaiwan ||
-        (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
-
-      const normalized = list
-        .map((raw) => normalizeStock(raw, dataTime))
-        .filter((stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
-        .sort((a, b) => b.changePercent - a.changePercent);
-
-      if (normalized.length === 0) throw new Error("API回傳空資料");
-
-      const oldPriceMap = { ...lastPriceMap };
-      const nextPriceMap: Record<string, number> = {};
-      const nextDirections: Record<string, PriceDirection> = {};
-
-      normalized.forEach((stock) => {
-        const oldPrice = oldPriceMap[stock.code];
-        nextPriceMap[stock.code] = stock.price;
-
-        if (oldPrice === undefined) nextDirections[stock.code] = "new";
-        else if (stock.price > oldPrice) nextDirections[stock.code] = "up";
-        else if (stock.price < oldPrice) nextDirections[stock.code] = "down";
-        else nextDirections[stock.code] = "same";
-      });
-
-      const successTime = nowText();
-      const dataSource = json.source || "TWSE MIS + Yahoo fallback";
-
-      setStocks(normalized);
-      setPreviousPriceMap(oldPriceMap);
-      setLastPriceMap(nextPriceMap);
-      setPriceDirections(nextDirections);
-      setLastSuccessAt(successTime);
-      setApiDataTime(dataTime);
-      setSource(dataSource);
-      setUsingCache(false);
-
-      localStorage.setItem(
-        LAST_SUCCESS_KEY,
-        JSON.stringify({
-          stocks: normalized,
-          lastSuccessAt: successTime,
-          apiDataTime: dataTime,
-          source: dataSource,
-        })
+      const watchParam = codes.join(",");
+      const res = await fetch(
+        "/api/stocks?watch=" + encodeURIComponent(watchParam) + "&t=" + Date.now(),
+        { cache: "no-store" }
       );
+
+      if (!res.ok) throw new Error("台股 API 連線失敗");
+
+      const data = await res.json();
+
+      const rankedRaw = Array.isArray(data)
+        ? data
+        : Array.isArray(data.rankedStocks)
+          ? data.rankedStocks
+          : [];
+
+      const watchRaw = Array.isArray(data.watchList) ? data.watchList : [];
+
+      const rankedList: Stock[] = rankedRaw
+        .map(normalizeStock)
+        .filter((stock: Stock) => stock.code && stock.name && stock.price > 0)
+        .sort((a: Stock, b: Stock) => b.changePercent - a.changePercent)
+        .slice(0, 50);
+
+      const watchList: Stock[] = watchRaw
+        .map(normalizeStock)
+        .filter((stock: Stock) => stock.code && stock.name && stock.price > 0);
+
+      if (rankedList.length === 0) {
+        throw new Error("API 有回應，但沒有取得有效股票資料");
+      }
+
+      setStocks(rankedList);
+      setWatchListStocks(watchList);
+      setLastSuccessAt(formatTime(new Date()));
+      setApiUpdatedAtTaiwan(data.updatedAtTaiwan || "");
+      setDataSource(data.source || "");
+      setNextRefresh(60);
     } catch (err: any) {
-      setUsingCache(true);
-      setError(err?.message || "資料更新失敗，已保留上次成功資料");
+      const message = err?.message || "資料載入失敗";
+      setError(message);
+      setLastFailAt(formatTime(new Date()));
+      setLastFailReason(message);
     } finally {
       setLoading(false);
-      setUpdating(false);
-      setAutoSeconds(settings.refreshSeconds);
+      setRefreshing(false);
     }
   }
 
+  function saveWatchCodes(codes: string[]) {
+    const cleanCodes = Array.from(
+      new Set(
+        codes
+          .map((code) => String(code).trim().replace(/\D/g, "").slice(0, 4))
+          .filter((code) => /^\d{4}$/.test(code))
+      )
+    );
+
+    setWatchCodes(cleanCodes);
+    localStorage.setItem("watchCodes", JSON.stringify(cleanCodes));
+    loadStocks(cleanCodes, true);
+  }
+
+  function addWatchCode() {
+    const code = newWatchCode.trim().replace(/\D/g, "").slice(0, 4);
+
+    if (!/^\d{4}$/.test(code)) {
+      setWatchMessage("請輸入 4 碼股票代號");
+      return;
+    }
+
+    if (watchCodes.includes(code)) {
+      setWatchMessage(`${code} 已經在自選股`);
+      setNewWatchCode("");
+      return;
+    }
+
+    saveWatchCodes([...watchCodes, code]);
+    setNewWatchCode("");
+    setWatchMessage(`${code} 已加入自選`);
+    setTab("watch");
+  }
+
+  function removeWatchCode(code: string) {
+    saveWatchCodes(watchCodes.filter((item) => item !== code));
+    setWatchMessage(`${code} 已從自選刪除`);
+  }
+
+  function toggleSelectedStockWatch(stock: Stock) {
+    if (watchCodes.includes(stock.code)) {
+      removeWatchCode(stock.code);
+    } else {
+      saveWatchCodes([...watchCodes, stock.code]);
+      setWatchMessage(`${stock.code} 已加入自選`);
+    }
+  }
+
+  function applyOpenMode() {
+    setMode("open");
+    setTab("alert");
+    setFilterKey("alert");
+    setSortKey("score");
+    setSearchText("");
+  }
+
+  function applyNineTenMode() {
+    setMode("open");
+    setTab("top50");
+    setFilterKey("breakout");
+    setSortKey("score");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
+  function applyStrong910Mode() {
+    setMode("strong910");
+    setTab("observe");
+    setFilterKey("mainContinue");
+    setSortKey("openPremium");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
+  function applyTomorrowMode() {
+    setMode("tomorrow");
+    setTab("tomorrow");
+    setFilterKey("tomorrowWatch");
+    setSortKey("score");
+    setSearchText("");
+    setShowAdvanced(true);
+  }
+
+  function applyNormalMode() {
+    setMode("normal");
+    setTab("top50");
+    setFilterKey("all");
+    setSortKey("change");
+    setSearchText("");
+  }
+
   useEffect(() => {
-    loadStocks();
+    const savedCodes = loadSavedWatchCodes();
+    setWatchCodes(savedCodes);
+    loadStocks(savedCodes);
   }, []);
 
   useEffect(() => {
-    if (settings.refreshSeconds <= 0 || settings.dataSaver) return;
-
-    const timer = window.setInterval(() => {
-      setAutoSeconds((sec) => {
-        if (sec <= 1) {
-          loadStocks();
-          return settings.refreshSeconds;
+    const timer = setInterval(() => {
+      setNextRefresh((prev) => {
+        if (prev <= 1) {
+          loadStocks(watchCodes);
+          return 60;
         }
-        return sec - 1;
+
+        return prev - 1;
       });
     }, 1000);
 
-    return () => window.clearInterval(timer);
-  }, [settings.refreshSeconds, settings.dataSaver, lastPriceMap]);
+    return () => clearInterval(timer);
+  }, [watchCodes]);
 
-  const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
-
-  const baseIndustries = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections),
-    [top50, settings, priceDirections]
-  );
-
-  const mainIndustries = useMemo(
-    () => baseIndustries.slice(0, 3).map((item) => item.industry),
-    [baseIndustries]
-  );
-
-  const industries = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections, mainIndustries),
-    [top50, settings, priceDirections, mainIndustries]
-  );
-
-  const hotList = useMemo(() => top50.filter((stock) => isHot(stock, settings)), [top50, settings]);
-
-  const mainStrongList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isRealtimeStrong(stock, mainIndustries, settings, priceDirections))
-        .sort((a, b) => instantScore(b, mainIndustries, settings, priceDirections) - instantScore(a, mainIndustries, settings, priceDirections)),
-    [top50, mainIndustries, settings, priceDirections]
-  );
-
-  const mainWeakList = useMemo(
-    () =>
-      top50
-        .filter((stock) => mainIndustries.includes(stock.industry))
-        .filter((stock) => isRealtimeWeak(stock, settings, priceDirections)),
-    [top50, mainIndustries, settings, priceDirections]
-  );
-
-  const nonMainStrongList = useMemo(
-    () =>
-      top50
-        .filter((stock) => !mainIndustries.includes(stock.industry))
-        .filter((stock) => stock.changePercent >= settings.alertPercent)
-        .filter((stock) => priceDirections[stock.code] === "up" || isBreakout(stock))
-        .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => b.changePercent - a.changePercent),
-    [top50, mainIndustries, settings, priceDirections]
-  );
-
-  const mainPullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => mainIndustries.includes(stock.industry))
-        .filter((stock) => isPullback(stock, settings))
-        .filter((stock) => stock.price >= stock.previousClose)
-        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b)),
-    [top50, mainIndustries, settings]
-  );
-
-  const lowMainList = useMemo(
-    () =>
-      top50
-        .filter((stock) => mainIndustries.includes(stock.industry))
-        .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
-        .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
-    [top50, mainIndustries, settings]
-  );
-
-  const highScoreList = useMemo(
-    () =>
-      top50
-        .filter((stock) => scoreStock(stock, mainIndustries, settings) >= 70)
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
-    [top50, mainIndustries, settings]
-  );
-
-  const hotRadarList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isHot(stock, settings))
-        .sort((a, b) => b.changePercent - a.changePercent),
-    [top50, settings]
-  );
-
-  const breakoutList = useMemo(
-    () =>
-      top50
-        .filter(isBreakout)
-        .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings)),
-    [top50, mainIndustries, settings]
-  );
-
-  const pullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isPullback(stock, settings))
-        .sort((a, b) => pullbackDistance(a) - pullbackDistance(b)),
-    [top50, settings]
-  );
-
-  const alertList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isAlert(stock, settings))
-        .filter((stock) => !isWeak(stock, settings))
-        .filter((stock) => !isHot(stock, settings)),
-    [top50, settings]
-  );
-
-  const avoidList = useMemo(
-    () =>
-      top50.filter((stock) => {
-        if (isHot(stock, settings)) return true;
-        if (isWeak(stock, settings)) return true;
-        if (!mainIndustries.includes(stock.industry)) return true;
-        if (stock.price > settings.maxPrice) return true;
-        return false;
-      }),
-    [top50, mainIndustries, settings]
-  );
-
-  const tomorrowAutoList = useMemo(() => {
-    let list = top50
-      .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
-      .filter((stock) => !isHot(stock, settings))
-      .filter((stock) => !isWeak(stock, settings));
-
-    if (settings.mainMode === "保守") {
-      list = list.filter((stock) => mainIndustries.includes(stock.industry));
-    }
-
-    if (settings.mainMode === "標準") {
-      list = list.filter((stock) => mainIndustries.includes(stock.industry) || isBreakout(stock));
-    }
-
-    return list
-      .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
-      .slice(0, 20);
-  }, [top50, mainIndustries, settings]);
-
-  const favoriteStocks = useMemo(
-    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [favoriteCodes, stocks]
-  );
-
-  const tomorrowStocksManual = useMemo(
-    () => tomorrowCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [tomorrowCodes, stocks]
-  );
-
-  const tomorrowCombined = useMemo(() => {
-    const map = new Map<string, Stock>();
-    [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
-    return Array.from(map.values());
-  }, [tomorrowStocksManual, tomorrowAutoList]);
-
-  const tomorrowMainStrong = useMemo(
-    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "主流轉強"),
-    [tomorrowCombined, mainIndustries, settings, priceDirections]
-  );
-
-  const tomorrowMainPullback = useMemo(
-    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "主流回測"),
-    [tomorrowCombined, mainIndustries, settings, priceDirections]
-  );
-
-  const tomorrowNonMainStrong = useMemo(
-    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "非主流強漲觀察"),
-    [tomorrowCombined, mainIndustries, settings, priceDirections]
-  );
-
-  const tomorrowHot = useMemo(
-    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "過熱不追"),
-    [tomorrowCombined, mainIndustries, settings, priceDirections]
-  );
-
-  const tomorrowWeakRemove = useMemo(
-    () => tomorrowCombined.filter((stock) => tomorrowDecision(stock, mainIndustries, settings, priceDirections) === "轉弱移除"),
-    [tomorrowCombined, mainIndustries, settings, priceDirections]
-  );
-
-  const fundFlowText = useMemo(() => {
-    const mainCount = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
-    const ratio = top50.length ? mainCount / top50.length : 0;
-
-    if (ratio >= 0.45) return "資金集中";
-    if (ratio >= 0.3) return "資金偏集中";
-    return "資金擴散";
-  }, [top50, mainIndustries]);
-
-  const marketScore = useMemo(() => {
-    const mainCount = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
-    const mainRatio = top50.length ? (mainCount / top50.length) * 100 : 0;
-
-    let score = 40;
-    score += Math.min(25, mainRatio * 0.5);
-    score += Math.min(20, mainStrongList.length * 4);
-    score += Math.min(15, breakoutList.length);
-    score -= Math.min(25, hotList.length * 1.5);
-    score -= Math.min(25, mainWeakList.length * 3);
-
-    return Math.max(0, Math.min(100, Math.round(score)));
-  }, [top50, mainIndustries, mainStrongList, breakoutList, hotList, mainWeakList]);
-
-  const todayMode = useMemo(() => {
-    if (hotList.length >= 15) return { label: "不追高", tone: "text-red-300" };
-    if (mainWeakList.length >= 8) return { label: "保守觀察", tone: "text-yellow-300" };
-    if (mainPullbackList.length >= 5) return { label: "等回測", tone: "text-yellow-300" };
-    if (mainStrongList.length >= 5 && marketScore >= 70) return { label: "積極觀察", tone: "text-red-300" };
-    return { label: "保守觀察", tone: "text-cyan-300" };
-  }, [hotList, mainWeakList, mainPullbackList, mainStrongList, marketScore]);
-
-  const dataStatus = useMemo(() => {
-    if (updating) return "更新中";
-    if (error) return "API錯誤";
-    if (usingCache) return "使用快取";
-    if (lastSuccessAt) return "即時正常";
-    return "讀取中";
-  }, [updating, error, usingCache, lastSuccessAt]);
-
-  const selectedStock = useMemo(
-    () => stocks.find((stock) => stock.code === selectedCode) || null,
-    [stocks, selectedCode]
-  );
-
-  const selectedRank = useMemo(() => {
-    if (!selectedStock) return null;
-    const index = top50.findIndex((stock) => stock.code === selectedStock.code);
-    return index >= 0 ? index + 1 : null;
-  }, [selectedStock, top50]);
-
-  const sameIndustryStocks = useMemo(() => {
-    if (!selectedStock) return [];
-    return top50
-      .filter((stock) => stock.industry === selectedStock.industry)
-      .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings));
-  }, [selectedStock, top50, mainIndustries, settings]);
-
-  const selectedIndustryRank = useMemo(() => {
-    if (!selectedStock) return null;
-    const index = sameIndustryStocks.findIndex((stock) => stock.code === selectedStock.code);
-    return index >= 0 ? index + 1 : null;
-  }, [selectedStock, sameIndustryStocks]);
-
-  function filterTopList(list: Stock[]) {
-    if (tab !== "top50") return list;
-
-    if (settings.topFilter === "即時轉強") {
-      return list.filter((stock) => isRealtimeStrong(stock, mainIndustries, settings, priceDirections));
-    }
-
-    if (settings.topFilter === "即時轉弱") {
-      return list.filter((stock) => isRealtimeWeak(stock, settings, priceDirections));
-    }
-
-    if (settings.topFilter === "非主流強漲") {
-      return list.filter((stock) => !mainIndustries.includes(stock.industry) && stock.changePercent >= settings.alertPercent);
-    }
-
-    if (settings.topFilter === "主流") {
-      return list.filter((stock) => mainIndustries.includes(stock.industry));
-    }
-
-    if (settings.topFilter === "低價") {
-      return list.filter((stock) => stock.price <= settings.maxPrice);
-    }
-
-    if (settings.topFilter === "未過熱") {
-      return list.filter((stock) => !isHot(stock, settings));
-    }
-
-    return list;
-  }
-
-  function sortList(list: Stock[]) {
-    let arr = filterTopList([...list]);
-
-    const keyword = searchText.trim();
-    if (keyword) {
-      arr = arr.filter((stock) => stock.code.includes(keyword) || stock.name.includes(keyword));
-    }
-
-    if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
-    if (sortKey === "price") return arr.sort((a, b) => a.price - b.price);
-    if (sortKey === "instant") {
-      return arr.sort((a, b) => instantScore(b, mainIndustries, settings, priceDirections) - instantScore(a, mainIndustries, settings, priceDirections));
-    }
-
-    return arr.sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings));
-  }
-
-  const currentList = useMemo(() => {
-    if (tab === "top50") return sortList(top50);
-    if (tab === "favorite") return sortList(favoriteStocks);
-
-    if (tab === "more") {
-      if (moreView === "industry") return [];
-      if (moreView === "mainStrong") return sortList(mainStrongList);
-      if (moreView === "mainWeak") return sortList(mainWeakList);
-      if (moreView === "mainPullback") return sortList(mainPullbackList);
-      if (moreView === "lowMain") return sortList(lowMainList);
-      if (moreView === "highScore") return sortList(highScoreList);
-      if (moreView === "hotRadar") return sortList(hotRadarList);
-      if (moreView === "nonMainStrong") return sortList(nonMainStrongList);
-      if (moreView === "breakout") return sortList(breakoutList);
-      if (moreView === "pullback") return sortList(pullbackList);
-      if (moreView === "alert") return sortList(alertList);
-      if (moreView === "avoid") return sortList(avoidList);
-    }
-
-    return [];
-  }, [
-    tab,
-    moreView,
-    top50,
-    favoriteStocks,
-    mainStrongList,
-    mainWeakList,
-    mainPullbackList,
-    lowMainList,
-    highScoreList,
-    hotRadarList,
-    nonMainStrongList,
-    breakoutList,
-    pullbackList,
-    alertList,
-    avoidList,
-    searchText,
-    sortKey,
-    mainIndustries,
-    settings,
-    priceDirections,
-  ]);
-
-  function goMore(view: MoreView) {
-    setSelectedCode("");
-    setTab("more");
-    setMoreView(view);
-  }
-
-  function openLink(url: string) {
-    window.open(url, "_blank", "noopener,noreferrer");
-  }
-
-  function removeWeakTomorrow() {
-    const removeSet = new Set(tomorrowWeakRemove.map((stock) => stock.code));
-    saveTomorrow(tomorrowCodes.filter((code) => !removeSet.has(code)));
-  }
-
-  function keepOnlyMainTomorrow() {
-    const keep = tomorrowCombined
-      .filter((stock) => mainIndustries.includes(stock.industry))
-      .filter((stock) => !isHot(stock, settings))
-      .filter((stock) => stock.price <= settings.maxPrice)
-      .map((stock) => stock.code);
-
-    saveTomorrow(keep);
-  }
-
-  function clearTomorrow() {
-    saveTomorrow([]);
-  }
-
-  const cardProps = {
-    mainIndustries,
-    settings,
-    favoriteCodes,
-    tomorrowCodes,
-    priceDirections,
-    previousPriceMap,
+  const marketStatus = getMarketStatus();
+  const dataCheck = getDataCheckStatus(stocks, watchListStocks, lastSuccessAt);
+  const syncStatus = getSyncStatus(
     lastSuccessAt,
-    onOpen: (code: string) => setSelectedCode(code),
-    onAddFavorite: addFavorite,
-    onRemoveFavorite: removeFavorite,
-    onAddTomorrow: addTomorrow,
-    onRemoveTomorrow: removeTomorrow,
-  };
+    apiUpdatedAtTaiwan,
+    dataSource,
+    lastFailReason
+  );
+
+  const sortedStocks = useMemo(() => sortStocks(stocks, sortKey), [stocks, sortKey]);
+  const sortedWatchListStocks = useMemo(() => sortStocks(watchListStocks, sortKey), [watchListStocks, sortKey]);
+  const industryGroups = useMemo(() => buildIndustryGroups(sortedStocks, sortKey), [sortedStocks, sortKey]);
+  const mainIndustryGroups = useMemo(() => industryGroups.filter((group) => group.industry !== "其他"), [industryGroups]);
+  const topIndustries = mainIndustryGroups.slice(0, 5);
+  const topIndustryNames = topIndustries.map((group) => group.industry);
+
+  const marketPower = getMarketPower(stocks, mainIndustryGroups);
+  const strongCount = stocks.filter((stock) => stock.changePercent >= 5).length;
+  const alertCount = stocks.filter(isAlertStock).length;
+  const safeCount = stocks.filter(isSafeWatch).length;
+
+  const observeStocks = useMemo(() => buildObserveStocks(stocks, topIndustryNames), [stocks, topIndustryNames]);
+
+  const tomorrowWatchStocks = useMemo(() => {
+    const map = new Map<string, Stock>();
+
+    stocks.forEach((stock) => {
+      if (isTomorrowWatchStock(stock, topIndustryNames)) {
+        map.set(stock.code, stock);
+      }
+    });
+
+    watchListStocks.forEach((stock) => {
+      const openPremium = stock.openPremiumPercent ?? 0;
+      const score = stockScore(stock);
+      const isUsable =
+        stock.changePercent >= 0 &&
+        stock.changePercent < 7 &&
+        score < 90 &&
+        openPremium < 5;
+
+      if (isUsable) map.set(stock.code, stock);
+    });
+
+    return sortStocks(Array.from(map.values()), "score");
+  }, [stocks, watchListStocks, topIndustryNames]);
+
+  const mainContinueStocks = useMemo(() => {
+    return sortStocks(stocks.filter((stock) => isMainContinue(stock, topIndustryNames)), "openPremium");
+  }, [stocks, topIndustryNames]);
+
+  const lowVolumeStrongStocks = useMemo(() => {
+    return sortStocks(stocks.filter(isLowVolumeStrongStock), "score");
+  }, [stocks]);
+
+  const chipActiveStocks = useMemo(() => {
+    return sortStocks(stocks.filter(isChipActive), "score");
+  }, [stocks]);
+
+  const safeWatchStocks = useMemo(() => {
+    return sortStocks(stocks.filter(isSafeWatch), "score");
+  }, [stocks]);
+
+  const watchAlertStocks = useMemo(() => {
+    return sortStocks(watchListStocks.filter(isWatchAlertStock), "score");
+  }, [watchListStocks]);
+
+  const alertStocks = sortStocks(stocks.filter(isAlertStock), sortKey);
+  const breakoutStocks = sortStocks(stocks.filter((stock) => stock.changePercent >= 5), sortKey);
+
+  const tabStocks = useMemo(() => {
+    if (tab === "top50") return sortedStocks;
+    if (tab === "watch") return sortedWatchListStocks;
+    if (tab === "observe") return sortStocks(observeStocks, sortKey);
+    if (tab === "tomorrow") return tomorrowWatchStocks;
+    if (tab === "breakout") return breakoutStocks;
+    if (tab === "alert") return alertStocks;
+    return sortedStocks;
+  }, [tab, sortedStocks, sortedWatchListStocks, observeStocks, tomorrowWatchStocks, breakoutStocks, alertStocks, sortKey]);
+
+  const filteredTabStocks = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+    const filtered = filterByQuick(tabStocks, filterKey, topIndustryNames);
+
+    if (!keyword) return filtered;
+
+    return filtered.filter((stock) => {
+      return (
+        stock.code.toLowerCase().includes(keyword) ||
+        stock.name.toLowerCase().includes(keyword) ||
+        stock.industry.toLowerCase().includes(keyword)
+      );
+    });
+  }, [tabStocks, searchText, filterKey, topIndustryNames]);
+
+  const filteredIndustryGroups = useMemo(() => {
+    const keyword = searchText.trim().toLowerCase();
+
+    return mainIndustryGroups
+      .map((group) => {
+        const filteredStocks = filterByQuick(group.stocks, filterKey, topIndustryNames);
+        const matchIndustry = group.industry.toLowerCase().includes(keyword);
+
+        if (!keyword) {
+          return { ...group, stocks: filteredStocks, total: filteredStocks.length };
+        }
+
+        const searchedStocks = filteredStocks.filter((stock) => {
+          return (
+            stock.code.toLowerCase().includes(keyword) ||
+            stock.name.toLowerCase().includes(keyword) ||
+            stock.industry.toLowerCase().includes(keyword)
+          );
+        });
+
+        return {
+          ...group,
+          stocks: matchIndustry ? filteredStocks : searchedStocks,
+          total: matchIndustry ? filteredStocks.length : searchedStocks.length,
+        };
+      })
+      .filter((group) => group.stocks.length > 0);
+  }, [mainIndustryGroups, searchText, filterKey, topIndustryNames]);
+
+  const tabs: { key: TabKey; label: string; icon: string }[] = [
+    { key: "top50", label: "50強", icon: "📊" },
+    { key: "observe", label: "觀察", icon: "👁️" },
+    { key: "watch", label: "自選", icon: "☆" },
+    { key: "industry", label: "產業", icon: "▮" },
+    { key: "alert", label: "警報", icon: "🔔" },
+  ];
+
+  const sortButtons: { key: SortKey; label: string }[] = [
+    { key: "change", label: "漲幅" },
+    { key: "volume", label: "成交量" },
+    { key: "score", label: "強度" },
+    { key: "openPremium", label: "開盤溢價" },
+  ];
+
+  const filterButtons: { key: FilterKey; label: string }[] = [
+    { key: "all", label: "全部" },
+    { key: "strong", label: "強勢" },
+    { key: "breakout", label: "突破" },
+    { key: "alert", label: "警報" },
+    { key: "lowVolume", label: "低量" },
+    { key: "openStrong", label: "開盤強" },
+    { key: "highOpenContinue", label: "高開續強" },
+    { key: "mainContinue", label: "主流續強" },
+    { key: "chipActive", label: "籌碼活躍" },
+    { key: "safeWatch", label: "安全觀察" },
+    { key: "tomorrowWatch", label: "明日觀察" },
+  ];
 
   if (selectedStock) {
-    const links = kLinks(selectedStock.code, selectedStock.name);
-    const direction = priceDirections[selectedStock.code];
-    const isFavorite = favoriteCodes.includes(selectedStock.code);
-    const isTomorrow = tomorrowCodes.includes(selectedStock.code);
-    const prevPrice = previousPriceMap[selectedStock.code];
-    const diff = instantChange(selectedStock, previousPriceMap);
-    const diffPercent = instantPercent(selectedStock, previousPriceMap);
-    const decision = tomorrowDecision(selectedStock, mainIndustries, settings, priceDirections);
-    const suggestion =
-      decision === "轉弱移除" || decision === "過熱不追"
-        ? `建議移除：${removeReasons(selectedStock, mainIndustries, settings, priceDirections)}`
-        : `可觀察：${pickReasons(selectedStock, mainIndustries, settings, priceDirections)}`;
+    const sameIndustryStocks = sortStocks(
+      stocks.filter(
+        (stock) =>
+          stock.industry === selectedStock.industry &&
+          stock.code !== selectedStock.code
+      ),
+      sortKey
+    ).slice(0, 5);
 
     return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
-          <button onClick={() => setSelectedCode("")} className="mb-4 rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
-            ← 返回上一頁
-          </button>
-
-          <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-bold text-slate-400">
-                  {selectedStock.code}｜{selectedStock.industry}
-                </div>
-                <h1 className="mt-1 text-3xl font-black">{selectedStock.name}</h1>
-                <div className="mt-2 text-sm font-bold text-slate-300">
-                  50強排名：{selectedRank ? `第 ${selectedRank} 名` : "不在50強"}
-                </div>
-              </div>
-
-              <div className={`text-right text-3xl font-black ${selectedStock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-                {formatPercent(selectedStock.changePercent)}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl bg-black/30 p-4">
-              <div className="text-xs font-bold text-slate-500">即時判斷一句話</div>
-              <div className={`mt-1 text-xl font-black ${directionTone(direction)}`}>
-                {realtimeSentence(selectedStock, mainIndustries, settings, priceDirections)}
-              </div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                {prevPrice !== undefined
-                  ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${selectedStock.price.toFixed(2)}｜${diff > 0 ? "+" : ""}${diff.toFixed(2)}｜${formatPercent(diffPercent)}`
-                  : "尚無上一筆股價，等待下一次更新比對。"}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
-              <div className="text-xs font-bold text-yellow-300">明日觀察判斷</div>
-              <div className="mt-1 text-2xl font-black text-yellow-100">{decision}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">{suggestion}</div>
-            </div>
-
-            <div className="mt-4 grid grid-cols-2 gap-2">
-              <DetailRow label="主線分數" value={scoreStock(selectedStock, mainIndustries, settings)} />
-              <DetailRow label="即時強度分" value={instantScore(selectedStock, mainIndustries, settings, priceDirections)} />
-              <DetailRow label="同產業排名" value={selectedIndustryRank ? `${selectedStock.industry} 第 ${selectedIndustryRank}` : "--"} />
-              <DetailRow label="狀態" value={statusText(selectedStock, mainIndustries, settings, priceDirections)} />
-              <DetailRow label="目前股價" value={formatNumber(selectedStock.price)} />
-              <DetailRow label="股價方向" value={directionText(direction)} />
-              <DetailRow label="開盤價" value={formatNumber(selectedStock.openPrice)} />
-              <DetailRow label="昨收價" value={formatNumber(selectedStock.previousClose)} />
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
-            <h2 className="text-xl font-black">K線入口</h2>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button onClick={() => openLink(links.yahoo)} className="rounded-2xl bg-purple-500/20 py-3 text-sm font-black text-purple-200">Yahoo K線</button>
-              <button onClick={() => openLink(links.tradingView)} className="rounded-2xl bg-blue-500/20 py-3 text-sm font-black text-blue-200">TradingView</button>
-              <button onClick={() => openLink(links.goodinfo)} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">Goodinfo</button>
-              <button onClick={() => openLink(links.google)} className="rounded-2xl bg-slate-700 py-3 text-sm font-black text-slate-200">Google搜尋</button>
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">一鍵加入</h2>
-
-            {isTomorrow && (
-              <div className="mb-3 rounded-2xl bg-cyan-950/40 p-3 text-sm font-black text-cyan-100">
-                進入明日觀察原因：{pickReasons(selectedStock, mainIndustries, settings, priceDirections)}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => (isTomorrow ? removeTomorrow(selectedStock.code) : addTomorrow(selectedStock.code))}
-                className={`rounded-2xl py-3 text-sm font-black ${
-                  isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
-                }`}
-              >
-                {isTomorrow ? "📌 移除明日觀察" : "📌 加入明日觀察"}
-              </button>
-
-              <button
-                onClick={() => (isFavorite ? removeFavorite(selectedStock.code) : addFavorite(selectedStock.code))}
-                className={`rounded-2xl py-3 text-sm font-black ${
-                  isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
-                }`}
-              >
-                {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
-              </button>
-            </div>
-          </section>
-        </div>
-      </div>
+      <StockDetail
+        stock={selectedStock}
+        onBack={() => setSelectedStock(null)}
+        isWatch={watchCodes.includes(selectedStock.code)}
+        onToggleWatch={() => toggleSelectedStockWatch(selectedStock)}
+        sameIndustryStocks={sameIndustryStocks}
+        alertReasons={getAlertReasons(selectedStock, topIndustryNames)}
+        onSelectStock={setSelectedStock}
+        strongIndustryNames={topIndustryNames}
+      />
     );
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
-        <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
-          <div className="flex items-start justify-between gap-4">
+    <div className="min-h-screen bg-black pb-24 text-white">
+      <div
+        className="mx-auto max-w-md px-3 pb-4"
+        style={{ paddingTop: "calc(env(safe-area-inset-top) + 16px)" }}
+      >
+        <div className={`mb-3 rounded-2xl border p-3 ${marketStatus.color}`}>
+          <div className="text-sm font-black">{marketStatus.title}</div>
+          <div className="mt-1 text-xs font-bold">{marketStatus.text}</div>
+        </div>
+
+        <StatusBox
+          title={syncStatus.title}
+          text={syncStatus.text}
+          color={syncStatus.color}
+        />
+
+        <MarketPowerBox
+          marketPower={marketPower}
+          strongCount={strongCount}
+          alertCount={alertCount}
+          safeCount={safeCount}
+        />
+
+        <AlertCenter
+          watchAlertStocks={watchAlertStocks}
+          tomorrowWatchStocks={tomorrowWatchStocks}
+          chipActiveStocks={chipActiveStocks}
+          mainContinueStocks={mainContinueStocks}
+          lowVolumeStrongStocks={lowVolumeStrongStocks}
+          safeWatchStocks={safeWatchStocks}
+          onSelectStock={setSelectedStock}
+          onOpenTomorrow={applyTomorrowMode}
+        />
+
+        <header className="mb-3">
+          <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股即時主線進階判斷版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">即時主線雷達</h1>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                即時股價 → 主流產業 → 轉強 / 轉弱 → 明日觀察。
-              </p>
+              <h1 className="text-xl font-black tracking-wide">台股即時雷達</h1>
+
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                最後成功更新：{lastSuccessAt || "尚未成功"}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                API資料時間：{apiUpdatedAtTaiwan || "尚未取得"}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                資料來源：{dataSource || "尚未取得"}
+              </div>
+
+              <div className="mt-1 text-xs font-bold text-slate-500">
+                自動更新倒數：{nextRefresh}s
+              </div>
             </div>
 
-            <button onClick={loadStocks} className="shrink-0 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white shadow-lg active:scale-95">
-              {updating ? "更新中" : "立即"}<br />更新
+            <button
+              onClick={() => loadStocks(watchCodes, true)}
+              disabled={refreshing}
+              className={
+                refreshing
+                  ? "rounded-xl bg-slate-700 px-4 py-3 text-sm font-black text-slate-300"
+                  : "rounded-xl bg-red-500 px-4 py-3 text-sm font-black text-white"
+              }
+            >
+              {refreshing ? "更新中" : "立即更新"}
             </button>
           </div>
         </header>
 
-        <section className="mt-4 rounded-3xl border border-blue-500/40 bg-blue-950/20 p-4">
-          <div className="flex items-center justify-between gap-3">
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <button
+            onClick={applyTomorrowMode}
+            className={
+              mode === "tomorrow"
+                ? "rounded-xl bg-indigo-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-indigo-950 px-3 py-2 text-sm font-black text-indigo-100"
+            }
+          >
+            📌 明日觀察
+          </button>
+
+          <button
+            onClick={applyNormalMode}
+            className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-black text-slate-300"
+          >
+            回到盤中模式
+          </button>
+        </div>
+
+        <div
+          className={
+            dataCheck.isGood
+              ? "mb-3 rounded-2xl border border-green-900 bg-green-950/40 p-3 text-green-100"
+              : "mb-3 rounded-2xl border border-yellow-900 bg-yellow-950/50 p-3 text-yellow-100"
+          }
+        >
+          <div className="flex items-center justify-between">
             <div>
-              <div className="text-lg font-black">即時股價狀態：{dataStatus}</div>
-              <div className="mt-1 text-xs font-bold text-slate-400">
-                最後成功：{lastSuccessAt || "尚未成功"}｜下一次：
-                {settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
-              </div>
+              <div className="text-sm font-black">{dataCheck.title}</div>
+              <div className="mt-1 text-xs font-bold">{dataCheck.text}</div>
             </div>
 
-            <button onClick={() => goMore("data")} className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200">
-              健康檢查
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="今日主線分數" value={marketScore} sub={`${todayMode.label}｜${fundFlowText}`} tone={todayMode.tone} onClick={() => setTab("home")} />
-          <MiniCard title="今日適合模式" value={todayMode.label} sub="依主流/過熱/轉弱判斷" tone={todayMode.tone} onClick={() => setTab("home")} />
-          <MiniCard title="主流轉強" value={mainStrongList.length} sub="股價上升 + 站上開盤" tone="text-red-300" onClick={() => goMore("mainStrong")} />
-          <MiniCard title="主流轉弱" value={mainWeakList.length} sub="下跌 / 跌破開盤 / 跌破昨收" tone="text-emerald-300" onClick={() => goMore("mainWeak")} />
-        </section>
-
-        <section className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-          <h2 className="text-xl font-black">最強主流產業排行</h2>
-
-          <div className="mt-3 space-y-3">
-            {industries.slice(0, 3).map((item, index) => (
-              <button
-                key={item.industry}
-                onClick={() => goMore("industry")}
-                className="w-full rounded-2xl bg-black/30 p-3 text-left"
-              >
-                <div className="flex justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-slate-500">#{index + 1}</div>
-                    <div className="text-xl font-black text-white">{item.industry}</div>
-                    <div className="mt-1 text-xs font-bold text-cyan-200">
-                      即時轉強 {item.realtimeStrongCount}｜突破 {item.breakoutCount}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-lg font-black text-yellow-300">強度 {item.score.toFixed(0)}</div>
-                    <div className="text-xs font-black text-slate-400">平均 {formatPercent(item.avg)}</div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </section>
-
-        {mainWeakList.length >= 6 && (
-          <section className="mt-4 rounded-3xl border border-red-500/40 bg-red-950/30 p-5">
-            <h2 className="text-xl font-black text-red-200">主流轉弱提醒</h2>
-            <div className="mt-2 text-sm font-bold text-red-100">
-              主流產業內轉弱股增加，先不要追高，等回測或重新站回開盤。
+            <div className="text-right text-xs font-black">
+              {dataCheck.okCount}/5
             </div>
-          </section>
-        )}
-
-        {hotList.length >= 10 && (
-          <section className="mt-4 rounded-3xl border border-red-500/40 bg-red-950/30 p-5">
-            <h2 className="text-xl font-black text-red-200">今日不追高提醒</h2>
-            <div className="mt-2 text-sm font-bold text-red-100">
-              過熱股偏多，明天開高不要追，優先等回測開盤價。
-            </div>
-          </section>
-        )}
-
-        <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="50強" sub="分數 / 即時 / 漲幅 / 低價" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
-          <ActionCard title="明日觀察" sub={`轉強 ${tomorrowMainStrong.length}｜移除 ${tomorrowWeakRemove.length}`} badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
-          <ActionCard title="主流回測雷達" sub="主流 + 接近開盤 + 未跌昨收" badge={mainPullbackList.length} tone="text-lime-300" onClick={() => goMore("mainPullback")} />
-          <ActionCard title="低價主流雷達" sub={`${settings.maxPrice}內 + 主流 + 未過熱`} badge={lowMainList.length} tone="text-cyan-300" onClick={() => goMore("lowMain")} />
-          <ActionCard title="高分觀察雷達" sub="主線分數70以上" badge={highScoreList.length} tone="text-yellow-300" onClick={() => goMore("highScore")} />
-          <ActionCard title="過熱警示雷達" sub="漲幅過大 / 溢價過高" badge={hotRadarList.length} tone="text-red-300" onClick={() => goMore("hotRadar")} />
-        </section>
-
-        <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">點股票卡片可看即時判斷。</p>
-            </div>
-
-            <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
-              篩選
-            </button>
           </div>
 
-          <input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜尋股票代號或名稱，例如 2330"
-            className="mt-3 w-full rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-          />
-
-          {showFilters && (
-            <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  ["score", "主線"],
-                  ["instant", "即時"],
-                  ["change", "漲幅"],
-                  ["price", "低價"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setSortKey(key as SortKey)}
-                    className={`rounded-2xl py-3 text-xs font-black ${
-                      sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {tab === "top50" && (
-                <div className="grid grid-cols-3 gap-2">
-                  {(["全部", "即時轉強", "即時轉弱", "非主流強漲", "主流", "低價", "未過熱"] as TopFilter[]).map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => saveSettings({ ...settings, topFilter: filter })}
-                      className={`rounded-2xl py-3 text-xs font-black ${
-                        settings.topFilter === filter ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
-                </div>
-              )}
+          {lastFailReason && (
+            <div className="mt-2 rounded-xl bg-black/30 px-3 py-2 text-xs font-bold">
+              最近一次更新失敗：{lastFailAt}｜{lastFailReason}
             </div>
           )}
-        </section>
+        </div>
 
-        {tab === "more" && (
-          <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">更多功能</h2>
+        <div className="mb-3 grid grid-cols-3 gap-2">
+          <button
+            onClick={applyOpenMode}
+            className={
+              mode === "open" && tab === "alert"
+                ? "rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            開盤模式
+          </button>
 
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="主流轉強" sub="主流 + 上升 + 未過熱" badge={mainStrongList.length} tone="text-red-300" onClick={() => setMoreView("mainStrong")} />
-              <ActionCard title="主流轉弱" sub="下跌 / 跌破關鍵價" badge={mainWeakList.length} tone="text-emerald-300" onClick={() => setMoreView("mainWeak")} />
-              <ActionCard title="主流回測" sub="接近開盤價" badge={mainPullbackList.length} tone="text-lime-300" onClick={() => setMoreView("mainPullback")} />
-              <ActionCard title="低價主流" sub={`${settings.maxPrice}內`} badge={lowMainList.length} tone="text-cyan-300" onClick={() => setMoreView("lowMain")} />
-              <ActionCard title="高分觀察" sub="70分以上" badge={highScoreList.length} tone="text-yellow-300" onClick={() => setMoreView("highScore")} />
-              <ActionCard title="過熱警示" sub="獨立警示" badge={hotRadarList.length} tone="text-red-300" onClick={() => setMoreView("hotRadar")} />
-              <ActionCard title="非主流強漲" sub="可能新題材" badge={nonMainStrongList.length} tone="text-yellow-300" onClick={() => setMoreView("nonMainStrong")} />
-              <ActionCard title="產業熱度" sub="集中 / 擴散判斷" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="自訂股價 / 轉弱條件" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
-              <ActionCard title="資料健康" sub="API / 快取 / 筆數" badge={dataStatus} tone="text-blue-300" onClick={() => setMoreView("data")} />
-            </div>
-          </section>
-        )}
+          <button
+            onClick={applyNineTenMode}
+            className={
+              mode === "open" && tab === "top50" && filterKey === "breakout"
+                ? "rounded-xl bg-orange-500 px-3 py-2 text-sm font-black text-white"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            9:10快篩
+          </button>
 
-        <section className="mt-4">
-          <div className="mb-3">
-            <h2 className="text-2xl font-black">
-              {tab === "home" && "今日重點"}
-              {tab === "top50" && "📊 今日50強"}
-              {tab === "tomorrow" && "📌 明日觀察"}
-              {tab === "favorite" && "⭐ 自選股"}
-              {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
-              {tab === "more" && moreView === "mainStrong" && "📈 主流轉強雷達"}
-              {tab === "more" && moreView === "mainWeak" && "📉 主流轉弱雷達"}
-              {tab === "more" && moreView === "mainPullback" && "↩️ 主流回測雷達"}
-              {tab === "more" && moreView === "lowMain" && "💰 低價主流雷達"}
-              {tab === "more" && moreView === "highScore" && "⭐ 高分觀察雷達"}
-              {tab === "more" && moreView === "hotRadar" && "🔥 過熱警示雷達"}
-              {tab === "more" && moreView === "nonMainStrong" && "⚡ 非主流強漲"}
-              {tab === "more" && moreView === "breakout" && "🚀 突破股"}
-              {tab === "more" && moreView === "pullback" && "↩️ 回測觀察"}
-              {tab === "more" && moreView === "alert" && "🚨 警報股"}
-              {tab === "more" && moreView === "avoid" && "🚫 不要碰"}
-              {tab === "more" && moreView === "settings" && "⚙️ 設定"}
-              {tab === "more" && moreView === "data" && "📡 資料健康檢查"}
-            </h2>
+          <button
+            onClick={applyStrong910Mode}
+            className={
+              mode === "strong910"
+                ? "rounded-xl bg-green-500 px-3 py-2 text-sm font-black text-black"
+                : "rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+            }
+          >
+            9:10最強
+          </button>
+        </div>
 
-            <p className="mt-1 text-sm font-bold text-slate-500">
-              資金狀態：{fundFlowText}｜主流：{mainIndustries.slice(0, 3).join("、") || "--"}
-            </p>
-          </div>
+        {tab === "watch" && (
+          <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+            <div className="mb-2 text-sm font-black text-white">自選股管理</div>
 
-          {tab === "home" && (
-            <div className="space-y-4">
-              <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">主流轉強前5檔</h3>
-                <div className="mt-3 space-y-3">
-                  {mainStrongList.slice(0, 5).length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯主流轉強股。
-                    </div>
-                  )}
-                  {mainStrongList.slice(0, 5).map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">主流轉弱提醒</h3>
-                <div className="mt-3 space-y-3">
-                  {mainWeakList.slice(0, 5).length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯主流轉弱股。
-                    </div>
-                  )}
-                  {mainWeakList.slice(0, 5).map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} showReason {...cardProps} />
-                  ))}
-                </div>
-              </section>
-            </div>
-          )}
-
-          {tab === "tomorrow" && (
-            <div className="space-y-5">
-              <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">明日優先順序</h3>
-                <div className="mt-2 text-sm font-bold text-cyan-100">
-                  1主流轉強 → 2主流回測 → 3非主流強漲觀察 → 4過熱不追 → 5轉弱移除
-                </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2">
-                  <button onClick={removeWeakTomorrow} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-                    一鍵移除轉弱
-                  </button>
-                  <button onClick={keepOnlyMainTomorrow} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-                    一鍵保留主流
-                  </button>
-                  <button onClick={clearTomorrow} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
-                    一鍵清空
-                  </button>
-                </div>
-              </section>
-
-              {[
-                ["1 主流轉強", tomorrowMainStrong],
-                ["2 主流回測", tomorrowMainPullback],
-                ["3 非主流強漲觀察", tomorrowNonMainStrong],
-                ["4 過熱不追", tomorrowHot],
-                ["5 轉弱移除", tomorrowWeakRemove],
-              ].map(([title, list]: any) => (
-                <section key={title}>
-                  <h3 className="mb-2 text-xl font-black">{title}</h3>
-                  <div className="space-y-3">
-                    {list.length === 0 && (
-                      <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">
-                        目前沒有股票
-                      </div>
-                    )}
-                    {list.map((stock: Stock, index: number) => (
-                      <StockCard key={`${title}-${stock.code}`} stock={stock} rank={index + 1} showReason {...cardProps} />
-                    ))}
-                  </div>
-                </section>
-              ))}
-            </div>
-          )}
-
-          {tab === "more" && moreView === "industry" && (
-            <div className="space-y-3">
-              <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-                <h3 className="text-xl font-black">資金擴散 / 集中判斷</h3>
-                <div className="mt-2 text-2xl font-black text-cyan-300">{fundFlowText}</div>
-                <div className="mt-2 text-sm font-bold text-cyan-100">
-                  前三大產業：{mainIndustries.slice(0, 3).join("、") || "--"}
-                </div>
-              </div>
-
-              {industries.slice(0, 12).map((item, index) => (
-                <div key={item.industry} className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-bold text-slate-500">#{index + 1}</div>
-                      <div className="text-2xl font-black">{item.industry}</div>
-                      <div className="mt-1 text-xs font-bold text-cyan-300">
-                        即時轉強 {item.realtimeStrongCount}｜突破 {item.breakoutCount}
-                      </div>
-                    </div>
-
-                    <div className="text-right">
-                      <div className="text-2xl font-black text-yellow-300">{item.count} 檔</div>
-                      <div className={`text-sm font-black ${item.avg >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-                        平均 {formatPercent(item.avg)}
-                      </div>
-                      <div className="text-xs font-black text-slate-400">
-                        過熱 {item.hotCount}｜轉弱 {item.weakCount}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {tab === "more" && moreView === "settings" && (
-            <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
-              <div>
-                <div className="mb-2 text-lg font-black">低價上限自訂</div>
-                <div className="flex gap-2">
-                  <input
-                    value={customMaxPrice}
-                    onChange={(e) => setCustomMaxPrice(e.target.value.replace(/[^\d]/g, ""))}
-                    inputMode="numeric"
-                    placeholder="例如 180"
-                    className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-                  />
-                  <button
-                    onClick={() => {
-                      const value = n(customMaxPrice, settings.maxPrice);
-                      if (value > 0) saveSettings({ ...settings, maxPrice: value });
-                    }}
-                    className="rounded-2xl bg-purple-500 px-4 py-3 text-sm font-black text-white"
-                  >
-                    套用
-                  </button>
-                </div>
-                <div className="mt-2 text-xs font-bold text-slate-400">目前低價上限：{settings.maxPrice}</div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">快速股價上限</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[100, 150, 200, 300].map((price) => (
-                    <button
-                      key={price}
-                      onClick={() => {
-                        setCustomMaxPrice(String(price));
-                        saveSettings({ ...settings, maxPrice: price });
-                      }}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.maxPrice === price ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {price}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">轉弱條件</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["跌破開盤", "跌破昨收", "兩者都要"] as WeakRule[]).map((rule) => (
-                    <button
-                      key={rule}
-                      onClick={() => saveSettings({ ...settings, weakRule: rule })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.weakRule === rule ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {rule}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">即時更新頻率</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    [15, "15秒"],
-                    [30, "30秒"],
-                    [60, "60秒"],
-                    [0, "手動"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={String(value)}
-                      onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value), dataSaver: Number(value) === 0 })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="flex gap-2">
+              <input
+                value={newWatchCode}
+                onChange={(event) => setNewWatchCode(event.target.value)}
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="輸入股票代號，例如 2330"
+                className="min-w-0 flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
+              />
 
               <button
-                onClick={() => saveSettings({ ...settings, dataSaver: !settings.dataSaver, refreshSeconds: settings.dataSaver ? 30 : 0 })}
-                className={`w-full rounded-2xl py-3 text-lg font-black ${
-                  settings.dataSaver ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
-                }`}
+                onClick={addWatchCode}
+                className="rounded-xl bg-red-500 px-4 py-2 text-sm font-black text-white"
               >
-                省流量模式：{settings.dataSaver ? "開啟" : "關閉"}
-              </button>
-
-              <div>
-                <div className="mb-2 text-lg font-black">主線模式</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["保守", "標準", "積極"] as MainMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => saveSettings({ ...settings, mainMode: mode })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.mainMode === mode ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {tab === "more" && moreView === "data" && (
-            <div className="rounded-3xl border border-blue-500/50 bg-blue-950/20 p-5">
-              <div className="text-xl font-black">資料健康檢查：{dataStatus}</div>
-
-              <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
-                <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
-                <div>資料筆數：{stocks.length}</div>
-                <div>50強筆數：{top50.length}</div>
-                <div>最新資料時間：{apiDataTime || "讀取中"}</div>
-                <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
-                <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
-                <div>資料來源：{source || "讀取中"}</div>
-                <div>是否使用快取：{usingCache ? "是" : "否"}</div>
-                <div>更新失敗原因：{error || "無"}</div>
-                <div>主流轉強：{mainStrongList.length}</div>
-                <div>主流轉弱：{mainWeakList.length}</div>
-                <div>自動更新頻率：{settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${settings.refreshSeconds}秒`}</div>
-                <div>下一次更新：{settings.dataSaver || settings.refreshSeconds === 0 ? "--" : `${autoSeconds}s`}</div>
-              </div>
-
-              {(usingCache || error) && (
-                <div className="mt-3 rounded-2xl border border-yellow-500 bg-yellow-950/50 p-3 text-sm font-black text-yellow-200">
-                  ⚠️ {error || "目前使用上次成功資料，畫面不會清空。"}
-                </div>
-              )}
-
-              <button onClick={loadStocks} className="mt-4 w-full rounded-2xl bg-blue-500/20 py-3 text-lg font-black text-blue-200">
-                重新讀取資料
+                加入
               </button>
             </div>
-          )}
 
-          {tab !== "home" &&
-            tab !== "tomorrow" &&
-            !(tab === "more" && ["industry", "settings", "data", "menu"].includes(moreView)) && (
-              <div className="space-y-3">
-                {currentList.length === 0 && (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
-                    目前沒有符合條件的股票。
-                  </div>
-                )}
-
-                {currentList.map((stock, index) => (
-                  <StockCard key={`${stock.code}-${index}`} stock={stock} rank={index + 1} showReason {...cardProps} />
-                ))}
+            {watchMessage && (
+              <div className="mt-2 text-xs font-bold text-emerald-300">
+                {watchMessage}
               </div>
             )}
-        </section>
+          </div>
+        )}
+
+        <div className="mb-3">
+          <div className="flex gap-2">
+            <input
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="搜尋代號 / 名稱 / 產業"
+              className="min-w-0 flex-1 rounded-xl bg-slate-900 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
+            />
+
+            {searchText && (
+              <button
+                onClick={() => setSearchText("")}
+                className="rounded-xl bg-slate-800 px-3 text-xs font-black text-slate-300"
+              >
+                清除
+              </button>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="mb-3 w-full rounded-xl border border-slate-800 bg-slate-900 px-3 py-2 text-sm font-black text-slate-200"
+        >
+          {showAdvanced ? "收起進階篩選 ▲" : "展開進階篩選 ▼"}
+        </button>
+
+        {showAdvanced && (
+          <div className="mb-3 rounded-2xl border border-slate-800 bg-slate-950 p-3">
+            <div className="mb-2 text-xs font-black text-slate-400">排序方式</div>
+
+            <div className="mb-3 flex gap-2 overflow-x-auto">
+              {sortButtons.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setSortKey(item.key)}
+                  className={
+                    sortKey === item.key
+                      ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white"
+                      : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-xs font-bold text-slate-300"
+                  }
+                >
+                  {item.label}排序
+                </button>
+              ))}
+            </div>
+
+            <div className="mb-2 text-xs font-black text-slate-400">快速篩選</div>
+
+            <div className="grid grid-cols-4 gap-2">
+              {filterButtons.map((item) => (
+                <button
+                  key={item.key}
+                  onClick={() => setFilterKey(item.key)}
+                  className={
+                    filterKey === item.key
+                      ? "rounded-xl bg-orange-500 px-2 py-2 text-xs font-black text-white"
+                      : "rounded-xl bg-slate-900 px-2 py-2 text-xs font-bold text-slate-300"
+                  }
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="mb-3 rounded-2xl bg-slate-900 p-3 text-center">
+            資料載入中...
+          </div>
+        )}
+
+        {error && stocks.length === 0 && (
+          <div className="mb-3 rounded-2xl bg-red-950 p-3 text-sm font-bold text-red-200">
+            錯誤：{error}
+          </div>
+        )}
+
+        <div className="mb-3 flex gap-2 overflow-x-auto">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              onClick={() => {
+                setMode("normal");
+                setTab(item.key);
+                setFilterKey("all");
+              }}
+              className={
+                tab === item.key
+                  ? "whitespace-nowrap rounded-xl bg-red-500 px-3 py-2 text-sm font-black text-white"
+                  : "whitespace-nowrap rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-slate-300"
+              }
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "industry" ? (
+          <section>
+            <h2 className="mb-3 text-lg font-black">
+              產業排行 TOP 10
+              {(searchText || filterKey !== "all") && (
+                <span className="ml-2 text-xs text-slate-400">
+                  / 結果 {filteredIndustryGroups.length} 類
+                </span>
+              )}
+            </h2>
+
+            {filteredIndustryGroups.length === 0 ? (
+              <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
+                目前沒有符合條件的產業或股票
+              </div>
+            ) : (
+              filteredIndustryGroups.slice(0, 10).map((group, index) => {
+                const isOpen =
+                  expandedIndustry === group.industry ||
+                  Boolean(searchText) ||
+                  filterKey !== "all";
+
+                return (
+                  <div
+                    key={group.industry}
+                    className="mb-2 rounded-2xl border border-slate-800 bg-slate-900 p-3"
+                  >
+                    <button
+                      onClick={() =>
+                        setExpandedIndustry(
+                          isOpen && !searchText && filterKey === "all"
+                            ? ""
+                            : group.industry
+                        )
+                      }
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-2xl font-black text-white">
+                            {index + 1}. {group.industry}
+                          </div>
+                          <div className="mt-1 text-xs text-slate-400">
+                            平均 {changeText(group.avgChange)}｜強度 {group.strength}
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <div className="text-2xl font-black text-red-400">
+                            {group.total}
+                          </div>
+                          <div className="text-xs text-slate-400">
+                            檔 {isOpen ? "▲" : "▼"}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+
+                    {isOpen && (
+                      <div className="mt-3 rounded-2xl bg-black/40 p-2">
+                        {group.stocks.map((stock, stockIndex) => (
+                          <StockRow
+                            key={stock.code}
+                            stock={stock}
+                            rank={stockIndex + 1}
+                            compact
+                            badge={getIndustryRole(stock, group.stocks)}
+                            alertTags={getAlertTags(stock, topIndustryNames)}
+                            onClick={() => setSelectedStock(stock)}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </section>
+        ) : (
+          <section>
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-lg font-black">
+                {tab === "top50" && "漲幅排行 TOP 50"}
+                {tab === "watch" && "自選股"}
+                {tab === "observe" && "今日觀察清單"}
+                {tab === "tomorrow" && "📌 明日觀察清單"}
+                {tab === "breakout" && "突破股"}
+                {tab === "alert" && "警報股"}
+              </h2>
+
+              <span className="text-xs font-bold text-slate-400">
+                {tab === "top50"
+                  ? `${filteredTabStocks.length} / 50`
+                  : `${filteredTabStocks.length} 檔`}
+              </span>
+            </div>
+
+            {filteredTabStocks.length === 0 ? (
+              <div className="rounded-2xl bg-slate-900 p-4 text-slate-400">
+                目前沒有符合條件的股票
+              </div>
+            ) : (
+              filteredTabStocks.slice(0, 50).map((stock, index) => (
+                <StockRow
+                  key={stock.code}
+                  stock={stock}
+                  rank={index + 1}
+                  compact={tab !== "top50"}
+                  alertTags={
+                    tab === "observe" || tab === "tomorrow"
+                      ? getObserveTags(stock, topIndustryNames)
+                      : getAlertTags(stock, topIndustryNames)
+                  }
+                  onClick={() => setSelectedStock(stock)}
+                  onRemove={
+                    tab === "watch"
+                      ? () => removeWatchCode(stock.code)
+                      : undefined
+                  }
+                />
+              ))
+            )}
+          </section>
+        )}
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-black/90 px-3 pb-8 pt-3 backdrop-blur">
-        <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1 text-center">
-          {[
-            ["home", "📊", "首頁"],
-            ["top50", "🔥", "50強"],
-            ["tomorrow", "📌", "觀察"],
-            ["favorite", "⭐", "自選"],
-            ["more", "☰", "更多"],
-          ].map(([key, icon, label]) => (
+      <nav
+        className="fixed bottom-0 left-0 right-0 border-t border-slate-800 bg-black/95 px-2 pt-2 backdrop-blur"
+        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 8px)" }}
+      >
+        <div className="mx-auto grid max-w-md grid-cols-5 gap-1">
+          {tabs.map((item) => (
             <button
-              key={key}
+              key={item.key}
               onClick={() => {
-                setSelectedCode("");
-                setTab(key as TabKey);
+                setSelectedStock(null);
+                setMode("normal");
+                setTab(item.key);
+                setFilterKey("all");
               }}
-              className={`rounded-2xl py-2 text-xs font-black ${
-                tab === key ? "bg-slate-800 text-yellow-300" : "text-slate-400"
-              }`}
+              className={
+                tab === item.key
+                  ? "rounded-xl px-1 py-2 text-xs font-black text-red-500"
+                  : "rounded-xl px-1 py-2 text-xs font-bold text-slate-400"
+              }
             >
-              <div className="text-xl">{icon}</div>
-              {label}
+              <div className="text-xl">{item.icon}</div>
+              <div>{item.label}</div>
             </button>
           ))}
         </div>
