@@ -75,65 +75,70 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"top" | "industry" | "breakout">("top");
 
   const loadStocks = async () => {
-    const attemptTime = formatTime();
+  const attemptTime = formatTime();
 
-    setLoading(true);
-    setUpdateStatus("loading");
-    setLastAttemptAt(attemptTime);
-    setUpdateError("");
+  setLoading(true);
+  setUpdateStatus("loading");
+  setLastAttemptAt(attemptTime);
+  setUpdateError("");
 
-    try {
-      const res = await fetch(`/api/stocks?t=${Date.now()}`, {
-        cache: "no-store",
-      });
+  try {
+    const res = await fetch(`/api/stocks?t=${Date.now()}`, {
+      cache: "no-store",
+    });
 
-      if (!res.ok) {
-        throw new Error(`API 回應錯誤：${res.status}`);
-      }
-
-      const json = await res.json();
-
-      const list: StockItem[] = Array.isArray(json)
-        ? json
-        : Array.isArray(json?.stocks)
-          ? json.stocks
-          : Array.isArray(json?.data)
-            ? json.data
-            : [];
-
-      if (!Array.isArray(list) || list.length === 0) {
-        throw new Error("API 有回應，但沒有取得股票資料");
-      }
-
-      const cleanList = list.map((item) => ({
-        code: String(item.code || ""),
-        name: String(item.name || ""),
-        price: safeNumber(item.price),
-        change: safeNumber(item.change),
-        changePercent: safeNumber(item.changePercent),
-        volume: safeNumber(item.volume),
-        openPrice: safeNumber(item.openPrice),
-        previousClose: safeNumber(item.previousClose),
-        openPremiumPercent: safeNumber(item.openPremiumPercent),
-        industry: item.industry || "其他",
-        turnoverRate: safeNumber(item.turnoverRate),
-        volumeRatio: safeNumber(item.volumeRatio),
-        floatMarketCapYi: safeNumber(item.floatMarketCapYi),
-      }));
-
-      setStocks(cleanList);
-      setLastSuccessAt(formatTime());
-      setUpdateStatus("success");
-      setNextUpdateIn(AUTO_REFRESH_SECONDS);
-    } catch (error: any) {
-      console.error("股票資料更新失敗：", error);
-
-      setUpdateStatus("error");
-      setUpdateError(error?.message || "資料來源暫時無法取得，已保留上一筆成功資料");
-    } finally {
-      setLoading(false);
+    if (!res.ok) {
+      throw new Error(`API 回應錯誤：${res.status}`);
     }
-  };
+
+    const json = await res.json();
+
+    const list: StockItem[] = Array.isArray(json)
+      ? json
+      : Array.isArray(json?.stocks)
+        ? json.stocks
+        : Array.isArray(json?.data)
+          ? json.data
+          : [];
+
+    if (!Array.isArray(list) || list.length === 0) {
+      throw new Error("API 有回應，但沒有取得股票資料");
+    }
+
+    const cleanList = list.map((item) => ({
+      code: String(item.code || ""),
+      name: String(item.name || ""),
+      price: safeNumber(item.price),
+      change: safeNumber(item.change),
+      changePercent: safeNumber(item.changePercent),
+      volume: safeNumber(item.volume),
+      openPrice: safeNumber(item.openPrice),
+      previousClose: safeNumber(item.previousClose),
+      openPremiumPercent: safeNumber(item.openPremiumPercent),
+      industry: item.industry || "其他",
+      turnoverRate: safeNumber(item.turnoverRate),
+      volumeRatio: safeNumber(item.volumeRatio),
+      floatMarketCapYi: safeNumber(item.floatMarketCapYi),
+    }));
+
+    setStocks(cleanList);
+    setLastSuccessAt(formatTime());
+    setUpdateStatus("success");
+    setNextUpdateIn(AUTO_REFRESH_SECONDS);
+  } catch (error: any) {
+    console.error("股票資料更新失敗：", error);
+
+    setUpdateStatus("error");
+    setUpdateError(
+      error?.message || "資料來源暫時無法取得，已保留上一筆成功資料"
+    );
+
+    // 重要：這裡不要 setStocks([])
+    // 這樣 API 失敗時，畫面會保留上一筆成功資料
+  } finally {
+    setLoading(false);
+  }
+};
 
   useEffect(() => {
     loadStocks();
