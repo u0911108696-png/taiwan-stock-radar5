@@ -14,6 +14,7 @@ type Stock = {
 };
 
 type TabKey = "home" | "top" | "observe" | "favorite" | "more";
+
 type MoreView =
   | "menu"
   | "today"
@@ -25,7 +26,9 @@ type MoreView =
   | "open910"
   | "stats"
   | "settings"
-  | "data";
+  | "data"
+  | "buyRadar"
+  | "sellRadar";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 type ObserveGroup = "明天優先" | "等回測" | "不追高";
@@ -36,6 +39,9 @@ type Settings = {
   excludeHot: boolean;
   refreshSeconds: number;
   favoriteOnlyActive: boolean;
+  pullbackRangePercent: number;
+  stopLossPercent: number;
+  hotPercent: number;
 };
 
 type ApiResponse = {
@@ -63,6 +69,9 @@ const defaultSettings: Settings = {
   excludeHot: true,
   refreshSeconds: 30,
   favoriteOnlyActive: false,
+  pullbackRangePercent: 1.5,
+  stopLossPercent: 1,
+  hotPercent: 8,
 };
 
 const industryMap: Record<string, string> = {
@@ -174,8 +183,8 @@ function getMarketStatus() {
   return "收盤後";
 }
 
-function isHot(stock: Stock) {
-  return stock.changePercent >= 8 || (stock.openPremiumPercent ?? 0) >= 5;
+function isHot(stock: Stock, settings: Settings) {
+  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
 }
 
 function isWeak(stock: Stock) {
@@ -186,20 +195,17 @@ function isBreakout(stock: Stock) {
   return stock.changePercent >= 3 && stock.price >= stock.openPrice;
 }
 
-function isPullback(stock: Stock) {
+function isPullback(stock: Stock, settings: Settings) {
   if (stock.openPrice <= 0) return false;
-  const nearOpen = Math.abs(stock.price - stock.openPrice) / stock.openPrice <= 0.015;
-  return stock.changePercent >= 2 && nearOpen && !isHot(stock);
+  const nearOpen = Math.abs(stock.price - stock.openPrice) / stock.openPrice <= settings.pullbackRangePercent / 100;
+  return stock.changePercent >= 2 && nearOpen && !isHot(stock, settings);
 }
 
 function isAlert(stock: Stock, settings: Settings) {
   if (stock.price <= 0 || stock.price > settings.maxPrice) return false;
-  if (settings.excludeHot && isHot(stock)) return false;
+  if (settings.excludeHot && isHot(stock, settings)) return false;
 
-  return (
-    stock.changePercent >= settings.alertPercent ||
-    (stock.openPremiumPercent ?? 0) >= 3
-  );
+  return stock.changePercent >= settings.alertPercent || (stock.openPremiumPercent ?? 0) >= 3;
 }
 
 function getIndustryRanking(stocks: Stock[]) {
@@ -230,7 +236,7 @@ function getScoreParts(stock: Stock, mainIndustries: string[], settings: Setting
     { label: "漲幅3%～7.5%", value: stock.changePercent >= 3 && stock.changePercent <= 7.5 ? 20 : 0 },
     { label: "強於開盤", value: stock.price >= stock.openPrice ? 15 : 0 },
     { label: "開盤溢價合理", value: (stock.openPremiumPercent ?? 0) >= 0 && (stock.openPremiumPercent ?? 0) <= 4 ? 10 : 0 },
-    { label: "過熱扣分", value: isHot(stock) ? -30 : 0 },
+    { label: "過熱扣分", value: isHot(stock, settings) ? -30 : 0 },
     { label: "轉弱扣分", value: isWeak(stock) ? -20 : 0 },
   ];
 }
@@ -241,20 +247,61 @@ function scoreStock(stock: Stock, mainIndustries: string[], settings: Settings) 
 }
 
 function getStatus(stock: Stock, settings: Settings) {
-  if (isHot(stock)) return "過熱";
+  if (isHot(stock, settings)) return "過熱";
   if (isWeak(stock)) return "轉弱";
   if (isAlert(stock, settings)) return "警報";
   if (isBreakout(stock)) return "突破";
-  if (isPullback(stock)) return "回測";
+  if (isPullback(stock, settings)) return "回測";
   return "觀察";
+}
+
+function getEntryType(stock: Stock, mainIndustries: string[], settings: Settings) {
+  if (isHot(stock, settings)) return "過熱型";
+  if (isWeak(stock)) return "轉弱型";
+  if (isPullback(stock, settings)) return "回測型";
+  if (isBreakout(stock)) return "突破型";
+  if (mainIndustries.includes(stock.industry) && stock.changePercent >= 2) return "轉強型";
+  return "普通型";
+}
+
+function getBuyLabel(stock: Stock, mainIndustries: string[], settings: Settings) {
+  if (isHot(stock, settings)) return "不追高";
+  if (isWeak(stock)) return "暫不進場";
+  if (isPullback(stock, settings)) return "回測買點";
+  if (isBreakout(stock)) return "突破買點";
+  if (mainIndustries.includes(stock.industry) && stock.price >= stock.openPrice && stock.changePercent >= 2) return "轉強買點";
+  return "等待買點";
+}
+
+function getBuySuggestion(stock: Stock, mainIndustries: string[], settings: Settings) {
+  const label = getBuyLabel(stock, mainIndustries, settings);
+
+  if (label === "不追高") return "漲幅偏大，不追高，等回測。";
+  if (label === "暫不進場") return "轉弱或跌破開盤，先不進場。";
+  if (label === "回測買點") return "可觀察開盤價附近是否守住。";
+  if (label === "突破買點") return "突破後可觀察是否續強，不要追過熱。";
+  if (label === "轉強買點") return "站上開盤且主流產業，可列入觀察。";
+  return "尚未到好買點，等待更明確訊號。";
+}
+
+function getSellSuggestion(stock: Stock, settings: Settings) {
+  const stopLossByOpen = stock.openPrice * (1 - settings.stopLossPercent / 100);
+  const stopLossByPrev = stock.previousClose * (1 - settings.stopLossPercent / 100);
+
+  if (stock.price < stopLossByOpen) return "跌破開盤停損區，賣點提醒。";
+  if (stock.price < stopLossByPrev) return "跌破昨收停損區，偏弱。";
+  if (stock.changePercent < 2) return "漲幅縮小到2%以下，移出觀察。";
+  if (isHot(stock, settings)) return "已接近過熱，分批停利或不追。";
+  return "未跌破主要賣點，可續看。";
 }
 
 function getConclusion(stock: Stock, mainIndustries: string[], settings: Settings) {
   const score = scoreStock(stock, mainIndustries, settings);
+  const buyLabel = getBuyLabel(stock, mainIndustries, settings);
 
-  if (isHot(stock)) return "不追高";
-  if (isWeak(stock)) return "轉弱小心";
-  if (isPullback(stock)) return "等回測";
+  if (buyLabel === "不追高") return "不追高";
+  if (buyLabel === "暫不進場") return "轉弱小心";
+  if (buyLabel === "回測買點") return "等回測";
   if (score >= 80) return "可觀察";
   if (score >= 60) return "小心觀察";
   return "暫不追";
@@ -399,6 +446,7 @@ function StockCard({
   const direction = priceDirections[stock.code];
   const oldRank = previousRanks[stock.code];
   const rankText = !oldRank ? "新進" : oldRank > rank ? `↑${oldRank - rank}` : oldRank < rank ? `↓${rank - oldRank}` : "持平";
+  const buyLabel = getBuyLabel(stock, mainIndustries, settings);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -422,6 +470,7 @@ function StockCard({
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className="rounded-full bg-slate-800 px-3 py-1">{getStatus(stock, settings)}</span>
+          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{buyLabel}</span>
           <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">分數 {score}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${getDirectionTone(direction)}`}>
             {getDirectionText(direction)}
@@ -431,7 +480,7 @@ function StockCard({
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          結論：{getConclusion(stock, mainIndustries, settings)}｜更新：{stock.updatedAt || "--"}
+          買點：{buyLabel}｜賣點：{getSellSuggestion(stock, settings)}
         </div>
       </button>
 
@@ -524,54 +573,6 @@ export default function App() {
     setSettings(next);
     setAutoSeconds(next.refreshSeconds);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
-  }
-
-  function saveFavorites(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean)));
-    setFavoriteCodes(clean);
-    localStorage.setItem(FAVORITE_KEY, JSON.stringify(clean));
-  }
-
-  function saveObserve(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 30);
-    setObserveCodes(clean);
-    localStorage.setItem(OBSERVE_KEY, JSON.stringify(clean));
-  }
-
-  function saveGroups(next: Record<string, ObserveGroup>) {
-    setGroups(next);
-    localStorage.setItem(GROUP_KEY, JSON.stringify(next));
-  }
-
-  function saveNote(code: string, note: string) {
-    const next = { ...notes, [code]: note };
-    setNotes(next);
-    localStorage.setItem(NOTE_KEY, JSON.stringify(next));
-  }
-
-  function addFavorite(code: string) {
-    const clean = cleanCode(code);
-    if (!clean) return;
-    saveFavorites([...favoriteCodes, clean]);
-  }
-
-  function removeFavorite(code: string) {
-    saveFavorites(favoriteCodes.filter((item) => item !== code));
-  }
-
-  function addObserve(code: string) {
-    const clean = cleanCode(code);
-    if (!clean) return;
-    saveObserve([...observeCodes, clean]);
-  }
-
-  function removeObserve(code: string) {
-    saveObserve(observeCodes.filter((item) => item !== code));
-  }
-
-  function setObserveGroup(code: string, group: ObserveGroup) {
-    saveObserve([...observeCodes, code]);
-    saveGroups({ ...groups, [code]: group });
   }
 
   async function loadStocks() {
@@ -682,17 +683,17 @@ export default function App() {
   const mainIndustries = useMemo(() => industries.slice(0, 3).map((item) => item.industry), [industries]);
 
   const alerts = useMemo(() => top50.filter((stock) => isAlert(stock, settings)), [top50, settings]);
-  const hotList = useMemo(() => top50.filter(isHot), [top50]);
+  const hotList = useMemo(() => top50.filter((stock) => isHot(stock, settings)), [top50, settings]);
   const weakList = useMemo(() => top50.filter(isWeak), [top50]);
   const avoidList = useMemo(() => Array.from(new Map([...hotList, ...weakList].map((s) => [s.code, s])).values()), [hotList, weakList]);
 
-  const pullbackList = useMemo(() => top50.filter(isPullback).slice(0, 20), [top50]);
+  const pullbackList = useMemo(() => top50.filter((stock) => isPullback(stock, settings)).slice(0, 20), [top50, settings]);
 
   const breakoutList = useMemo(
     () =>
       top50
         .filter(isBreakout)
-        .filter((stock) => !isHot(stock))
+        .filter((stock) => !isHot(stock, settings))
         .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
         .slice(0, 20),
     [top50, mainIndustries, settings]
@@ -704,16 +705,16 @@ export default function App() {
         .filter((stock) => stock.changePercent >= 2)
         .filter((stock) => stock.price >= stock.openPrice)
         .filter((stock) => mainIndustries.includes(stock.industry))
-        .filter((stock) => !isHot(stock))
+        .filter((stock) => !isHot(stock, settings))
         .slice(0, 15),
-    [top50, mainIndustries]
+    [top50, mainIndustries, settings]
   );
 
   const top10 = useMemo(
     () =>
       top50
         .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
-        .filter((stock) => !isHot(stock))
+        .filter((stock) => !isHot(stock, settings))
         .filter((stock) => !isWeak(stock))
         .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
         .slice(0, 10),
@@ -722,14 +723,26 @@ export default function App() {
 
   const mustWatch3 = useMemo(() => top10.slice(0, 3), [top10]);
 
-  const activeTop10 = useMemo(
-    () => top10.filter((stock) => stock.changePercent >= 5 || isAlert(stock, settings)),
-    [top10, settings]
+  const canEntryList = useMemo(
+    () =>
+      top10.filter((stock) =>
+        ["突破買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
+      ),
+    [top10, mainIndustries, settings]
   );
 
-  const stableTop10 = useMemo(
-    () => top10.filter((stock) => stock.changePercent < 5),
-    [top10]
+  const waitPullbackTopList = useMemo(
+    () =>
+      top10.filter((stock) =>
+        getBuyLabel(stock, mainIndustries, settings) === "回測買點" ||
+        getBuyLabel(stock, mainIndustries, settings) === "等待買點"
+      ),
+    [top10, mainIndustries, settings]
+  );
+
+  const noChaseTopList = useMemo(
+    () => top50.filter((stock) => getBuyLabel(stock, mainIndustries, settings) === "不追高").slice(0, 10),
+    [top50, mainIndustries, settings]
   );
 
   const realTime200Alerts = useMemo(
@@ -737,8 +750,30 @@ export default function App() {
       top50
         .filter((stock) => stock.price > 0 && stock.price <= 200)
         .filter((stock) => isAlert(stock, settings))
-        .filter((stock) => !isHot(stock))
+        .filter((stock) => !isHot(stock, settings))
         .filter((stock) => !isWeak(stock))
+        .slice(0, 30),
+    [top50, settings]
+  );
+
+  const buyRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => stock.price > 0 && stock.price <= settings.maxPrice)
+        .filter((stock) => !isHot(stock, settings))
+        .filter((stock) => !isWeak(stock))
+        .filter((stock) =>
+          ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
+        )
+        .sort((a, b) => scoreStock(b, mainIndustries, settings) - scoreStock(a, mainIndustries, settings))
+        .slice(0, 30),
+    [top50, mainIndustries, settings]
+  );
+
+  const sellRadarList = useMemo(
+    () =>
+      top50
+        .filter((stock) => isWeak(stock) || stock.price < stock.openPrice || stock.price < stock.previousClose || isHot(stock, settings))
         .slice(0, 30),
     [top50, settings]
   );
@@ -754,8 +789,21 @@ export default function App() {
   );
 
   const observeAlerts = useMemo(
-    () => observeStocks.filter((stock) => isAlert(stock, settings) || isWeak(stock) || isHot(stock)),
+    () => observeStocks.filter((stock) => isAlert(stock, settings) || isWeak(stock) || isHot(stock, settings)),
     [observeStocks, settings]
+  );
+
+  const observeBuyAlerts = useMemo(
+    () =>
+      observeStocks.filter((stock) =>
+        ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
+      ),
+    [observeStocks, mainIndustries, settings]
+  );
+
+  const observeSellAlerts = useMemo(
+    () => observeStocks.filter((stock) => isWeak(stock) || stock.price < stock.openPrice || stock.price < stock.previousClose),
+    [observeStocks]
   );
 
   const favoriteAlerts = useMemo(
@@ -765,8 +813,14 @@ export default function App() {
 
   const favoriteStocks = useMemo(() => {
     if (!settings.favoriteOnlyActive) return favoriteStocksRaw;
-    return favoriteStocksRaw.filter((stock) => isAlert(stock, settings) || isWeak(stock) || stock.changePercent >= 3);
-  }, [favoriteStocksRaw, settings]);
+    return favoriteStocksRaw.filter(
+      (stock) =>
+        isAlert(stock, settings) ||
+        isWeak(stock) ||
+        stock.changePercent >= 3 ||
+        ["突破買點", "回測買點", "轉強買點"].includes(getBuyLabel(stock, mainIndustries, settings))
+    );
+  }, [favoriteStocksRaw, settings, mainIndustries]);
 
   const signal = useMemo(() => getSignal(top50, alerts, hotList), [top50, alerts, hotList]);
 
@@ -823,7 +877,6 @@ export default function App() {
   }
 
   const currentList = useMemo(() => {
-    if (tab === "top") return sortList(top10);
     if (tab === "observe") return sortList(observeStocks);
     if (tab === "favorite") return sortList(favoriteStocks);
 
@@ -834,13 +887,14 @@ export default function App() {
       if (moreView === "pullback") return sortList(pullbackList);
       if (moreView === "breakout") return sortList(breakoutList);
       if (moreView === "open910") return sortList(open910List);
+      if (moreView === "buyRadar") return sortList(buyRadarList);
+      if (moreView === "sellRadar") return sortList(sellRadarList);
     }
 
     return [];
   }, [
     tab,
     moreView,
-    top10,
     observeStocks,
     favoriteStocks,
     top50,
@@ -849,6 +903,8 @@ export default function App() {
     pullbackList,
     breakoutList,
     open910List,
+    buyRadarList,
+    sellRadarList,
     searchText,
     sortKey,
     mainIndustries,
@@ -909,8 +965,8 @@ export default function App() {
 
       keep.push(stock.code);
 
-      if (isHot(stock)) nextGroups[stock.code] = "不追高";
-      else if (isPullback(stock)) nextGroups[stock.code] = "等回測";
+      if (isHot(stock, settings)) nextGroups[stock.code] = "不追高";
+      else if (isPullback(stock, settings)) nextGroups[stock.code] = "等回測";
       else if (scoreStock(stock, mainIndustries, settings) >= 80) nextGroups[stock.code] = "明天優先";
     });
 
@@ -958,8 +1014,14 @@ export default function App() {
     const links = getKLinks(selectedStock.code, selectedStock.name);
     const isFavorite = favoriteCodes.includes(selectedStock.code);
     const isObserve = observeCodes.includes(selectedStock.code);
-    const openLow = selectedStock.openPrice * 0.985;
-    const openHigh = selectedStock.openPrice * 1.015;
+
+    const buyLabel = getBuyLabel(selectedStock, mainIndustries, settings);
+    const entryType = getEntryType(selectedStock, mainIndustries, settings);
+
+    const buyLow = selectedStock.openPrice * (1 - settings.pullbackRangePercent / 100);
+    const buyHigh = selectedStock.openPrice * (1 + settings.pullbackRangePercent / 100);
+    const stopByOpen = selectedStock.openPrice * (1 - settings.stopLossPercent / 100);
+    const stopByPrev = selectedStock.previousClose * (1 - settings.stopLossPercent / 100);
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -979,7 +1041,7 @@ export default function App() {
                 </div>
                 <h1 className="mt-1 text-3xl font-black">{selectedStock.name}</h1>
                 <div className="mt-2 text-sm font-bold text-slate-300">
-                  {getStatus(selectedStock, settings)}｜分數 {score}
+                  {getStatus(selectedStock, settings)}｜{entryType}｜分數 {score}
                 </div>
               </div>
 
@@ -1011,7 +1073,7 @@ export default function App() {
                 {getConclusion(selectedStock, mainIndustries, settings)}
               </div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                明天若開高不追，等回測開盤價；跌破開盤價要小心。
+                {getBuySuggestion(selectedStock, mainIndustries, settings)}
               </div>
             </div>
 
@@ -1022,12 +1084,44 @@ export default function App() {
             </div>
           </section>
 
+          <section className="mt-4 rounded-3xl border border-emerald-500/50 bg-emerald-950/20 p-5">
+            <h2 className="text-xl font-black">進場買點</h2>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <DetailRow label="買點標籤" value={buyLabel} />
+              <DetailRow label="進場型態" value={entryType} />
+              <DetailRow label="回測買點低" value={`${buyLow.toFixed(2)} 元`} />
+              <DetailRow label="回測買點高" value={`${buyHigh.toFixed(2)} 元`} />
+              <DetailRow label="突破買點" value={`${selectedStock.openPrice.toFixed(2)} 元以上續強`} />
+              <DetailRow label="轉強買點" value={`站回開盤 ${selectedStock.openPrice.toFixed(2)} 元`} />
+            </div>
+
+            <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-emerald-100">
+              進場建議：{getBuySuggestion(selectedStock, mainIndustries, settings)}
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-3xl border border-red-500/50 bg-red-950/20 p-5">
+            <h2 className="text-xl font-black">賣點 / 停損 / 停利</h2>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <DetailRow label="開盤停損" value={`${stopByOpen.toFixed(2)} 元`} />
+              <DetailRow label="昨收停損" value={`${stopByPrev.toFixed(2)} 元`} />
+              <DetailRow label="移出觀察" value="漲幅低於2%" />
+              <DetailRow label="停利提醒" value={`漲幅接近${settings.hotPercent}%`} />
+            </div>
+
+            <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-red-100">
+              賣出建議：{getSellSuggestion(selectedStock, settings)}
+            </div>
+          </section>
+
           <section className="mt-4 rounded-3xl border border-cyan-500/50 bg-cyan-950/20 p-5">
             <h2 className="text-xl font-black">進階摘要</h2>
             <div className="mt-3 grid grid-cols-2 gap-2">
               <DetailRow label="50強排名" value={selectedRank ? `第 ${selectedRank} 名` : "不在50強"} />
               <DetailRow label="產業排名" value={selectedIndustryRank ? `${selectedStock.industry} 第 ${selectedIndustryRank}` : "--"} />
-              <DetailRow label="追高風險" value={isHot(selectedStock) ? "高" : selectedStock.changePercent >= 5 ? "中" : "低"} />
+              <DetailRow label="追高風險" value={isHot(selectedStock, settings) ? "高" : selectedStock.changePercent >= 5 ? "中" : "低"} />
               <DetailRow label="狀態" value={getStatus(selectedStock, settings)} />
             </div>
           </section>
@@ -1053,9 +1147,9 @@ export default function App() {
               {[
                 [`股價${settings.maxPrice}內`, selectedStock.price <= settings.maxPrice],
                 ["主流產業", mainIndustries.includes(selectedStock.industry)],
-                ["未過熱", !isHot(selectedStock)],
+                ["未過熱", !isHot(selectedStock, settings)],
                 ["未轉弱", !isWeak(selectedStock)],
-                ["高分", score >= 80],
+                ["有買點", !["不追高", "暫不進場", "等待買點"].includes(buyLabel)],
                 ["在觀察", isObserve],
               ].map(([label, ok]: any) => (
                 <div key={label} className={`rounded-2xl p-3 ${ok ? "bg-emerald-500/20 text-emerald-200" : "bg-red-500/20 text-red-200"}`}>
@@ -1066,25 +1160,11 @@ export default function App() {
           </section>
 
           <section className="mt-4 rounded-3xl border border-yellow-500/50 bg-yellow-950/20 p-5">
-            <h2 className="text-xl font-black">價位劇本</h2>
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <DetailRow label="回測開盤價" value={`${selectedStock.openPrice.toFixed(2)} 元附近`} />
-              <DetailRow label="昨收參考" value={`${selectedStock.previousClose.toFixed(2)} 元附近`} />
-              <DetailRow label="觀察區低" value={`${openLow.toFixed(2)} 元`} />
-              <DetailRow label="觀察區高" value={`${openHigh.toFixed(2)} 元`} />
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-red-500/50 bg-red-950/20 p-5">
-            <h2 className="text-xl font-black">風險提醒</h2>
-            <div className="mt-3 space-y-2 text-sm font-bold text-red-100">
-              {!isHot(selectedStock) && !isWeak(selectedStock) && selectedStock.changePercent < 8 && (
-                <div className="rounded-2xl bg-black/30 p-3">目前沒有明顯高風險提醒。</div>
-              )}
-              {isHot(selectedStock) && <div className="rounded-2xl bg-black/30 p-3">⚠️ 過熱勿追</div>}
-              {isWeak(selectedStock) && <div className="rounded-2xl bg-black/30 p-3">⚠️ 盤中轉弱</div>}
-              {selectedStock.price < selectedStock.openPrice && <div className="rounded-2xl bg-black/30 p-3">⚠️ 跌破開盤價</div>}
-              {selectedStock.changePercent >= 8 && <div className="rounded-2xl bg-black/30 p-3">⚠️ 漲幅過大</div>}
+            <h2 className="text-xl font-black">明日操作劇本</h2>
+            <div className="mt-3 space-y-2 text-sm font-black text-yellow-100">
+              <div className="rounded-2xl bg-black/30 p-3">1. 開高太多不追，等回測買點區。</div>
+              <div className="rounded-2xl bg-black/30 p-3">2. 守住開盤價並續強，才列優先觀察。</div>
+              <div className="rounded-2xl bg-black/30 p-3">3. 跌破開盤停損區或昨收停損區，移出觀察。</div>
             </div>
           </section>
 
@@ -1121,7 +1201,15 @@ export default function App() {
             <h2 className="text-xl font-black">個股備註</h2>
             <div className="mt-3 grid grid-cols-2 gap-2">
               {["等回測", "看續強", "不追高", "跌破開盤出場"].map((text) => (
-                <button key={text} onClick={() => saveNote(selectedStock.code, text)} className="rounded-2xl bg-slate-800 py-2 text-sm font-black text-slate-200">
+                <button
+                  key={text}
+                  onClick={() => {
+                    const next = { ...notes, [selectedStock.code]: text };
+                    setNotes(next);
+                    localStorage.setItem(NOTE_KEY, JSON.stringify(next));
+                  }}
+                  className="rounded-2xl bg-slate-800 py-2 text-sm font-black text-slate-200"
+                >
                   {text}
                 </button>
               ))}
@@ -1129,7 +1217,11 @@ export default function App() {
 
             <textarea
               value={notes[selectedStock.code] || ""}
-              onChange={(e) => saveNote(selectedStock.code, e.target.value)}
+              onChange={(e) => {
+                const next = { ...notes, [selectedStock.code]: e.target.value };
+                setNotes(next);
+                localStorage.setItem(NOTE_KEY, JSON.stringify(next));
+              }}
               placeholder="輸入備註"
               className="mt-3 min-h-[90px] w-full rounded-2xl border border-slate-700 bg-black/40 p-3 text-sm font-bold text-white outline-none"
             />
@@ -1157,7 +1249,7 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股穩定加強版2</div>
+              <div className="text-sm font-bold text-slate-400">台股進出場買賣點版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">今日儀表板</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 {signal.text}
@@ -1187,11 +1279,11 @@ export default function App() {
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard title="盤勢燈號" value={signal.title} sub={signal.text} tone={signal.tone} onClick={() => goMore("today")} />
+          <MiniCard title="買點雷達" value={buyRadarList.length} sub="接近買點" tone="text-emerald-300" onClick={() => goMore("buyRadar")} />
+          <MiniCard title="賣點雷達" value={sellRadarList.length} sub="跌破 / 過熱" tone="text-red-300" onClick={() => goMore("sellRadar")} />
           <MiniCard title="今日必看" value={mustWatch3.length} sub="最優先3檔" tone="text-cyan-300" onClick={() => setTab("top")} />
           <MiniCard title="主流產業" value={mainIndustries[0] || "--"} sub={mainIndustries.slice(0, 3).join("、") || "尚無資料"} tone="text-cyan-300" onClick={() => goMore("industry")} />
           <MiniCard title="即時警報" value={realTime200Alerts.length} sub="200元內 + 未過熱" tone="text-orange-300" onClick={() => goMore("alerts")} />
-          <MiniCard title="觀察警報" value={observeAlerts.length} sub="觀察股異動" tone="text-red-300" onClick={() => setTab("observe")} />
-          <MiniCard title="自選警報" value={favoriteAlerts.length} sub="自選股異動" tone="text-yellow-300" onClick={() => setTab("favorite")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
@@ -1241,10 +1333,12 @@ export default function App() {
           <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
             <h2 className="text-xl font-black">更多功能</h2>
             <div className="mt-4 grid grid-cols-2 gap-3">
+              <ActionCard title="買點雷達" sub="接近買點股票" badge={buyRadarList.length} tone="text-emerald-300" onClick={() => setMoreView("buyRadar")} />
+              <ActionCard title="賣點雷達" sub="跌破 / 過熱" badge={sellRadarList.length} tone="text-red-300" onClick={() => setMoreView("sellRadar")} />
               <ActionCard title="今日50強" sub="完整清單" badge={top50.length} tone="text-red-300" onClick={() => setMoreView("today")} />
               <ActionCard title="即時警報" sub="200元內警報" badge={realTime200Alerts.length} tone="text-orange-300" onClick={() => setMoreView("alerts")} />
               <ActionCard title="產業" sub="產業熱度排行" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="更新頻率與條件" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
+              <ActionCard title="設定" sub="更新頻率與買賣點參數" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
               <ActionCard title="不要碰" sub="過熱與轉弱" badge={avoidList.length} tone="text-red-300" onClick={() => setMoreView("avoid")} />
               <ActionCard title="回測" sub="等回測觀察" badge={pullbackList.length} tone="text-lime-300" onClick={() => setMoreView("pullback")} />
               <ActionCard title="突破" sub="突破確認股" badge={breakoutList.length} tone="text-orange-300" onClick={() => setMoreView("breakout")} />
@@ -1259,11 +1353,13 @@ export default function App() {
           <div className="mb-3">
             <h2 className="text-2xl font-black">
               {tab === "home" && "首頁卡片"}
-              {tab === "top" && "🏆 Top 分類"}
+              {tab === "top" && "🏆 Top 進場分類"}
               {tab === "observe" && "📝 觀察清單"}
               {tab === "favorite" && "⭐ 自選股"}
               {tab === "more" && moreView === "today" && "📊 今日50強"}
               {tab === "more" && moreView === "alerts" && "🚨 即時200元內警報"}
+              {tab === "more" && moreView === "buyRadar" && "🟢 買點雷達"}
+              {tab === "more" && moreView === "sellRadar" && "🔴 賣點雷達"}
               {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
               {tab === "more" && moreView === "avoid" && "🚫 不要碰"}
@@ -1275,36 +1371,37 @@ export default function App() {
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              穩定加強版2：功能補回，但保留防黑畫面保護。
+              進出場買賣點版：找強股 → 看買點 → 看賣點 → 放進觀察。
             </p>
           </div>
 
           {tab === "top" && (
             <div className="space-y-5">
               <div>
-                <h3 className="mb-2 text-xl font-black">今日必看 3 檔</h3>
+                <h3 className="mb-2 text-xl font-black">可進場觀察</h3>
                 <div className="space-y-3">
-                  {mustWatch3.map((stock, index) => (
+                  {canEntryList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
+                  {canEntryList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
                   ))}
                 </div>
               </div>
 
               <div>
-                <h3 className="mb-2 text-xl font-black">積極 Top10</h3>
+                <h3 className="mb-2 text-xl font-black">等回測 / 等買點</h3>
                 <div className="space-y-3">
-                  {activeTop10.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
-                  {activeTop10.map((stock, index) => (
+                  {waitPullbackTopList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
+                  {waitPullbackTopList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
                   ))}
                 </div>
               </div>
 
               <div>
-                <h3 className="mb-2 text-xl font-black">穩健 Top10</h3>
+                <h3 className="mb-2 text-xl font-black">不追高</h3>
                 <div className="space-y-3">
-                  {stableTop10.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
-                  {stableTop10.map((stock, index) => (
+                  {noChaseTopList.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">目前沒有股票</div>}
+                  {noChaseTopList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
                   ))}
                 </div>
@@ -1315,9 +1412,9 @@ export default function App() {
           {tab === "observe" && (
             <div className="space-y-5">
               <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">觀察股管理</h3>
+                <h3 className="text-xl font-black">觀察股買賣點</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  目前 {observeAlerts.length} 檔觀察股有警報 / 轉弱 / 過熱。
+                  接近買點 {observeBuyAlerts.length} 檔｜跌破賣點 {observeSellAlerts.length} 檔
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1347,7 +1444,7 @@ export default function App() {
           {tab === "favorite" && (
             <div className="space-y-5">
               <div className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-4">
-                <h3 className="text-xl font-black">自選股管理</h3>
+                <h3 className="text-xl font-black">自選股買賣點</h3>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm font-black">
                   <div className="rounded-2xl bg-black/30 p-3">全部<br />{favoriteCodes.length}</div>
                   <div className="rounded-2xl bg-black/30 p-3">警報<br />{favoriteAlerts.length}</div>
@@ -1462,10 +1559,32 @@ export default function App() {
               </div>
 
               <div>
-                <div className="mb-2 text-lg font-black">警報漲幅</div>
+                <div className="mb-2 text-lg font-black">回測買點範圍</div>
                 <div className="grid grid-cols-3 gap-2">
-                  {[3, 5, 7].map((p) => (
-                    <button key={p} onClick={() => saveSettings({ ...settings, alertPercent: p })} className={`rounded-2xl py-3 text-sm font-black ${settings.alertPercent === p ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}>
+                  {[1, 1.5, 2].map((p) => (
+                    <button key={p} onClick={() => saveSettings({ ...settings, pullbackRangePercent: p })} className={`rounded-2xl py-3 text-sm font-black ${settings.pullbackRangePercent === p ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}>
+                      ±{p}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-lg font-black">停損跌破</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[1, 1.5, 2].map((p) => (
+                    <button key={p} onClick={() => saveSettings({ ...settings, stopLossPercent: p })} className={`rounded-2xl py-3 text-sm font-black ${settings.stopLossPercent === p ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}>
+                      {p}%
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-lg font-black">過熱漲幅</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[7, 8, 9].map((p) => (
+                    <button key={p} onClick={() => saveSettings({ ...settings, hotPercent: p })} className={`rounded-2xl py-3 text-sm font-black ${settings.hotPercent === p ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}>
                       {p}%
                     </button>
                   ))}
@@ -1483,9 +1602,12 @@ export default function App() {
               <div className="text-xl font-black">統計中心</div>
               <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
                 <div>今日50強：{top50.length}</div>
+                <div>買點雷達：{buyRadarList.length}</div>
+                <div>賣點雷達：{sellRadarList.length}</div>
                 <div>即時警報：{realTime200Alerts.length}</div>
                 <div>觀察股：{observeCodes.length}</div>
-                <div>觀察警報：{observeAlerts.length}</div>
+                <div>觀察接近買點：{observeBuyAlerts.length}</div>
+                <div>觀察跌破賣點：{observeSellAlerts.length}</div>
                 <div>自選股：{favoriteCodes.length}</div>
                 <div>自選警報：{favoriteAlerts.length}</div>
                 <div>過熱股：{hotList.length}</div>
