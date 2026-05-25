@@ -30,30 +30,25 @@ type ApiResponse = {
 };
 
 const API_URL = "/api/stocks";
+const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 
 const industryMap: Record<string, string> = {
   "1101": "水泥",
   "1102": "水泥",
-
   "1216": "食品",
   "1227": "食品",
-
   "1301": "塑化",
   "1303": "塑化",
   "6505": "塑化",
-
   "1717": "化工",
   "1722": "化工",
   "4722": "化工",
-
   "2002": "鋼鐵",
   "2014": "鋼鐵",
   "2027": "鋼鐵",
-
   "2201": "汽車",
   "2207": "汽車",
   "2227": "汽車",
-
   "2301": "電子",
   "2303": "半導體",
   "2308": "電源能源",
@@ -70,19 +65,16 @@ const industryMap: Record<string, string> = {
   "2408": "半導體",
   "2409": "面板",
   "2454": "半導體",
-
   "2603": "航運",
   "2609": "航運",
   "2615": "航運",
   "2618": "航運",
-
   "2881": "金融",
   "2882": "金融",
   "2884": "金融",
   "2886": "金融",
   "2891": "金融",
   "2892": "金融",
-
   "3008": "光學",
   "3017": "電子零組件",
   "3034": "半導體",
@@ -114,6 +106,10 @@ function formatPercent(value: number | null | undefined) {
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toLocaleString("zh-TW");
+}
+
+function cleanCode(value: string) {
+  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 function normalizeStock(raw: any): Stock {
@@ -188,6 +184,14 @@ function isAlert(stock: Stock) {
   return stock.changePercent >= 5 || (stock.openPremiumPercent ?? 0) >= 3 || (stock.volumeRatio ?? 0) >= 2;
 }
 
+function getFavoriteStatus(stock: Stock) {
+  if (isAlert(stock)) return "🔔 有警報";
+  if (isBreakout(stock)) return "⭐ 突破轉強";
+  if (stock.changePercent >= 3) return "👁️ 轉強觀察";
+  if (stock.changePercent < 0) return "🟢 轉弱";
+  return "🟡 普通";
+}
+
 function getMarketMode(stocks: Stock[]) {
   const strong = stocks.filter((s) => s.changePercent >= 3).length;
   const weak = stocks.filter((s) => s.changePercent < 0).length;
@@ -251,8 +255,21 @@ function getIndustryRanking(stocks: Stock[]) {
     .sort((a, b) => b.count - a.count || b.avg - a.avg);
 }
 
-function StockCard({ stock, rank }: { stock: Stock; rank: number }) {
+function StockCard({
+  stock,
+  rank,
+  favoriteCodes,
+  onAddFavorite,
+  onRemoveFavorite,
+}: {
+  stock: Stock;
+  rank: number;
+  favoriteCodes: string[];
+  onAddFavorite: (code: string) => void;
+  onRemoveFavorite: (code: string) => void;
+}) {
   const isUp = stock.changePercent >= 0;
+  const isFavorite = favoriteCodes.includes(stock.code);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/90 p-4 shadow-lg">
@@ -288,6 +305,71 @@ function StockCard({ stock, rank }: { stock: Stock; rank: number }) {
           <div className="font-bold text-yellow-300">{getRisk(stock)}</div>
         </div>
       </div>
+
+      <button
+        onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
+        className={`mt-3 w-full rounded-2xl py-2 text-sm font-black active:scale-95 ${
+          isFavorite
+            ? "bg-yellow-500/20 text-yellow-300"
+            : "bg-slate-800 text-slate-200"
+        }`}
+      >
+        {isFavorite ? "★ 已加入自選，點我移除" : "☆ 加入自選"}
+      </button>
+    </div>
+  );
+}
+
+function FavoriteCard({
+  stock,
+  onRemoveFavorite,
+}: {
+  stock: Stock;
+  onRemoveFavorite: (code: string) => void;
+}) {
+  const isUp = stock.changePercent >= 0;
+
+  return (
+    <div className="rounded-2xl border border-yellow-500/50 bg-yellow-950/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold text-yellow-300">{stock.code}</div>
+          <div className="mt-1 text-2xl font-black text-white">{stock.name}</div>
+          <div className="mt-1 text-sm font-bold text-slate-400">{stock.industry}</div>
+        </div>
+
+        <div className={`text-right text-2xl font-black ${isUp ? "text-red-400" : "text-emerald-400"}`}>
+          {formatPercent(stock.changePercent)}
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black text-yellow-100">
+        {getFavoriteStatus(stock)}
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-xl bg-black/30 p-2">
+          <div className="text-xs text-slate-500">股價</div>
+          <div className="font-bold">{formatNumber(stock.price)}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 p-2">
+          <div className="text-xs text-slate-500">開盤溢價</div>
+          <div className="font-bold">{formatPercent(stock.openPremiumPercent)}</div>
+        </div>
+
+        <div className="rounded-xl bg-black/30 p-2">
+          <div className="text-xs text-slate-500">風險</div>
+          <div className="font-bold text-yellow-300">{getRisk(stock)}</div>
+        </div>
+      </div>
+
+      <button
+        onClick={() => onRemoveFavorite(stock.code)}
+        className="mt-3 w-full rounded-2xl bg-red-500/20 py-2 text-sm font-black text-red-300 active:scale-95"
+      >
+        移除自選
+      </button>
     </div>
   );
 }
@@ -301,6 +383,40 @@ export default function App() {
   const [error, setError] = useState("");
   const [tab, setTab] = useState<TabKey>("top50");
   const [autoSeconds, setAutoSeconds] = useState(60);
+  const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
+  const [favoriteInput, setFavoriteInput] = useState("");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FAVORITE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          setFavoriteCodes(parsed.map(String));
+        }
+      }
+    } catch {
+      setFavoriteCodes([]);
+    }
+  }, []);
+
+  function saveFavoriteCodes(next: string[]) {
+    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean)));
+    setFavoriteCodes(clean);
+    localStorage.setItem(FAVORITE_KEY, JSON.stringify(clean));
+  }
+
+  function addFavorite(code: string) {
+    const cleaned = cleanCode(code);
+    if (!cleaned) return;
+    saveFavoriteCodes([...favoriteCodes, cleaned]);
+    setFavoriteInput("");
+    setTab("favorite");
+  }
+
+  function removeFavorite(code: string) {
+    saveFavoriteCodes(favoriteCodes.filter((item) => item !== code));
+  }
 
   async function loadStocks() {
     try {
@@ -373,16 +489,29 @@ export default function App() {
   const industries = useMemo(() => getIndustryRanking(top50), [top50]);
   const market = useMemo(() => getMarketMode(top50), [top50]);
 
+  const favoriteStocks = useMemo(() => {
+    return favoriteCodes
+      .map((code) => stocks.find((stock) => stock.code === code))
+      .filter(Boolean) as Stock[];
+  }, [favoriteCodes, stocks]);
+
+  const missingFavoriteCodes = useMemo(() => {
+    return favoriteCodes.filter((code) => !stocks.some((stock) => stock.code === code));
+  }, [favoriteCodes, stocks]);
+
+  const favoriteAlerts = useMemo(() => {
+    return favoriteStocks.filter((stock) => isAlert(stock) || isBreakout(stock) || stock.changePercent >= 3);
+  }, [favoriteStocks]);
+
   const strongestIndustry = industries[0];
   const strongestStock = top50[0];
 
   const displayedStocks = useMemo(() => {
     if (tab === "top50") return top50;
     if (tab === "watch") return watch;
-    if (tab === "favorite") return breakout;
     if (tab === "alert") return alerts;
     return [];
-  }, [tab, top50, watch, breakout, alerts]);
+  }, [tab, top50, watch, alerts]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -393,7 +522,7 @@ export default function App() {
               <div className="text-sm font-bold text-slate-400">台股即時雷達</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">50強漲幅排行</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                每 60 秒自動更新，盤中看強勢股、突破股、產業熱度與警報股。
+                每 60 秒自動更新，盤中看強勢股、自選股、產業熱度與警報股。
               </p>
             </div>
 
@@ -412,8 +541,8 @@ export default function App() {
             </div>
 
             <div className="rounded-2xl bg-slate-950 p-3">
-              <div className="text-xs text-slate-500">突破股</div>
-              <div className="text-2xl font-black text-yellow-300">{breakout.length}</div>
+              <div className="text-xs text-slate-500">自選轉強</div>
+              <div className="text-2xl font-black text-yellow-300">{favoriteAlerts.length}</div>
             </div>
 
             <div className="rounded-2xl bg-slate-950 p-3">
@@ -473,6 +602,41 @@ export default function App() {
               <div className="mt-1 text-2xl font-black">{watch.length}</div>
             </div>
           </div>
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-yellow-500/60 bg-yellow-950/20 p-5">
+          <h2 className="text-xl font-black">⭐ 自選股快查</h2>
+          <p className="mt-2 text-sm font-bold text-slate-300">
+            輸入股票代號加入自選，例如 2330、2454、3711。
+          </p>
+
+          <div className="mt-4 flex gap-2">
+            <input
+              value={favoriteInput}
+              onChange={(e) => setFavoriteInput(cleanCode(e.target.value))}
+              inputMode="numeric"
+              placeholder="輸入股票代號"
+              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+            />
+
+            <button
+              onClick={() => addFavorite(favoriteInput)}
+              className="rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-black text-black active:scale-95"
+            >
+              加入
+            </button>
+          </div>
+
+          <div className="mt-3 text-sm font-bold text-slate-400">
+            目前自選：{favoriteCodes.length} 檔｜轉強提醒：{favoriteAlerts.length} 檔
+          </div>
+
+          <button
+            onClick={() => setTab("favorite")}
+            className="mt-4 w-full rounded-2xl bg-yellow-500/20 py-3 text-lg font-black text-yellow-200 active:scale-95"
+          >
+            查看我的自選股
+          </button>
         </section>
 
         <section className="mt-4 rounded-3xl border border-violet-600 bg-violet-950/30 p-5">
@@ -536,7 +700,7 @@ export default function App() {
             <h2 className="text-2xl font-black">
               {tab === "top50" && "📊 今日漲幅50強"}
               {tab === "watch" && "👁️ 安全觀察"}
-              {tab === "favorite" && "⭐ 突破觀察"}
+              {tab === "favorite" && "⭐ 我的自選股"}
               {tab === "industry" && "🏭 產業熱度"}
               {tab === "alert" && "🔔 警報股"}
             </h2>
@@ -546,7 +710,69 @@ export default function App() {
             </p>
           </div>
 
-          {tab === "industry" ? (
+          {tab === "favorite" && (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-yellow-500/40 bg-yellow-950/20 p-4">
+                <div className="text-lg font-black">加入自選股</div>
+
+                <div className="mt-3 flex gap-2">
+                  <input
+                    value={favoriteInput}
+                    onChange={(e) => setFavoriteInput(cleanCode(e.target.value))}
+                    inputMode="numeric"
+                    placeholder="輸入股票代號"
+                    className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+                  />
+
+                  <button
+                    onClick={() => addFavorite(favoriteInput)}
+                    className="rounded-2xl bg-yellow-500 px-4 py-3 text-sm font-black text-black active:scale-95"
+                  >
+                    加入
+                  </button>
+                </div>
+              </div>
+
+              {favoriteCodes.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                  目前沒有自選股，先輸入股票代號加入。
+                </div>
+              )}
+
+              {favoriteStocks.map((stock) => (
+                <FavoriteCard
+                  key={stock.code}
+                  stock={stock}
+                  onRemoveFavorite={removeFavorite}
+                />
+              ))}
+
+              {missingFavoriteCodes.map((code) => (
+                <div
+                  key={code}
+                  className="rounded-2xl border border-slate-800 bg-slate-950 p-4"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-xl font-black">{code}</div>
+                      <div className="mt-1 text-sm font-bold text-slate-400">
+                        今日50強資料中沒有這檔，可能不是今日強勢股，或 API 尚未取得。
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => removeFavorite(code)}
+                      className="rounded-2xl bg-red-500/20 px-4 py-2 text-sm font-black text-red-300"
+                    >
+                      移除
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {tab === "industry" && (
             <div className="space-y-3">
               {industries.length === 0 && (
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
@@ -584,7 +810,9 @@ export default function App() {
                 </div>
               ))}
             </div>
-          ) : (
+          )}
+
+          {tab !== "industry" && tab !== "favorite" && (
             <div className="space-y-3">
               {displayedStocks.length === 0 && (
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
@@ -597,6 +825,9 @@ export default function App() {
                   key={`${stock.code}-${index}`}
                   stock={stock}
                   rank={index + 1}
+                  favoriteCodes={favoriteCodes}
+                  onAddFavorite={addFavorite}
+                  onRemoveFavorite={removeFavorite}
                 />
               ))}
             </div>
@@ -633,7 +864,7 @@ export default function App() {
             }`}
           >
             <div className="text-2xl">⭐</div>
-            突破
+            自選
           </button>
 
           <button
