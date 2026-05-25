@@ -26,8 +26,6 @@ type StockItem = {
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
-
-  // 真實小走勢圖資料
   sparkline: number[];
 };
 
@@ -358,13 +356,37 @@ function makeSparklineFallback(price: number, previousClose: number) {
   if (price <= 0) return [];
 
   const base = previousClose > 0 ? previousClose : price;
-  const mid = (base + price) / 2;
+  const mid1 = base + (price - base) * 0.25;
+  const mid2 = base + (price - base) * 0.5;
+  const mid3 = base + (price - base) * 0.75;
 
-  return [
-    Number(base.toFixed(2)),
-    Number(mid.toFixed(2)),
-    Number(price.toFixed(2)),
-  ];
+  return [base, mid1, mid2, mid3, price].map((value) =>
+    Number(value.toFixed(2))
+  );
+}
+
+function sampleSparkline(values: number[], targetCount = 18) {
+  const cleanValues = values.filter(
+    (value) => Number.isFinite(value) && value > 0
+  );
+
+  if (cleanValues.length < 2) return [];
+
+  if (cleanValues.length <= targetCount) {
+    return cleanValues.map((value) => Number(value.toFixed(2)));
+  }
+
+  const sampled: number[] = [];
+
+  for (let i = 0; i < targetCount; i++) {
+    const index = Math.round(
+      (i / (targetCount - 1)) * (cleanValues.length - 1)
+    );
+
+    sampled.push(Number(cleanValues[index].toFixed(2)));
+  }
+
+  return sampled;
 }
 
 function makeEmptyStock(code: string): StockItem {
@@ -610,10 +632,10 @@ async function fetchYahooSparkline(code: string) {
   for (const host of hosts) {
     const url =
       `https://${host}/v8/finance/chart/${clean}.TW` +
-      `?range=1d&interval=5m&includePrePost=false&t=${Date.now()}`;
+      `?range=1d&interval=1m&includePrePost=false&t=${Date.now()}`;
 
     try {
-      const res = await fetchWithTimeout(url, 6000);
+      const res = await fetchWithTimeout(url, 7000);
 
       if (!res.ok) continue;
 
@@ -627,8 +649,10 @@ async function fetchYahooSparkline(code: string) {
         .map((value: any) => toNumber(value))
         .filter((value: number) => value > 0);
 
-      if (cleanCloses.length >= 2) {
-        return cleanCloses.slice(-18).map((value: number) => Number(value.toFixed(2)));
+      const sampled = sampleSparkline(cleanCloses, 18);
+
+      if (sampled.length >= 2) {
+        return sampled;
       }
     } catch {
       continue;
@@ -650,7 +674,9 @@ async function attachSparklines(stocks: StockItem[]) {
         sparkline:
           sparkline.length >= 2
             ? sparkline
-            : makeSparklineFallback(stock.price, stock.previousClose),
+            : stock.sparkline && stock.sparkline.length >= 2
+              ? stock.sparkline
+              : makeSparklineFallback(stock.price, stock.previousClose),
       };
     })
   );
@@ -848,7 +874,6 @@ export default async function handler(req: Request) {
       };
     });
 
-    // 加上真實走勢 sparkline
     rankedStocks = await attachSparklines(rankedStocks);
     const watchListWithSparkline = await attachSparklines(watchList);
 
@@ -857,7 +882,7 @@ export default async function handler(req: Request) {
 
     return jsonResponse({
       ok: hasRanking || hasWatchList,
-      source: "TWSE MIS + Yahoo chart sparkline fallback",
+      source: "TWSE MIS + Yahoo chart 1m sampled sparkline",
       updatedAt: new Date().toISOString(),
       updatedAtTaiwan: nowText(),
       cache: "no-store",
@@ -871,7 +896,7 @@ export default async function handler(req: Request) {
         hasWatchList,
         errors,
         note:
-          "股價優先使用證交所 MIS；小走勢 sparkline 使用 Yahoo chart 5m。若抓不到走勢，才用現價與昨收產生簡化線。",
+          "股價優先使用證交所 MIS；小走勢使用 Yahoo chart 1m 整天走勢取樣 18 點。若抓不到走勢，才用昨收到現價產生簡化線。",
       },
     });
   } catch (error: any) {
