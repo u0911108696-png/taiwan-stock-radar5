@@ -186,12 +186,19 @@ function isBreakout(stock: Stock) {
 }
 
 function isAlert(stock: Stock) {
-  return stock.changePercent >= 5 || (stock.openPremiumPercent ?? 0) >= 3 || (stock.volumeRatio ?? 0) >= 2;
+  return (
+    isUnder200(stock) &&
+    (
+      stock.changePercent >= 5 ||
+      (stock.openPremiumPercent ?? 0) >= 3 ||
+      (stock.volumeRatio ?? 0) >= 2
+    )
+  );
 }
 
 function getFavoriteStatus(stock: Stock) {
   if (stock.price > MAX_TRACK_PRICE) return "⚪ 超過200元";
-  if (isAlert(stock)) return "🔔 有警報";
+  if (isAlert(stock)) return "🔔 200內警報";
   if (isBreakout(stock)) return "⭐ 突破轉強";
   if (stock.changePercent >= 3) return "👁️ 轉強觀察";
   if (stock.changePercent < 0) return "🟢 轉弱";
@@ -233,23 +240,23 @@ function getIndustryRanking(stocks: Stock[]) {
     .sort((a, b) => b.count - a.count || b.avg - a.avg);
 }
 
-function getMarketMode(stocks: Stock[]) {
+function getMarketMode(stocks: Stock[], under200Alerts: Stock[]) {
   const strong = stocks.filter((s) => s.changePercent >= 3).length;
   const weak = stocks.filter((s) => s.changePercent < 0).length;
-  const alert = stocks.filter(isAlert).length;
+  const alert = under200Alerts.length;
 
-  if (strong >= 20 && alert >= 25) {
+  if (strong >= 20 && alert >= 10) {
     return {
-      title: "✅ 大盤偏強",
-      text: "強勢股與警報股數量偏多，可以優先看主流產業、200元內明日觀察與自選轉強股。",
-      strategy: "可積極觀察主流股，但仍避免追高過熱股。",
+      title: "✅ 200內強勢股活躍",
+      text: "200元內警報股數量增加，短線資金有機會集中在中低價強勢股。",
+      strategy: "優先看200內警報、200內觀察與主流產業。",
     };
   }
 
   if (weak > strong) {
     return {
       title: "⚠️ 盤勢轉弱",
-      text: "下跌或轉弱個股偏多，先降低追價，觀察資金是否回到主流產業。",
+      text: "下跌或轉弱個股偏多，先降低追價，觀察資金是否回到200元內強勢股。",
       strategy: "保守觀察，等待200元內股票重新轉強。",
     };
   }
@@ -292,6 +299,18 @@ function getTomorrowReasons(stock: Stock, hotIndustries: string[]) {
 
   if (reasons.length === 0) return "尚未出現明顯優勢";
   return reasons.slice(0, 4).join("、");
+}
+
+function getAlertReason(stock: Stock) {
+  const reasons: string[] = [];
+
+  if (isUnder200(stock)) reasons.push("股價200元內");
+  if (stock.changePercent >= 5) reasons.push("漲幅大於5%");
+  if ((stock.openPremiumPercent ?? 0) >= 3) reasons.push("開盤溢價大於3%");
+  if ((stock.volumeRatio ?? 0) >= 2) reasons.push("量能放大");
+  if (getRisk(stock) !== "高") reasons.push("風險未過熱");
+
+  return reasons.join("、") || "符合警報條件";
 }
 
 function StockCard({
@@ -400,6 +419,53 @@ function TomorrowCard({
         理由：{getTomorrowReasons(stock, hotIndustries)}
       </div>
 
+      <button
+        onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
+        className={`mt-3 w-full rounded-2xl py-2 text-sm font-black active:scale-95 ${
+          isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-cyan-500/20 text-cyan-200"
+        }`}
+      >
+        {isFavorite ? "★ 已加入自選，點我移除" : "☆ 加入自選追蹤"}
+      </button>
+    </div>
+  );
+}
+
+function AlertCard({
+  stock,
+  rank,
+  favoriteCodes,
+  onAddFavorite,
+  onRemoveFavorite,
+}: {
+  stock: Stock;
+  rank: number;
+  favoriteCodes: string[];
+  onAddFavorite: (code: string) => void;
+  onRemoveFavorite: (code: string) => void;
+}) {
+  const isFavorite = favoriteCodes.includes(stock.code);
+
+  return (
+    <div className="rounded-2xl border border-orange-500/60 bg-orange-950/20 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold text-orange-300">200內警報 #{rank}</div>
+          <div className="mt-1 text-2xl font-black text-white">
+            {stock.code} {stock.name}
+          </div>
+          <div className="mt-1 text-sm font-bold text-slate-400">{stock.industry}</div>
+        </div>
+
+        <div className="text-right text-2xl font-black text-red-400">
+          {formatPercent(stock.changePercent)}
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-black leading-6 text-orange-100">
+        警報原因：{getAlertReason(stock)}
+      </div>
+
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
         <div className="rounded-xl bg-black/30 p-2">
           <div className="text-xs text-slate-500">股價</div>
@@ -420,7 +486,7 @@ function TomorrowCard({
       <button
         onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
         className={`mt-3 w-full rounded-2xl py-2 text-sm font-black active:scale-95 ${
-          isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-cyan-500/20 text-cyan-200"
+          isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-orange-500/20 text-orange-200"
         }`}
       >
         {isFavorite ? "★ 已加入自選，點我移除" : "☆ 加入自選追蹤"}
@@ -596,8 +662,9 @@ export default function App() {
   const industries = useMemo(() => getIndustryRanking(top50), [top50]);
   const under200Industries = useMemo(() => getIndustryRanking(under200Top50), [under200Top50]);
   const hotIndustries = useMemo(() => industries.slice(0, 3).map((item) => item.industry), [industries]);
-  const alerts = useMemo(() => top50.filter(isAlert), [top50]);
-  const breakout = useMemo(() => top50.filter(isBreakout), [top50]);
+
+  const alerts = useMemo(() => under200Top50.filter(isAlert), [under200Top50]);
+  const breakout = useMemo(() => under200Top50.filter(isBreakout), [under200Top50]);
 
   const tomorrowList = useMemo(() => {
     return under200Top50
@@ -613,7 +680,7 @@ export default function App() {
       .map((item) => item.stock);
   }, [under200Top50, hotIndustries]);
 
-  const market = useMemo(() => getMarketMode(top50), [top50]);
+  const market = useMemo(() => getMarketMode(top50, alerts), [top50, alerts]);
 
   const favoriteStocks = useMemo(() => {
     return favoriteCodes
@@ -626,7 +693,9 @@ export default function App() {
   }, [favoriteCodes, stocks]);
 
   const favoriteAlerts = useMemo(() => {
-    return favoriteStocks.filter((stock) => isUnder200(stock) && (isAlert(stock) || isBreakout(stock) || stock.changePercent >= 3));
+    return favoriteStocks.filter(
+      (stock) => isUnder200(stock) && (isAlert(stock) || isBreakout(stock) || stock.changePercent >= 3)
+    );
   }, [favoriteStocks]);
 
   const strongestIndustry = industries[0];
@@ -635,9 +704,8 @@ export default function App() {
 
   const displayedStocks = useMemo(() => {
     if (tab === "top50") return top50;
-    if (tab === "alert") return alerts;
     return [];
-  }, [tab, top50, alerts]);
+  }, [tab, top50]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -646,9 +714,9 @@ export default function App() {
           <div className="flex items-start justify-between gap-4">
             <div>
               <div className="text-sm font-bold text-slate-400">台股即時雷達</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">200元內觀察雷達</h1>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">200元內警報雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                每 60 秒自動更新，從今日強勢股中挑出股價 200 元內的明日觀察股。
+                每 60 秒自動更新，只追蹤股價 200 元內的明日觀察與警報股。
               </p>
             </div>
 
@@ -672,8 +740,8 @@ export default function App() {
             </div>
 
             <div className="rounded-2xl bg-slate-950 p-3">
-              <div className="text-xs text-slate-500">200內50強</div>
-              <div className="text-2xl font-black text-yellow-300">{under200Top50.length}</div>
+              <div className="text-xs text-slate-500">200內警報</div>
+              <div className="text-2xl font-black text-orange-300">{alerts.length}</div>
             </div>
           </div>
         </header>
@@ -714,13 +782,13 @@ export default function App() {
 
           <div className="mt-4 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-2xl bg-black/30 p-3">
-              <div className="text-sm font-bold text-slate-300">突破股</div>
+              <div className="text-sm font-bold text-slate-300">200內突破</div>
               <div className="mt-1 text-2xl font-black">{breakout.length}</div>
             </div>
 
             <div className="rounded-2xl bg-black/30 p-3">
-              <div className="text-sm font-bold text-slate-300">200內觀察</div>
-              <div className="mt-1 text-2xl font-black text-cyan-300">{tomorrowList.length}</div>
+              <div className="text-sm font-bold text-slate-300">200內警報</div>
+              <div className="mt-1 text-2xl font-black text-orange-300">{alerts.length}</div>
             </div>
 
             <div className="rounded-2xl bg-black/30 p-3">
@@ -730,25 +798,39 @@ export default function App() {
           </div>
         </section>
 
+        <section className="mt-4 rounded-3xl border border-orange-500/60 bg-orange-950/20 p-5">
+          <h2 className="text-xl font-black">🔔 200元內警報中心</h2>
+          <p className="mt-2 text-sm font-bold leading-6 text-slate-200">
+            只提醒股價 200 元內，且符合漲幅、開盤溢價或量能放大條件的股票。
+          </p>
+
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="rounded-2xl bg-black/30 p-4">
+              <div className="text-sm font-bold text-slate-300">200內警報</div>
+              <div className="mt-2 text-3xl font-black text-orange-300">{alerts.length}</div>
+            </div>
+
+            <div className="rounded-2xl bg-black/30 p-4">
+              <div className="text-sm font-bold text-slate-300">200內最強產業</div>
+              <div className="mt-2 text-lg font-black text-orange-200">
+                {strongestUnder200Industry?.industry ?? "--"}
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setTab("alert")}
+            className="mt-4 w-full rounded-2xl bg-orange-500/20 py-3 text-lg font-black text-orange-200 active:scale-95"
+          >
+            查看200元內警報股
+          </button>
+        </section>
+
         <section className="mt-4 rounded-3xl border border-cyan-500/60 bg-cyan-950/20 p-5">
           <h2 className="text-xl font-black">📌 200元內明日觀察</h2>
           <p className="mt-2 text-sm font-bold leading-6 text-slate-200">
             只挑股價 200 元內，並優先挑選主流產業、漲幅轉強、風險未過熱、收盤強於開盤的股票。
           </p>
-
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            <div className="rounded-2xl bg-black/30 p-4">
-              <div className="text-sm font-bold text-slate-300">200內最強產業</div>
-              <div className="mt-2 text-lg font-black text-cyan-200">
-                {strongestUnder200Industry?.industry ?? "--"}
-              </div>
-            </div>
-
-            <div className="rounded-2xl bg-black/30 p-4">
-              <div className="text-sm font-bold text-slate-300">觀察清單</div>
-              <div className="mt-2 text-3xl font-black text-cyan-300">{tomorrowList.length}</div>
-            </div>
-          </div>
 
           <button
             onClick={() => setTab("tomorrow")}
@@ -761,7 +843,7 @@ export default function App() {
         <section className="mt-4 rounded-3xl border border-yellow-500/60 bg-yellow-950/20 p-5">
           <h2 className="text-xl font-black">⭐ 自選股快查</h2>
           <p className="mt-2 text-sm font-bold text-slate-300">
-            輸入股票代號加入自選，例如 2330、2454、3711。200元內轉強會優先提醒。
+            輸入股票代號加入自選。200元內轉強會優先提醒。
           </p>
 
           <div className="mt-4 flex gap-2">
@@ -797,7 +879,7 @@ export default function App() {
           <h2 className="text-xl font-black">🌙 收盤後復盤提醒</h2>
 
           <p className="mt-2 text-sm font-bold leading-6 text-slate-200">
-            整理今日最強產業、200元內最強產業與明日觀察股，作為明天開盤觀察方向。
+            整理今日最強產業、200元內最強產業與200元內警報股，作為明天開盤觀察方向。
           </p>
 
           <div className="mt-4 grid grid-cols-2 gap-3">
@@ -834,11 +916,11 @@ export default function App() {
               {tab === "tomorrow" && "📌 200元內明日觀察"}
               {tab === "favorite" && "⭐ 我的自選股"}
               {tab === "industry" && "🏭 產業熱度"}
-              {tab === "alert" && "🔔 警報股"}
+              {tab === "alert" && "🔔 200元內警報股"}
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              明日觀察只追蹤股價 200 元內。漲數字紅色，跌數字綠色。
+              警報與明日觀察只追蹤股價 200 元內。漲數字紅色，跌數字綠色。
             </p>
           </div>
 
@@ -856,6 +938,27 @@ export default function App() {
                   stock={stock}
                   rank={index + 1}
                   hotIndustries={hotIndustries}
+                  favoriteCodes={favoriteCodes}
+                  onAddFavorite={addFavorite}
+                  onRemoveFavorite={removeFavorite}
+                />
+              ))}
+            </div>
+          )}
+
+          {tab === "alert" && (
+            <div className="space-y-3">
+              {alerts.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                  目前沒有符合條件的 200 元內警報股。
+                </div>
+              )}
+
+              {alerts.map((stock, index) => (
+                <AlertCard
+                  key={stock.code}
+                  stock={stock}
+                  rank={index + 1}
                   favoriteCodes={favoriteCodes}
                   onAddFavorite={addFavorite}
                   onRemoveFavorite={removeFavorite}
@@ -966,7 +1069,7 @@ export default function App() {
             </div>
           )}
 
-          {tab !== "industry" && tab !== "favorite" && tab !== "tomorrow" && (
+          {tab === "top50" && (
             <div className="space-y-3">
               {displayedStocks.length === 0 && (
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
