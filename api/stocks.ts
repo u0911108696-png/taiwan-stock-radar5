@@ -26,6 +26,9 @@ type StockItem = {
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
+
+  // 真實小走勢圖資料
+  sparkline: number[];
 };
 
 const stockNameMap: Record<string, string> = {
@@ -351,6 +354,19 @@ function nowText() {
   });
 }
 
+function makeSparklineFallback(price: number, previousClose: number) {
+  if (price <= 0) return [];
+
+  const base = previousClose > 0 ? previousClose : price;
+  const mid = (base + price) / 2;
+
+  return [
+    Number(base.toFixed(2)),
+    Number(mid.toFixed(2)),
+    Number(price.toFixed(2)),
+  ];
+}
+
 function makeEmptyStock(code: string): StockItem {
   const clean = cleanCode(code);
 
@@ -368,6 +384,7 @@ function makeEmptyStock(code: string): StockItem {
     turnoverRate: null,
     volumeRatio: null,
     floatMarketCapYi: null,
+    sparkline: [],
   };
 }
 async function fetchWithTimeout(url: string, timeoutMs = 8000) {
@@ -437,6 +454,7 @@ function normalizeTwseItem(item: any): StockItem | null {
     turnoverRate: null,
     volumeRatio: null,
     floatMarketCapYi: null,
+    sparkline: makeSparklineFallback(price, previousClose),
   };
 }
 
@@ -480,7 +498,7 @@ async function fetchTwseQuotes(codes: string[]) {
   return Array.from(map.values());
 }
 
-function normalizeYahooItem(item: any): StockItem | null {
+function normalizeYahooQuoteItem(item: any): StockItem | null {
   const symbol = String(item?.symbol || "");
   const code = cleanCode(symbol);
 
@@ -517,6 +535,7 @@ function normalizeYahooItem(item: any): StockItem | null {
     turnoverRate: null,
     volumeRatio: null,
     floatMarketCapYi: null,
+    sparkline: makeSparklineFallback(price, previousClose),
   };
 }
 
@@ -550,7 +569,7 @@ async function fetchYahooQuotesFromHost(codes: string[], host: string) {
       if (!Array.isArray(result)) continue;
 
       for (const item of result) {
-        const normalized = normalizeYahooItem(item);
+        const normalized = normalizeYahooQuoteItem(item);
 
         if (normalized) allResults.push(normalized);
       }
@@ -579,6 +598,76 @@ async function fetchYahooQuotes(codes: string[]) {
   }
 
   return Array.from(map.values());
+}
+
+async function fetchYahooSparkline(code: string) {
+  const clean = cleanCode(code);
+
+  if (!/^\d{4}$/.test(clean)) return [];
+
+  const hosts = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
+
+  for (const host of hosts) {
+    const url =
+      `https://${host}/v8/finance/chart/${clean}.TW` +
+      `?range=1d&interval=5m&includePrePost=false&t=${Date.now()}`;
+
+    try {
+      const res = await fetchWithTimeout(url, 6000);
+
+      if (!res.ok) continue;
+
+      const data = await res.json();
+      const result = data?.chart?.result?.[0];
+      const closes = result?.indicators?.quote?.[0]?.close;
+
+      if (!Array.isArray(closes)) continue;
+
+      const cleanCloses = closes
+        .map((value: any) => toNumber(value))
+        .filter((value: number) => value > 0);
+
+      if (cleanCloses.length >= 2) {
+        return cleanCloses.slice(-18).map((value: number) => Number(value.toFixed(2)));
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return [];
+}
+
+async function attachSparklines(stocks: StockItem[]) {
+  const limited = stocks.slice(0, 50);
+
+  const sparklineResults = await Promise.all(
+    limited.map(async (stock) => {
+      const sparkline = await fetchYahooSparkline(stock.code);
+
+      return {
+        code: stock.code,
+        sparkline:
+          sparkline.length >= 2
+            ? sparkline
+            : makeSparklineFallback(stock.price, stock.previousClose),
+      };
+    })
+  );
+
+  const sparklineMap = new Map<string, number[]>();
+
+  sparklineResults.forEach((item) => {
+    sparklineMap.set(item.code, item.sparkline);
+  });
+
+  return stocks.map((stock) => ({
+    ...stock,
+    sparkline:
+      sparklineMap.get(stock.code) ||
+      stock.sparkline ||
+      makeSparklineFallback(stock.price, stock.previousClose),
+  }));
 }
 
 async function fetchBestQuotes(codes: string[]) {
@@ -651,6 +740,10 @@ function buildFallbackRanking(watchList: StockItem[]) {
       ...stock,
       name: getStockName(stock.code, stock.name),
       industry: getIndustry(stock.code),
+      sparkline:
+        stock.sparkline && stock.sparkline.length >= 2
+          ? stock.sparkline
+          : makeSparklineFallback(stock.price, stock.previousClose),
     }))
     .sort((a, b) => b.changePercent - a.changePercent);
 }
@@ -664,6 +757,10 @@ function padRankingToFifty(rankedStocks: StockItem[], watchList: StockItem[]) {
         ...stock,
         name: getStockName(stock.code, stock.name),
         industry: getIndustry(stock.code),
+        sparkline:
+          stock.sparkline && stock.sparkline.length >= 2
+            ? stock.sparkline
+            : makeSparklineFallback(stock.price, stock.previousClose),
       });
     }
   });
@@ -674,6 +771,10 @@ function padRankingToFifty(rankedStocks: StockItem[], watchList: StockItem[]) {
         ...stock,
         name: getStockName(stock.code, stock.name),
         industry: getIndustry(stock.code),
+        sparkline:
+          stock.sparkline && stock.sparkline.length >= 2
+            ? stock.sparkline
+            : makeSparklineFallback(stock.price, stock.previousClose),
       });
     }
   });
@@ -740,29 +841,37 @@ export default async function handler(req: Request) {
         ...found,
         name: getStockName(found.code, found.name),
         industry: getIndustry(found.code),
+        sparkline:
+          found.sparkline && found.sparkline.length >= 2
+            ? found.sparkline
+            : makeSparklineFallback(found.price, found.previousClose),
       };
     });
 
+    // 加上真實走勢 sparkline
+    rankedStocks = await attachSparklines(rankedStocks);
+    const watchListWithSparkline = await attachSparklines(watchList);
+
     const hasRanking = rankedStocks.length > 0;
-    const hasWatchList = watchList.some((stock) => stock.price > 0);
+    const hasWatchList = watchListWithSparkline.some((stock) => stock.price > 0);
 
     return jsonResponse({
       ok: hasRanking || hasWatchList,
-      source: "TWSE MIS + Yahoo fallback",
+      source: "TWSE MIS + Yahoo chart sparkline fallback",
       updatedAt: new Date().toISOString(),
       updatedAtTaiwan: nowText(),
       cache: "no-store",
       rankedStocks,
-      watchList,
+      watchList: watchListWithSparkline,
       meta: {
         rankedCount: rankedStocks.length,
-        watchCount: watchList.length,
+        watchCount: watchListWithSparkline.length,
         watchCodes,
         hasRanking,
         hasWatchList,
         errors,
         note:
-          "優先使用證交所 MIS 即時資料；抓不到時才使用 Yahoo 備援。股票名稱優先使用中文對照表。",
+          "股價優先使用證交所 MIS；小走勢 sparkline 使用 Yahoo chart 5m。若抓不到走勢，才用現價與昨收產生簡化線。",
       },
     });
   } catch (error: any) {
