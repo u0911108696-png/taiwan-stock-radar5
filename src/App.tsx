@@ -267,7 +267,17 @@ function volumeLots(volume: number) {
   return Math.round(volume / 1000);
 }
 
-function isNineTenWindow() {
+function isTradingTime() {
+  const now = new Date();
+  const day = now.getDay();
+  const totalMinutes = now.getHours() * 60 + now.getMinutes();
+
+  const isWeekday = day >= 1 && day <= 5;
+  const marketOpen = 9 * 60;
+  const marketClose = 13 * 60 + 30;
+
+  return isWeekday && totalMinutes >= marketOpen && totalMinutes <= marketClose;
+}
   const now = new Date();
   const day = now.getDay();
   const totalMinutes = now.getHours() * 60 + now.getMinutes();
@@ -1473,7 +1483,7 @@ export default function App() {
       setLastSuccessAt(formatTime(new Date()));
       setApiUpdatedAtTaiwan(data.updatedAtTaiwan || "");
       setDataSource(data.source || "");
-      setNextRefresh(isNineTenWindow() ? 10 : 60);
+      setNextRefresh(isTradingTime() ? 10 : 60);
     } catch (err: any) {
       const message = err?.message || "資料載入失敗";
       setError(message);
@@ -1587,7 +1597,7 @@ export default function App() {
       setNextRefresh((prev) => {
         if (prev <= 1) {
           loadStocks(watchCodes);
-          return isNineTenWindow() ? 10 : 60;
+          return isTradingTime() ? 10 : 60;
         }
 
         return prev - 1;
