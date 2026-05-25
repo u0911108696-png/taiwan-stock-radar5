@@ -14,9 +14,11 @@ type Stock = {
   turnoverRate: number | null;
   volumeRatio: number | null;
   floatMarketCapYi: number | null;
+  updatedAt?: string;
 };
 
 type TabKey = "home" | "top" | "observe" | "favorite" | "more";
+
 type MoreView =
   | "menu"
   | "industry"
@@ -27,12 +29,14 @@ type MoreView =
   | "open910"
   | "today"
   | "data"
-  | "stats";
+  | "stats"
+  | "alerts";
 
 type SortKey = "score" | "change" | "priceLow" | "industry";
 type ObserveGroup = "明天優先" | "等回測" | "不追高";
 type FavoriteGroup = "短線觀察" | "明天追蹤" | "長期關注";
 type ResultStatus = "成功續強" | "失敗轉弱";
+type PriceDirection = "up" | "down" | "same" | "new";
 
 type Settings = {
   maxPrice: number;
@@ -43,6 +47,7 @@ type Settings = {
   minChangePercent: number;
   minVolume: number;
   onlyActiveFavorite: boolean;
+  refreshSeconds: number;
 };
 
 type ApiResponse = {
@@ -57,8 +62,6 @@ type ApiResponse = {
 };
 
 const API_URL = "/api/stocks";
-const AUTO_REFRESH_SECONDS = 60;
-
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const OBSERVE_KEY = "taiwan-stock-radar-observe";
 const SETTINGS_KEY = "taiwan-stock-radar-settings";
@@ -78,6 +81,7 @@ const defaultSettings: Settings = {
   minChangePercent: 0,
   minVolume: 0,
   onlyActiveFavorite: false,
+  refreshSeconds: 30,
 };
 
 const noteTemplates = ["等回測", "看續強", "不追高", "跌破開盤出場"];
@@ -124,7 +128,11 @@ function formatNumber(value: number | null | undefined) {
   return value.toLocaleString("zh-TW");
 }
 
-function normalizeStock(raw: any): Stock {
+function nowTimeText() {
+  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+}
+
+function normalizeStock(raw: any, fallbackUpdatedAt?: string): Stock {
   const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "");
   const name = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
 
@@ -179,6 +187,7 @@ function normalizeStock(raw: any): Stock {
       raw.floatMarketCapYi !== undefined && raw.floatMarketCapYi !== null
         ? toNumber(raw.floatMarketCapYi)
         : null,
+    updatedAt: String(raw.updatedAt ?? raw.time ?? raw.updateTime ?? fallbackUpdatedAt ?? nowTimeText()),
   };
 }
 
@@ -452,6 +461,21 @@ function getKLinks(code: string, name: string) {
   };
 }
 
+function getDirectionText(direction?: PriceDirection) {
+  if (direction === "up") return "↑ 價格上升";
+  if (direction === "down") return "↓ 價格下降";
+  if (direction === "same") return "→ 價格持平";
+  if (direction === "new") return "新資料";
+  return "--";
+}
+
+function getDirectionTone(direction?: PriceDirection) {
+  if (direction === "up") return "text-red-300";
+  if (direction === "down") return "text-emerald-300";
+  if (direction === "same") return "text-slate-300";
+  return "text-cyan-300";
+}
+
 function MiniCard({
   title,
   value,
@@ -517,6 +541,7 @@ function StockCard({
   favoriteCodes,
   observeCodes,
   previousRanks,
+  priceDirections,
   onOpenDetail,
   onAddFavorite,
   onRemoveFavorite,
@@ -530,6 +555,7 @@ function StockCard({
   favoriteCodes: string[];
   observeCodes: string[];
   previousRanks: Record<string, number>;
+  priceDirections: Record<string, PriceDirection>;
   onOpenDetail: (code: string) => void;
   onAddFavorite: (code: string) => void;
   onRemoveFavorite: (code: string) => void;
@@ -543,6 +569,7 @@ function StockCard({
   const previousRank = previousRanks[stock.code];
   const newEntry = !previousRank;
   const rankUp = previousRank ? previousRank - rank : 0;
+  const direction = priceDirections[stock.code];
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950/90 p-3 shadow-lg">
@@ -559,8 +586,11 @@ function StockCard({
             <div className="mt-1 text-xs font-bold text-slate-400">{stock.industry}</div>
           </div>
 
-          <div className={`text-right text-xl font-black ${isUp ? "text-red-400" : "text-emerald-400"}`}>
-            {formatPercent(stock.changePercent)}
+          <div className="text-right">
+            <div className={`text-xl font-black ${isUp ? "text-red-400" : "text-emerald-400"}`}>
+              {formatPercent(stock.changePercent)}
+            </div>
+            <div className="mt-1 text-sm font-black text-white">{formatNumber(stock.price)}</div>
           </div>
         </div>
 
@@ -568,13 +598,15 @@ function StockCard({
           <span className="rounded-full bg-slate-800 px-3 py-1">{getStatusTag(stock, settings)}</span>
           <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{getEntryType(stock, settings)}</span>
           <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">分數 {score}</span>
-          <span className="rounded-full bg-yellow-950 px-3 py-1 text-yellow-200">{scoreText(score)}</span>
+          <span className={`rounded-full bg-black/30 px-3 py-1 ${getDirectionTone(direction)}`}>
+            {getDirectionText(direction)}
+          </span>
           {isFavorite && <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-yellow-300">自選</span>}
           {isObserve && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">觀察</span>}
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          結論：{getActionConclusion(stock, mainIndustries, settings)}｜{getShortReason(stock, mainIndustries, settings)}
+          結論：{getActionConclusion(stock, mainIndustries, settings)}｜更新：{stock.updatedAt || "--"}
         </div>
       </button>
 
@@ -613,16 +645,18 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [loading, setLoading] = useState(true);
+  const [updating, setUpdating] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
 
   const [lastSuccessAt, setLastSuccessAt] = useState("");
+  const [lastAttemptAt, setLastAttemptAt] = useState("");
   const [apiDataTime, setApiDataTime] = useState("");
   const [source, setSource] = useState("");
   const [error, setError] = useState("");
 
   const [tab, setTab] = useState<TabKey>("home");
   const [moreView, setMoreView] = useState<MoreView>("menu");
-  const [autoSeconds, setAutoSeconds] = useState(AUTO_REFRESH_SECONDS);
+  const [autoSeconds, setAutoSeconds] = useState(defaultSettings.refreshSeconds);
 
   const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
   const [observeCodes, setObserveCodes] = useState<string[]>([]);
@@ -631,6 +665,8 @@ export default function App() {
   const [resultMap, setResultMap] = useState<Record<string, ResultStatus>>({});
   const [previousRanks, setPreviousRanks] = useState<Record<string, number>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [priceDirections, setPriceDirections] = useState<Record<string, PriceDirection>>({});
+  const [lastPriceMap, setLastPriceMap] = useState<Record<string, number>>({});
 
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [favoriteInput, setFavoriteInput] = useState("");
@@ -656,7 +692,11 @@ export default function App() {
       if (savedObserve) setObserveCodes(JSON.parse(savedObserve));
 
       const savedSettings = localStorage.getItem(SETTINGS_KEY);
-      if (savedSettings) setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
+      if (savedSettings) {
+        const parsed = { ...defaultSettings, ...JSON.parse(savedSettings) };
+        setSettings(parsed);
+        setAutoSeconds(parsed.refreshSeconds);
+      }
 
       const savedObserveGroups = localStorage.getItem(OBSERVE_GROUP_KEY);
       if (savedObserveGroups) setObserveGroups(JSON.parse(savedObserveGroups));
@@ -680,6 +720,12 @@ export default function App() {
         if (Array.isArray(parsed.stocks)) {
           setStocks(parsed.stocks);
           setUsingCachedData(true);
+
+          const prices: Record<string, number> = {};
+          parsed.stocks.forEach((stock: Stock) => {
+            prices[stock.code] = stock.price;
+          });
+          setLastPriceMap(prices);
         }
 
         if (parsed.apiDataTime) setApiDataTime(parsed.apiDataTime);
@@ -688,12 +734,14 @@ export default function App() {
       }
     } catch {
       setSettings(defaultSettings);
+      setAutoSeconds(defaultSettings.refreshSeconds);
     }
   }, []);
 
   function saveSettings(next: Settings) {
     setSettings(next);
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
+    setAutoSeconds(next.refreshSeconds);
   }
 
   function saveFavoriteCodes(next: string[]) {
@@ -800,9 +848,11 @@ export default function App() {
     setTab("observe");
   }
 
-  async function loadStocks() {
+  async function loadStocks(manual = false) {
     try {
       setError("");
+      setUpdating(true);
+      setLastAttemptAt(nowTimeText());
 
       const response = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
 
@@ -820,29 +870,52 @@ export default function App() {
             ? json.data
             : [];
 
+      const dataTime =
+        json.updatedAtTaiwan ||
+        (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowTimeText());
+
       const normalized = list
-        .map(normalizeStock)
+        .map((raw) => normalizeStock(raw, dataTime))
         .filter((stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
         .sort((a, b) => b.changePercent - a.changePercent);
 
+      if (normalized.length === 0) {
+        throw new Error("API 回傳空資料");
+      }
+
       if (stocks.length > 0) {
         const oldRanks: Record<string, number> = {};
-
         stocks.slice(0, 50).forEach((stock, index) => {
           oldRanks[stock.code] = index + 1;
         });
-
         setPreviousRanks(oldRanks);
         localStorage.setItem(PREVIOUS_RANK_KEY, JSON.stringify(oldRanks));
       }
 
-      const successTime = new Date().toLocaleTimeString("zh-TW", { hour12: false });
-      const dataTime =
-        json.updatedAtTaiwan ||
-        (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : new Date().toLocaleString("zh-TW"));
+      const nextDirections: Record<string, PriceDirection> = {};
+      const nextPriceMap: Record<string, number> = {};
+
+      normalized.forEach((stock) => {
+        const oldPrice = lastPriceMap[stock.code];
+        nextPriceMap[stock.code] = stock.price;
+
+        if (oldPrice === undefined) {
+          nextDirections[stock.code] = "new";
+        } else if (stock.price > oldPrice) {
+          nextDirections[stock.code] = "up";
+        } else if (stock.price < oldPrice) {
+          nextDirections[stock.code] = "down";
+        } else {
+          nextDirections[stock.code] = "same";
+        }
+      });
+
+      const successTime = nowTimeText();
       const dataSource = json.source || "TWSE MIS + Yahoo fallback";
 
       setStocks(normalized);
+      setLastPriceMap(nextPriceMap);
+      setPriceDirections(nextDirections);
       setLastSuccessAt(successTime);
       setApiDataTime(dataTime);
       setSource(dataSource);
@@ -862,20 +935,23 @@ export default function App() {
       setError(err?.message || "資料讀取失敗，已保留上次成功資料");
     } finally {
       setLoading(false);
-      setAutoSeconds(AUTO_REFRESH_SECONDS);
+      setUpdating(false);
+      setAutoSeconds(settings.refreshSeconds);
     }
   }
 
   useEffect(() => {
-    loadStocks();
+    loadStocks(true);
   }, []);
 
   useEffect(() => {
+    if (settings.refreshSeconds <= 0) return;
+
     const timer = window.setInterval(() => {
       setAutoSeconds((seconds) => {
         if (seconds <= 1) {
-          loadStocks();
-          return AUTO_REFRESH_SECONDS;
+          loadStocks(false);
+          return settings.refreshSeconds;
         }
 
         return seconds - 1;
@@ -883,7 +959,7 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [stocks]);
+  }, [settings.refreshSeconds, stocks, lastPriceMap]);
 
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
   const industries = useMemo(() => getIndustryRanking(top50), [top50]);
@@ -899,6 +975,23 @@ export default function App() {
   const alerts = useMemo(() => baseFiltered.filter((stock) => isAlert(stock, settings)), [baseFiltered, settings]);
   const hotList = useMemo(() => top50.filter((stock) => isHot(stock, settings)), [top50, settings]);
   const weakList = useMemo(() => baseFiltered.filter(isWeak), [baseFiltered]);
+
+  const realTime200Alerts = useMemo(() => {
+    return top50
+      .filter((stock) => stock.price > 0 && stock.price <= 200)
+      .filter((stock) => isAlert(stock, settings))
+      .filter((stock) => !isHot(stock, settings))
+      .filter((stock) => !isWeak(stock))
+      .slice(0, 30);
+  }, [top50, settings]);
+
+  const observeRealtimeAlerts = useMemo(() => {
+    return observeStocks.filter((stock) => isAlert(stock, settings) || isWeak(stock) || isHot(stock, settings) || stock.price < stock.openPrice);
+  }, [observeStocks, settings]);
+
+  const favoriteRealtimeAlerts = useMemo(() => {
+    return favoriteStocksRaw.filter((stock) => isAlert(stock, settings) || isWeak(stock) || stock.changePercent >= 3);
+  }, [favoriteStocksRaw, settings]);
 
   const avoidList = useMemo(() => {
     return Array.from(new Map([...hotList, ...weakList].map((stock) => [stock.code, stock])).values());
@@ -1013,6 +1106,7 @@ export default function App() {
   }, [observeSummary]);
 
   const dataStatus = useMemo(() => {
+    if (updating) return "更新中";
     if (error) return "API錯誤";
     if (usingCachedData) return "快取";
     if (!apiDataTime) return "讀取中";
@@ -1021,7 +1115,15 @@ export default function App() {
     if (!apiDataTime.includes(year)) return "過舊";
 
     return "正常";
-  }, [error, usingCachedData, apiDataTime]);
+  }, [error, usingCachedData, apiDataTime, updating]);
+
+  const apiHealth = useMemo(() => {
+    if (updating) return "API更新中";
+    if (error) return "API失敗";
+    if (usingCachedData) return "使用快取";
+    if (lastSuccessAt) return "API正常";
+    return "尚未成功";
+  }, [updating, error, usingCachedData, lastSuccessAt]);
 
   const selectedStock = useMemo(() => {
     if (!selectedCode) return null;
@@ -1090,6 +1192,7 @@ export default function App() {
       if (moreView === "pullback") return applyFilters(pullbackList);
       if (moreView === "breakout") return applyFilters(breakoutList);
       if (moreView === "open910") return applyFilters(open910List);
+      if (moreView === "alerts") return applyFilters(realTime200Alerts);
     }
 
     return [];
@@ -1104,6 +1207,7 @@ export default function App() {
     pullbackList,
     breakoutList,
     open910List,
+    realTime200Alerts,
     searchText,
     mainOnly,
     onlyWatchable,
@@ -1131,6 +1235,7 @@ export default function App() {
     favoriteCodes,
     observeCodes,
     previousRanks,
+    priceDirections,
     onOpenDetail: (code: string) => setSelectedCode(code),
     onAddFavorite: addFavorite,
     onRemoveFavorite: removeFavorite,
@@ -1150,6 +1255,7 @@ export default function App() {
     const chaseRisk = getChaseRisk(selectedStock, settings);
     const openLow = selectedStock.openPrice * 0.985;
     const openHigh = selectedStock.openPrice * 1.015;
+    const direction = priceDirections[selectedStock.code];
 
     const checks = [
       { label: `股價${settings.maxPrice}元內`, ok: isUnderPrice(selectedStock, settings) },
@@ -1196,15 +1302,55 @@ export default function App() {
             </div>
 
             <div className="mt-4 rounded-2xl bg-black/30 p-4">
+              <div className="text-xs font-bold text-slate-500">即時股價</div>
+              <div className="mt-1 flex items-end justify-between gap-3">
+                <div>
+                  <div className="text-3xl font-black text-white">{formatNumber(selectedStock.price)}</div>
+                  <div className={`mt-1 text-sm font-black ${getDirectionTone(direction)}`}>
+                    {getDirectionText(direction)}
+                  </div>
+                </div>
+                <div className="text-right text-xs font-bold text-slate-400">
+                  <div>更新：{selectedStock.updatedAt || lastSuccessAt || "--"}</div>
+                  <div>資料：{dataStatus}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-black/30 p-4">
               <div className="text-xs font-bold text-slate-500">操作結論</div>
               <div className="mt-1 text-2xl font-black text-yellow-200">{conclusion}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">{getTomorrowPlan(selectedStock, mainIndustries, settings)}</div>
             </div>
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-              <DetailRow label="股價" value={formatNumber(selectedStock.price)} />
               <DetailRow label="開盤" value={formatNumber(selectedStock.openPrice)} />
               <DetailRow label="昨收" value={formatNumber(selectedStock.previousClose)} />
+              <DetailRow label="量" value={formatNumber(selectedStock.volume)} />
+            </div>
+          </section>
+
+          <section className="mt-4 rounded-3xl border border-blue-500/50 bg-blue-950/20 p-5">
+            <h2 className="text-xl font-black">即時更新控制</h2>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                onClick={() => loadStocks(true)}
+                className="rounded-2xl bg-blue-500/20 py-3 text-sm font-black text-blue-200"
+              >
+                更新這檔 / 全站
+              </button>
+              <button
+                onClick={() => openLink(links.yahoo)}
+                className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200"
+              >
+                開K線確認
+              </button>
+            </div>
+
+            <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-bold text-blue-100">
+              自動更新：{settings.refreshSeconds === 0 ? "手動" : `${settings.refreshSeconds}秒`}｜
+              倒數：{settings.refreshSeconds === 0 ? "--" : `${autoSeconds}s`}｜
+              API：{apiHealth}
             </div>
           </section>
 
@@ -1427,7 +1573,7 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股個股進階版</div>
+              <div className="text-sm font-bold text-slate-400">台股即時股價版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">今日儀表板</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
                 {getTodaySentence(signal.title, mainIndustries, hotList.length)}
@@ -1435,13 +1581,31 @@ export default function App() {
             </div>
 
             <button
-              onClick={loadStocks}
+              onClick={() => loadStocks(true)}
               className="shrink-0 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white shadow-lg active:scale-95"
             >
-              立即<br />更新
+              {updating ? "更新中" : "立即"}<br />更新
             </button>
           </div>
         </header>
+
+        <section className="mt-4 rounded-3xl border border-blue-500/40 bg-blue-950/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-lg font-black">即時更新：{dataStatus}</div>
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                API：{apiHealth}｜倒數：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}s`}｜來源：{source || "--"}
+              </div>
+            </div>
+
+            <button
+              onClick={() => goMore("data")}
+              className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200"
+            >
+              詳情
+            </button>
+          </div>
+        </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard
@@ -1469,27 +1633,27 @@ export default function App() {
           />
 
           <MiniCard
-            title="警報"
-            value={alerts.length}
-            sub="高強度提醒"
+            title="即時警報"
+            value={realTime200Alerts.length}
+            sub="200元內 + 未過熱"
             tone="text-orange-300"
-            onClick={() => goMore("avoid")}
+            onClick={() => goMore("alerts")}
           />
 
           <MiniCard
-            title="勝率"
-            value={observeSuccessRate}
-            sub="觀察結果統計"
+            title="觀察警報"
+            value={observeRealtimeAlerts.length}
+            sub="觀察股異動"
+            tone="text-red-300"
+            onClick={() => setTab("observe")}
+          />
+
+          <MiniCard
+            title="自選警報"
+            value={favoriteRealtimeAlerts.length}
+            sub="自選股異動"
             tone="text-yellow-300"
-            onClick={() => goMore("stats")}
-          />
-
-          <MiniCard
-            title="資料"
-            value={dataStatus}
-            sub={usingCachedData ? "可能使用快取" : "點我看資料狀態"}
-            tone={dataStatus === "正常" ? "text-emerald-300" : "text-yellow-300"}
-            onClick={() => goMore("data")}
+            onClick={() => setTab("favorite")}
           />
         </section>
 
@@ -1574,8 +1738,9 @@ export default function App() {
 
             <div className="mt-4 grid grid-cols-2 gap-3">
               <ActionCard title="今日50強" sub="完整清單" badge={top50.length} tone="text-red-300" onClick={() => setMoreView("today")} />
+              <ActionCard title="即時警報" sub="200元內警報" badge={realTime200Alerts.length} tone="text-orange-300" onClick={() => setMoreView("alerts")} />
               <ActionCard title="產業" sub="主流產業Top3" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="條件與股價上限" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
+              <ActionCard title="設定" sub="更新頻率與條件" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
               <ActionCard title="不要碰" sub="過熱與轉弱" badge={avoidList.length} tone="text-red-300" onClick={() => setMoreView("avoid")} />
               <ActionCard title="回測" sub="等回測觀察" badge={pullbackList.length} tone="text-lime-300" onClick={() => setMoreView("pullback")} />
               <ActionCard title="突破" sub="突破確認股" badge={breakoutList.length} tone="text-orange-300" onClick={() => setMoreView("breakout")} />
@@ -1595,6 +1760,7 @@ export default function App() {
               {tab === "favorite" && "⭐ 自選股"}
               {tab === "more" && moreView === "menu" && "☰ 更多"}
               {tab === "more" && moreView === "today" && "📊 今日50強"}
+              {tab === "more" && moreView === "alerts" && "🚨 即時200元內警報"}
               {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
               {tab === "more" && moreView === "settings" && "⚙️ 條件設定"}
               {tab === "more" && moreView === "avoid" && "🚫 不要碰"}
@@ -1606,7 +1772,7 @@ export default function App() {
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              點股票卡片可進入個股詳情與K線入口。
+              股價會依設定頻率自動更新；是否真正即時取決於你的 /api/stocks 資料來源。
             </p>
           </div>
 
@@ -1655,6 +1821,13 @@ export default function App() {
 
           {tab === "observe" && (
             <div className="space-y-5">
+              <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+                <h3 className="text-xl font-black">觀察股即時警報</h3>
+                <div className="mt-2 text-sm font-bold text-cyan-100">
+                  目前 {observeRealtimeAlerts.length} 檔觀察股有警報 / 轉弱 / 過熱。
+                </div>
+              </div>
+
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
@@ -1718,10 +1891,10 @@ export default function App() {
           {tab === "favorite" && (
             <div className="space-y-5">
               <div className="rounded-3xl border border-yellow-500/60 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">自選健康檢查</h3>
+                <h3 className="text-xl font-black">自選即時狀態</h3>
                 <div className="mt-3 grid grid-cols-3 gap-2 text-center text-sm font-black">
                   <div className="rounded-2xl bg-black/30 p-3">可留<br />{favoriteSummary.keep}</div>
-                  <div className="rounded-2xl bg-black/30 p-3">該觀察<br />{favoriteSummary.strong}</div>
+                  <div className="rounded-2xl bg-black/30 p-3">警報<br />{favoriteRealtimeAlerts.length}</div>
                   <div className="rounded-2xl bg-black/30 p-3">該刪除<br />{favoriteSummary.remove}</div>
                 </div>
 
@@ -1773,6 +1946,28 @@ export default function App() {
 
           {tab === "more" && moreView === "settings" && (
             <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
+              <div>
+                <div className="mb-2 text-lg font-black">自動更新頻率</div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    [15, "15秒"],
+                    [30, "30秒"],
+                    [60, "60秒"],
+                    [0, "手動"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={String(value)}
+                      onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <div>
                 <div className="mb-2 text-lg font-black">股價上限</div>
                 <div className="grid grid-cols-4 gap-2">
@@ -1865,6 +2060,8 @@ export default function App() {
                 <div>失敗轉弱：{observeSummary.fail}</div>
                 <div>仍可觀察：{observeSummary.stillGood}</div>
                 <div>掉出50強：{observeSummary.dropped}</div>
+                <div>觀察即時警報：{observeRealtimeAlerts.length}</div>
+                <div>自選即時警報：{favoriteRealtimeAlerts.length}</div>
               </div>
             </div>
           )}
@@ -1873,10 +2070,13 @@ export default function App() {
             <div className="rounded-3xl border border-blue-500/50 bg-blue-950/20 p-5">
               <div className="text-xl font-black">資料狀態：{dataStatus}</div>
               <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
+                <div>API健康：{apiHealth}</div>
+                <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
                 <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
                 <div>API資料時間：{apiDataTime || "讀取中"}</div>
                 <div>資料來源：{source || "讀取中"}</div>
-                <div>自動更新倒數：{autoSeconds}s</div>
+                <div>自動更新頻率：{settings.refreshSeconds === 0 ? "手動" : `${settings.refreshSeconds}秒`}</div>
+                <div>自動更新倒數：{settings.refreshSeconds === 0 ? "--" : `${autoSeconds}s`}</div>
                 <div>9:10倒數：{getOpen910Countdown()}</div>
               </div>
 
@@ -1886,7 +2086,7 @@ export default function App() {
                 </div>
               )}
 
-              <button onClick={loadStocks} className="mt-4 w-full rounded-2xl bg-blue-500/20 py-3 text-lg font-black text-blue-200">
+              <button onClick={() => loadStocks(true)} className="mt-4 w-full rounded-2xl bg-blue-500/20 py-3 text-lg font-black text-blue-200">
                 重新讀取資料
               </button>
             </div>
