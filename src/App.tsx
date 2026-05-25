@@ -897,21 +897,6 @@ function MiniLine({
     </div>
   );
 }
-  return (
-    <div className="mt-1 h-6 w-16">
-      <svg viewBox="0 0 100 36" className="h-full w-full">
-        <polyline
-          points="4,29 18,27 32,19 46,19 58,17 70,24 82,12 96,14"
-          fill="none"
-          stroke="#ef4444"
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </div>
-  );
-}
 
 function AlertTags({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
@@ -1289,6 +1274,11 @@ function StockDetail({
           <div className="mt-6">
             <div className="text-sm font-bold text-slate-500">即時價</div>
             <div className="text-6xl font-black tracking-tight">{priceText(stock.price)}</div>
+          </div>
+
+          <div className="mt-4 rounded-3xl border border-white/10 bg-white/[0.04] p-4">
+            <div className="mb-2 text-sm font-black text-slate-300">盤中走勢</div>
+            <MiniLine points={stock.sparkline} changePercent={stock.changePercent} />
           </div>
 
           <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
