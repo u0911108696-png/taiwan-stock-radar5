@@ -458,6 +458,90 @@ function isTomorrowWatchStock(stock: Stock, strongIndustryNames: string[]) {
 
   return notOverheated && hasReason;
 }
+
+function getEstimatedAtr(stock: Stock) {
+  const price = stock.price;
+  const previousClose = stock.previousClose;
+  const openPrice = stock.openPrice;
+  const sparkline = Array.isArray(stock.sparkline) ? stock.sparkline : [];
+
+  if (!price || price <= 0) return 0;
+
+  const cleanLine = sparkline.filter(
+    (value) => Number.isFinite(value) && value > 0
+  );
+
+  const dayHigh = cleanLine.length > 0 ? Math.max(...cleanLine, price) : price;
+  const dayLow = cleanLine.length > 0 ? Math.min(...cleanLine, price) : price;
+
+  const intradayRange = dayHigh - dayLow;
+  const gapRange =
+    previousClose > 0 && openPrice > 0 ? Math.abs(openPrice - previousClose) : 0;
+
+  const baseRange = Math.max(intradayRange, gapRange, price * 0.015);
+
+  return Number(baseRange.toFixed(2));
+}
+
+function getAtrTrailingStop(stock: Stock) {
+  const atr = getEstimatedAtr(stock);
+  const price = stock.price;
+  const sparkline = Array.isArray(stock.sparkline) ? stock.sparkline : [];
+
+  if (!price || price <= 0 || atr <= 0) {
+    return {
+      atr: 0,
+      highPrice: price,
+      stopPrice: 0,
+      distancePercent: 0,
+      status: "資料不足",
+      text: "目前 ATR 資料不足，暫時無法估算移動停利。",
+      color: "border-slate-700 bg-slate-900/80 text-slate-300",
+    };
+  }
+
+  const cleanLine = sparkline.filter(
+    (value) => Number.isFinite(value) && value > 0
+  );
+
+  const highPrice = cleanLine.length > 0 ? Math.max(...cleanLine, price) : price;
+  const stopPrice = Number((highPrice - atr * 2).toFixed(2));
+  const distancePercent = Number((((price - stopPrice) / price) * 100).toFixed(2));
+
+  if (price <= stopPrice) {
+    return {
+      atr,
+      highPrice,
+      stopPrice,
+      distancePercent,
+      status: "停利警報",
+      text: "現價已跌破 ATR 移動停利價，短線要考慮停利或減碼。",
+      color: "border-red-500/40 bg-gradient-to-br from-red-950/80 to-black text-red-100",
+    };
+  }
+
+  if (distancePercent <= 2) {
+    return {
+      atr,
+      highPrice,
+      stopPrice,
+      distancePercent,
+      status: "接近停利",
+      text: "現價接近 ATR 移動停利價，建議提高警覺，不要讓獲利回吐太多。",
+      color: "border-yellow-500/40 bg-gradient-to-br from-yellow-950/80 to-black text-yellow-100",
+    };
+  }
+
+  return {
+    atr,
+    highPrice,
+    stopPrice,
+    distancePercent,
+    status: "續抱觀察",
+    text: "現價仍高於 ATR 移動停利價，短線趨勢尚未破壞，可續抱觀察。",
+    color: "border-green-500/40 bg-gradient-to-br from-green-950/80 to-black text-green-100",
+  };
+}
 function getBuyPoint(stock: Stock) {
   const score = stockScore(stock);
   const openPremium = stock.openPremiumPercent ?? 0;
@@ -809,8 +893,10 @@ function getTradeAdvice(stock: Stock) {
   const advice: string[] = [];
   const risk = getRisk(stock);
   const buyPoint = getBuyPoint(stock);
+  const atrStop = getAtrTrailingStop(stock);
 
   advice.push(`買點提醒：${buyPoint.title}`);
+  advice.push(`ATR移動停利：${atrStop.status}，停利價約 ${priceText(atrStop.stopPrice)}`);
 
   if (risk.level === "high") advice.push("🔴 風險偏高：目前已過熱，避免追高，先等拉回或量縮整理");
   else if (risk.level === "medium") advice.push("🟡 偏熱觀察：動能不錯，但不要急追，可觀察拉回轉強");
@@ -831,10 +917,12 @@ function getAlertReasons(stock: Stock, strongIndustryNames: string[]) {
   const reasons: string[] = [];
   const risk = getRisk(stock);
   const buyPoint = getBuyPoint(stock);
+  const atrStop = getAtrTrailingStop(stock);
 
   reasons.push(`買點提醒：${buyPoint.title}`);
   reasons.push(`買點原因：${buyPoint.reason}`);
   reasons.push(`風險燈號：${risk.title}`);
+  reasons.push(`ATR移動停利：${atrStop.status}，停利價約 ${priceText(atrStop.stopPrice)}`);
 
   if (isTomorrowWatchStock(stock, strongIndustryNames)) reasons.push("明日觀察：主流產業或安全觀察，且漲幅與強度未過熱");
   if (isWatchAlertStock(stock)) reasons.push("自選警報：漲幅 ≥ 5%、強度 ≥ 85、或高開續強");
@@ -1238,6 +1326,7 @@ function StockDetail({
 }) {
   const links = getStockLinks(stock.code);
   const tradeAdvice = getTradeAdvice(stock);
+  const atrStop = getAtrTrailingStop(stock);
 
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,#1e293b_0%,#020617_38%,#000_100%)] pb-24 text-white">
@@ -1282,6 +1371,42 @@ function StockDetail({
           </div>
 
           <AlertTags tags={getAlertTags(stock, strongIndustryNames)} />
+
+          <div className={`mt-5 rounded-3xl border p-4 ${atrStop.color}`}>
+            <div className="text-lg font-black">ATR 移動停利</div>
+            <div className="mt-2 text-2xl font-black">{atrStop.status}</div>
+
+            <div className="mt-2 text-sm font-bold leading-relaxed">
+              {atrStop.text}
+            </div>
+
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
+              <div className="rounded-2xl bg-black/30 px-2 py-3">
+                ATR
+                <div className="mt-1 text-base">{priceText(atrStop.atr)}</div>
+              </div>
+
+              <div className="rounded-2xl bg-black/30 px-2 py-3">
+                高點
+                <div className="mt-1 text-base">{priceText(atrStop.highPrice)}</div>
+              </div>
+
+              <div className="rounded-2xl bg-black/30 px-2 py-3">
+                停利價
+                <div className="mt-1 text-base text-yellow-300">
+                  {priceText(atrStop.stopPrice)}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-2xl bg-black/30 px-3 py-2 text-xs font-bold">
+              距離停利價：約 {atrStop.distancePercent.toFixed(2)}%
+            </div>
+
+            <div className="mt-2 text-[11px] font-bold opacity-80">
+              註：目前為盤中估算 ATR，正式 ATR 需近 14 日高低收資料。
+            </div>
+          </div>
 
           <div className="mt-6 grid grid-cols-2 gap-3">
             <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-4">
