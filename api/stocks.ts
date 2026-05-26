@@ -327,7 +327,6 @@ function uniqueCodes(codes: string[]) {
 function getWatchCodesFromRequest(req: Request) {
   const url = new URL(req.url);
   const watch = url.searchParams.get("watch") || "";
-
   const watchCodes = uniqueCodes(watch.split(","));
 
   if (watchCodes.length === 0) return defaultWatchListCodes;
@@ -449,7 +448,7 @@ function normalizeTwseItem(item: any): StockItem | null {
   const previousClose = toNumber(item?.y);
   const volume = toNumber(item?.v) * 1000;
 
-  // 開盤前 TWSE 的 z 常常是 "-"，這時用昨收當暫時價格，避免整個 App 變空白
+  // 開盤前 z 常是 "-"，用昨收暫時撐住，不讓 App 空白
   const price = realtimePrice > 0 ? realtimePrice : previousClose;
 
   if (price <= 0 || previousClose <= 0) return null;
@@ -459,45 +458,6 @@ function normalizeTwseItem(item: any): StockItem | null {
     realtimePrice > 0
       ? Number(((change / previousClose) * 100).toFixed(2))
       : 0;
-
-  let openPremiumPercent: number | null = null;
-
-  if (openPrice > 0 && previousClose > 0) {
-    openPremiumPercent = Number(
-      (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
-    );
-  }
-
-  return {
-    code,
-    name: getStockName(code, String(item?.n || "")),
-    price,
-    change: Number(change.toFixed(2)),
-    changePercent,
-    volume,
-    openPrice,
-    previousClose,
-    openPremiumPercent,
-    industry: getIndustry(code),
-    turnoverRate: null,
-    volumeRatio: null,
-    floatMarketCapYi: null,
-    sparkline: makeSparklineFallback(price, previousClose),
-  };
-}
-  const code = cleanCode(item?.c || item?.ch || "");
-
-  if (!/^\d{4}$/.test(code)) return null;
-
-  const price = toNumber(item?.z);
-  const openPrice = toNumber(item?.o);
-  const previousClose = toNumber(item?.y);
-  const volume = toNumber(item?.v) * 1000;
-
-  if (price <= 0 || previousClose <= 0) return null;
-
-  const change = price - previousClose;
-  const changePercent = Number(((change / previousClose) * 100).toFixed(2));
 
   let openPremiumPercent: number | null = null;
 
@@ -578,7 +538,7 @@ function normalizeYahooQuoteItem(item: any): StockItem | null {
   const openPrice = toNumber(item.regularMarketOpen);
   const previousClose = toNumber(item.regularMarketPreviousClose);
 
-  if (price <= 0) return null;
+  if (price <= 0 || previousClose <= 0) return null;
 
   let openPremiumPercent: number | null = null;
 
@@ -742,10 +702,12 @@ async function attachSparklines(stocks: StockItem[]) {
 }
 
 async function fetchBestQuotes(codes: string[]) {
-  const twse = await fetchTwseQuotes(codes);
+  const cleanCodes = uniqueCodes(codes);
+
+  const twse = await fetchTwseQuotes(cleanCodes);
   const twseCodes = new Set(twse.map((item) => item.code));
 
-  const missingCodes = uniqueCodes(codes).filter((code) => !twseCodes.has(code));
+  const missingCodes = cleanCodes.filter((code) => !twseCodes.has(code));
   const yahoo = missingCodes.length > 0 ? await fetchYahooQuotes(missingCodes) : [];
 
   const map = new Map<string, StockItem>();
@@ -922,12 +884,12 @@ export default async function handler(req: Request) {
     rankedStocks = await attachSparklines(rankedStocks);
     const watchListWithSparkline = await attachSparklines(watchList);
 
-    const hasRanking = rankedStocks.length > 0;
+    const hasRanking = rankedStocks.some((stock) => stock.price > 0);
     const hasWatchList = watchListWithSparkline.some((stock) => stock.price > 0);
 
     return jsonResponse({
       ok: hasRanking || hasWatchList,
-      source: "TWSE MIS + Yahoo chart 1m sampled sparkline",
+      source: "TWSE MIS + Yahoo chart 1m sampled sparkline + preopen protect",
       updatedAt: new Date().toISOString(),
       updatedAtTaiwan: nowText(),
       cache: "no-store",
@@ -941,7 +903,7 @@ export default async function handler(req: Request) {
         hasWatchList,
         errors,
         note:
-          "股價優先使用證交所 MIS；小走勢使用 Yahoo chart 1m 整天走勢取樣 18 點。若抓不到走勢，才用昨收到現價產生簡化線。",
+          "開盤前 TWSE MIS 若沒有即時成交價，會先用昨收價撐住畫面；9:00 後有成交價會自動更新成即時價。小走勢使用 Yahoo chart 1m 整天走勢取樣 18 點。",
       },
     });
   } catch (error: any) {
