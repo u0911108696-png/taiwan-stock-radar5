@@ -444,6 +444,51 @@ function normalizeTwseItem(item: any): StockItem | null {
 
   if (!/^\d{4}$/.test(code)) return null;
 
+  const realtimePrice = toNumber(item?.z);
+  const openPrice = toNumber(item?.o);
+  const previousClose = toNumber(item?.y);
+  const volume = toNumber(item?.v) * 1000;
+
+  // 開盤前 TWSE 的 z 常常是 "-"，這時用昨收當暫時價格，避免整個 App 變空白
+  const price = realtimePrice > 0 ? realtimePrice : previousClose;
+
+  if (price <= 0 || previousClose <= 0) return null;
+
+  const change = realtimePrice > 0 ? price - previousClose : 0;
+  const changePercent =
+    realtimePrice > 0
+      ? Number(((change / previousClose) * 100).toFixed(2))
+      : 0;
+
+  let openPremiumPercent: number | null = null;
+
+  if (openPrice > 0 && previousClose > 0) {
+    openPremiumPercent = Number(
+      (((openPrice - previousClose) / previousClose) * 100).toFixed(2)
+    );
+  }
+
+  return {
+    code,
+    name: getStockName(code, String(item?.n || "")),
+    price,
+    change: Number(change.toFixed(2)),
+    changePercent,
+    volume,
+    openPrice,
+    previousClose,
+    openPremiumPercent,
+    industry: getIndustry(code),
+    turnoverRate: null,
+    volumeRatio: null,
+    floatMarketCapYi: null,
+    sparkline: makeSparklineFallback(price, previousClose),
+  };
+}
+  const code = cleanCode(item?.c || item?.ch || "");
+
+  if (!/^\d{4}$/.test(code)) return null;
+
   const price = toNumber(item?.z);
   const openPrice = toNumber(item?.o);
   const previousClose = toNumber(item?.y);
