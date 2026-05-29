@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Stock = {
   code: string;
@@ -17,47 +17,41 @@ type Stock = {
 
 type KLine = {
   date: string;
+  open?: number;
   high: number;
   low: number;
   close: number;
+  volume?: number;
 };
 
 type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
-
 type MoreView =
   | "menu"
   | "industry"
   | "watchable"
   | "waitPullback"
   | "atrSafe"
+  | "realAtrSafe"
   | "atrNear"
   | "atrBroken"
-  | "realAtrSafe"
   | "atrMissing"
   | "holdingRisk"
-  | "tomorrowPriority"
-  | "data"
-  | "settings";
+  | "settings"
+  | "data";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 type DecisionMode = "保守" | "標準" | "積極";
 type AtrMode = "短線" | "標準" | "寬鬆";
-type AtrSensitivity = "敏感" | "標準" | "保守";
-type RiskDisplayMode = "簡單" | "詳細";
-type HoldingStatus = "未進場" | "已進場";
 type ProfitAnchor = "今日高點" | "近N日高點" | "持有後最高價";
-
-type TopFilter =
-  | "全部"
-  | "可觀察"
-  | "等回測"
-  | "不追高"
-  | "ATR安全"
-  | "真實ATR"
-  | "ATR資料不足"
-  | "跌破ATR";
-
+type HoldingStatus = "未進場" | "已進場";
 type SortKey = "decision" | "score" | "atr" | "change" | "price";
+type TopFilter = "全部" | "可觀察" | "等回測" | "不追高" | "ATR安全" | "真實ATR" | "ATR風險" | "跌破ATR";
+
+type PositionInfo = {
+  entryPrice?: number;
+  holdingStatus?: HoldingStatus;
+  highestPrice?: number;
+};
 
 type Settings = {
   maxPrice: number;
@@ -67,10 +61,12 @@ type Settings = {
   decisionMode: DecisionMode;
   atrMode: AtrMode;
   atrMultiple: number;
-  atrSensitivity: AtrSensitivity;
-  riskDisplayMode: RiskDisplayMode;
   atrDays: number;
   profitAnchor: ProfitAnchor;
+  klineCacheMinutes: number;
+  klineLimit: number;
+  klineBatchSize: number;
+  klineSaveMode: boolean;
   topFilter: TopFilter;
 };
 
@@ -83,14 +79,12 @@ type ApiResponse = {
   source?: string;
 };
 
-type IndustryItem = {
-  industry: string;
-  count: number;
-  avg: number;
-  strongCount: number;
-  hotCount: number;
-  weakCount: number;
-  score: number;
+type KLineCacheItem = {
+  code: string;
+  savedAt: number;
+  klines: KLine[];
+  ok: boolean;
+  message?: string;
 };
 
 type AtrInfo = {
@@ -102,10 +96,14 @@ type AtrInfo = {
   rangePercent: number;
 };
 
-type PositionInfo = {
-  entryPrice?: number;
-  holdingStatus?: HoldingStatus;
-  highestPrice?: number;
+type IndustryItem = {
+  industry: string;
+  count: number;
+  avg: number;
+  strongCount: number;
+  weakCount: number;
+  hotCount: number;
+  score: number;
 };
 
 const API_URL = "/api/stocks";
@@ -114,8 +112,9 @@ const KLINE_API_URL = "/api/kline";
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
 const POSITION_KEY = "taiwan-stock-radar-position-info";
-const SETTINGS_KEY = "taiwan-stock-radar-real-atr-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-real-atr-cache";
+const SETTINGS_KEY = "taiwan-stock-radar-real-atr-performance-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-real-atr-performance-cache";
+const KLINE_CACHE_KEY = "taiwan-stock-radar-kline-cache-v2";
 
 const defaultSettings: Settings = {
   maxPrice: 200,
@@ -125,10 +124,12 @@ const defaultSettings: Settings = {
   decisionMode: "標準",
   atrMode: "標準",
   atrMultiple: 2,
-  atrSensitivity: "標準",
-  riskDisplayMode: "詳細",
   atrDays: 14,
   profitAnchor: "近N日高點",
+  klineCacheMinutes: 30,
+  klineLimit: 30,
+  klineBatchSize: 5,
+  klineSaveMode: false,
   topFilter: "全部",
 };
 
@@ -168,12 +169,12 @@ function safeParse<T>(text: string | null, fallback: T): T {
   }
 }
 
-function cleanCode(value: string) {
-  return value.replace(/\D/g, "").slice(0, 6);
-}
-
 function nowText() {
   return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+}
+
+function cleanCode(value: string) {
+  return value.replace(/\D/g, "").slice(0, 6);
 }
 
 function formatNumber(value: number | null | undefined) {
@@ -243,10 +244,152 @@ function normalizeKLine(raw: any): KLine | null {
   const high = n(raw.high ?? raw.h ?? raw.High);
   const low = n(raw.low ?? raw.l ?? raw.Low);
   const close = n(raw.close ?? raw.c ?? raw.Close);
+  const open = n(raw.open ?? raw.o ?? raw.Open);
+  const volume = n(raw.volume ?? raw.v ?? raw.Volume);
   const date = String(raw.date ?? raw.t ?? raw.Date ?? "");
 
   if (high <= 0 || low <= 0 || close <= 0) return null;
-  return { date, high, low, close };
+  return { date, open, high, low, close, volume };
+}
+
+function trueAtrFromKLines(klines: KLine[], days: number) {
+  if (!klines || klines.length < Math.min(days, 7)) return null;
+
+  const sorted = [...klines].slice(-Math.max(days + 1, 8));
+  const ranges: number[] = [];
+
+  for (let i = 1; i < sorted.length; i++) {
+    const current = sorted[i];
+    const prev = sorted[i - 1];
+
+    const tr = Math.max(
+      current.high - current.low,
+      Math.abs(current.high - prev.close),
+      Math.abs(current.low - prev.close)
+    );
+
+    if (Number.isFinite(tr) && tr > 0) ranges.push(tr);
+  }
+
+  const recent = ranges.slice(-days);
+  if (recent.length < Math.min(days, 7)) return null;
+
+  return recent.reduce((sum, value) => sum + value, 0) / recent.length;
+}
+
+function simplifiedAtr(stock: Stock) {
+  const range1 = Math.abs(stock.highPrice - stock.lowPrice);
+  const range2 = Math.abs(stock.highPrice - stock.previousClose);
+  const range3 = Math.abs(stock.lowPrice - stock.previousClose);
+  const raw = Math.max(range1, range2, range3);
+  const minAtr = stock.price * 0.018;
+  const atr = Math.max(raw, minAtr);
+
+  return Number.isFinite(atr) && atr > 0 ? atr : stock.price * 0.02;
+}
+
+function getAtrInfo(stock: Stock, settings: Settings, klines?: KLine[]): AtrInfo {
+  const realAtr = trueAtrFromKLines(klines || [], settings.atrDays);
+  const rows = klines && klines.length > 0 ? klines.slice(-settings.atrDays) : [];
+
+  if (realAtr && rows.length >= Math.min(settings.atrDays, 7)) {
+    const highN = Math.max(...rows.map((row) => row.high), stock.highPrice, stock.price);
+    const lowN = Math.min(...rows.map((row) => row.low), stock.lowPrice, stock.price);
+
+    return {
+      atr: realAtr,
+      source: "真實ATR",
+      hasReal: true,
+      highN,
+      lowN,
+      rangePercent: stock.price > 0 ? ((highN - lowN) / stock.price) * 100 : 0,
+    };
+  }
+
+  const atr = simplifiedAtr(stock);
+
+  return {
+    atr,
+    source: "簡化ATR",
+    hasReal: false,
+    highN: Math.max(stock.highPrice, stock.price, stock.openPrice),
+    lowN: Math.min(stock.lowPrice, stock.price, stock.openPrice || stock.price),
+    rangePercent: stock.price > 0 ? ((stock.highPrice - stock.lowPrice) / stock.price) * 100 : 0,
+  };
+}
+
+function getEntryPrice(stock: Stock, position?: PositionInfo) {
+  return position?.entryPrice && position.entryPrice > 0 ? position.entryPrice : stock.openPrice;
+}
+
+function getAnchorPrice(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  const entry = getEntryPrice(stock, position);
+
+  if (settings.profitAnchor === "今日高點") {
+    return Math.max(stock.highPrice, stock.price, entry);
+  }
+
+  if (settings.profitAnchor === "持有後最高價") {
+    return Math.max(position?.highestPrice || 0, stock.price, entry);
+  }
+
+  return Math.max(atrInfo.highN, stock.price, entry);
+}
+
+function atrStopLoss(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  return Math.max(0, getEntryPrice(stock, position) - atrInfo.atr * settings.atrMultiple);
+}
+
+function atrTrailingStop(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  return Math.max(0, getAnchorPrice(stock, settings, atrInfo, position) - atrInfo.atr * settings.atrMultiple);
+}
+
+function atrDistancePercent(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  const line = atrTrailingStop(stock, settings, atrInfo, position);
+  if (stock.price <= 0) return 999;
+  return ((stock.price - line) / stock.price) * 100;
+}
+
+function isAtrBroken(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  return stock.price < atrTrailingStop(stock, settings, atrInfo, position);
+}
+
+function isAtrNear(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  const d = atrDistancePercent(stock, settings, atrInfo, position);
+  return d >= 0 && d <= 2.5;
+}
+
+function atrStatus(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  if (isHot(stock, settings)) return "過熱";
+  if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破停利";
+  if (isAtrNear(stock, settings, atrInfo, position)) return "接近停利";
+  return "安全";
+}
+
+function atrTone(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  const status = atrStatus(stock, settings, atrInfo, position);
+  if (status === "安全") return "text-emerald-300";
+  if (status === "接近停利") return "text-yellow-300";
+  if (status === "跌破停利") return "text-red-300";
+  return "text-orange-300";
+}
+
+function atrRiskScore(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  if (isAtrBroken(stock, settings, atrInfo, position)) return 100;
+  const d = atrDistancePercent(stock, settings, atrInfo, position);
+  if (d >= 10) return 10;
+  if (d <= 0) return 100;
+  return Math.round(100 - d * 9);
+}
+
+function atrSentence(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+  const d = atrDistancePercent(stock, settings, atrInfo, position);
+  const status = atrStatus(stock, settings, atrInfo, position);
+
+  if (status === "跌破停利") return "已跌破ATR停利線，風控優先。";
+  if (status === "接近停利") return `距離停利線約 ${d.toFixed(2)}%，小心轉弱。`;
+  if (d < 4) return `距離停利線約 ${d.toFixed(2)}%，偏近。`;
+  return `距離停利線約 ${d.toFixed(2)}%，目前安全。`;
 }
 
 function isHot(stock: Stock, settings: Settings) {
@@ -271,183 +414,8 @@ function distanceFromOpen(stock: Stock) {
   return ((stock.price - stock.openPrice) / stock.openPrice) * 100;
 }
 
-function previousPriceOf(stock: Stock, previousPriceMap: Record<string, number>) {
-  return previousPriceMap[stock.code];
-}
-
-function instantDiff(stock: Stock, previousPriceMap: Record<string, number>) {
-  const prev = previousPriceOf(stock, previousPriceMap);
-  if (!prev || prev <= 0) return 0;
-  return stock.price - prev;
-}
-
-function instantPercent(stock: Stock, previousPriceMap: Record<string, number>) {
-  const prev = previousPriceOf(stock, previousPriceMap);
-  if (!prev || prev <= 0) return 0;
-  return ((stock.price - prev) / prev) * 100;
-}
-
-function directionText(direction?: PriceDirection) {
-  if (direction === "up") return "↑ 股價上升";
-  if (direction === "down") return "↓ 股價下降";
-  if (direction === "same") return "→ 股價持平";
-  if (direction === "new") return "新資料";
-  return "--";
-}
-
-function directionTone(direction?: PriceDirection) {
-  if (direction === "up") return "text-red-300";
-  if (direction === "down") return "text-emerald-300";
-  if (direction === "same") return "text-slate-300";
-  return "text-cyan-300";
-}
-
 function isMain(stock: Stock, mainIndustries: string[]) {
   return mainIndustries.includes(stock.industry);
-}
-
-function sensitivityFloor(settings: Settings) {
-  if (settings.atrSensitivity === "敏感") return 0.012;
-  if (settings.atrSensitivity === "保守") return 0.025;
-  return 0.018;
-}
-
-function simplifiedAtr(stock: Stock, settings: Settings) {
-  const range1 = Math.abs(stock.highPrice - stock.lowPrice);
-  const range2 = Math.abs(stock.highPrice - stock.previousClose);
-  const range3 = Math.abs(stock.lowPrice - stock.previousClose);
-  const rawAtr = Math.max(range1, range2, range3);
-
-  const minAtr = stock.price * sensitivityFloor(settings);
-  const atr = Math.max(rawAtr, minAtr);
-
-  return Number.isFinite(atr) && atr > 0 ? atr : stock.price * 0.02;
-}
-
-function trueAtrFromKLines(klines: KLine[], days: number) {
-  if (!klines || klines.length < Math.min(days, 7)) return null;
-
-  const sorted = [...klines].slice(-Math.max(days + 1, 8));
-  const trueRanges: number[] = [];
-
-  for (let i = 1; i < sorted.length; i++) {
-    const current = sorted[i];
-    const prev = sorted[i - 1];
-
-    const tr = Math.max(
-      current.high - current.low,
-      Math.abs(current.high - prev.close),
-      Math.abs(current.low - prev.close)
-    );
-
-    if (Number.isFinite(tr) && tr > 0) trueRanges.push(tr);
-  }
-
-  const recent = trueRanges.slice(-days);
-  if (recent.length < Math.min(days, 7)) return null;
-
-  return recent.reduce((sum, value) => sum + value, 0) / recent.length;
-}
-
-function getAtrInfo(stock: Stock, settings: Settings, klines?: KLine[]): AtrInfo {
-  const realAtr = trueAtrFromKLines(klines || [], settings.atrDays);
-  const realRows = klines && klines.length > 0 ? klines.slice(-settings.atrDays) : [];
-
-  if (realAtr && realRows.length >= Math.min(settings.atrDays, 7)) {
-    const highN = Math.max(...realRows.map((row) => row.high), stock.highPrice, stock.price);
-    const lowN = Math.min(...realRows.map((row) => row.low), stock.lowPrice, stock.price);
-    const rangePercent = stock.price > 0 ? ((highN - lowN) / stock.price) * 100 : 0;
-
-    return {
-      atr: realAtr,
-      source: "真實ATR",
-      hasReal: true,
-      highN,
-      lowN,
-      rangePercent,
-    };
-  }
-
-  const atr = simplifiedAtr(stock, settings);
-
-  return {
-    atr,
-    source: "簡化ATR",
-    hasReal: false,
-    highN: Math.max(stock.highPrice, stock.price, stock.openPrice),
-    lowN: Math.min(stock.lowPrice, stock.price, stock.openPrice || stock.price),
-    rangePercent: stock.price > 0 ? ((stock.highPrice - stock.lowPrice) / stock.price) * 100 : 0,
-  };
-}
-
-function getEntryPrice(stock: Stock, position?: PositionInfo) {
-  return position?.entryPrice && position.entryPrice > 0 ? position.entryPrice : stock.openPrice;
-}
-
-function getAnchorPrice(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  if (settings.profitAnchor === "今日高點") return Math.max(stock.highPrice, stock.price, getEntryPrice(stock, position));
-  if (settings.profitAnchor === "持有後最高價") {
-    return Math.max(position?.highestPrice || 0, stock.price, getEntryPrice(stock, position));
-  }
-  return Math.max(atrInfo.highN, stock.price, getEntryPrice(stock, position));
-}
-
-function atrStopLoss(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const entry = getEntryPrice(stock, position);
-  return Math.max(0, entry - atrInfo.atr * settings.atrMultiple);
-}
-
-function atrTrailingStop(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const anchor = getAnchorPrice(stock, settings, atrInfo, position);
-  return Math.max(0, anchor - atrInfo.atr * settings.atrMultiple);
-}
-
-function atrDistancePercent(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const line = atrTrailingStop(stock, settings, atrInfo, position);
-  if (stock.price <= 0) return 999;
-  return ((stock.price - line) / stock.price) * 100;
-}
-
-function isAtrBroken(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  return stock.price < atrTrailingStop(stock, settings, atrInfo, position);
-}
-
-function isAtrNear(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const d = atrDistancePercent(stock, settings, atrInfo, position);
-  return d >= 0 && d <= 2.5;
-}
-
-function atrRiskScore(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  if (isAtrBroken(stock, settings, atrInfo, position)) return 100;
-  const d = atrDistancePercent(stock, settings, atrInfo, position);
-  if (d >= 10) return 10;
-  if (d <= 0) return 100;
-  return Math.round(100 - d * 9);
-}
-
-function atrStatus(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  if (isHot(stock, settings)) return "過熱";
-  if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破停利";
-  if (isAtrNear(stock, settings, atrInfo, position)) return "接近停利";
-  return "安全";
-}
-
-function atrTone(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const status = atrStatus(stock, settings, atrInfo, position);
-  if (status === "安全") return "text-emerald-300";
-  if (status === "接近停利") return "text-yellow-300";
-  if (status === "跌破停利") return "text-red-300";
-  return "text-orange-300";
-}
-
-function atrSentence(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const d = atrDistancePercent(stock, settings, atrInfo, position);
-  const status = atrStatus(stock, settings, atrInfo, position);
-
-  if (status === "跌破停利") return "已跌破ATR停利線，風控優先。";
-  if (status === "接近停利") return `距離停利線約 ${d.toFixed(2)}%，小心轉弱。`;
-  if (d < 4) return `距離停利線約 ${d.toFixed(2)}%，偏近。`;
-  return `距離停利線約 ${d.toFixed(2)}%，目前安全。`;
 }
 
 function isWaitPullback(stock: Stock, mainIndustries: string[], settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
@@ -466,7 +434,7 @@ function mainScore(stock: Stock, mainIndustries: string[], settings: Settings, a
   if (isMain(stock, mainIndustries)) score += 30;
   if (stock.price > 0 && stock.price <= settings.maxPrice) score += 25;
   if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 18;
-  if (stock.price >= stock.openPrice) score += 14;
+  if (stock.price >= stock.openPrice) score += 12;
   if (isBreakout(stock)) score += 10;
   if (isNearOpen(stock)) score += 8;
   if (!isAtrBroken(stock, settings, atrInfo, position)) score += 10;
@@ -484,30 +452,35 @@ function mainScore(stock: Stock, mainIndustries: string[], settings: Settings, a
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function instantScore(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>,
-  atrInfo: AtrInfo,
-  position?: PositionInfo
-) {
-  let score = 0;
+function directionText(direction?: PriceDirection) {
+  if (direction === "up") return "↑ 股價上升";
+  if (direction === "down") return "↓ 股價下降";
+  if (direction === "same") return "→ 股價持平";
+  if (direction === "new") return "新資料";
+  return "--";
+}
 
-  if (priceDirections[stock.code] === "up") score += 30;
-  if (stock.price >= stock.openPrice) score += 25;
-  if (isMain(stock, mainIndustries)) score += 20;
-  if (!isHot(stock, settings)) score += 15;
-  if (isBreakout(stock)) score += 10;
-  if (!isAtrBroken(stock, settings, atrInfo, position)) score += 10;
-  if (atrInfo.hasReal) score += 5;
+function directionTone(direction?: PriceDirection) {
+  if (direction === "up") return "text-red-300";
+  if (direction === "down") return "text-emerald-300";
+  if (direction === "same") return "text-slate-300";
+  return "text-cyan-300";
+}
 
-  if (priceDirections[stock.code] === "down") score -= 25;
-  if (isWeak(stock)) score -= 30;
-  if (isHot(stock, settings)) score -= 25;
-  if (isAtrBroken(stock, settings, atrInfo, position)) score -= 35;
+function previousPriceOf(stock: Stock, previousPriceMap: Record<string, number>) {
+  return previousPriceMap[stock.code];
+}
 
-  return Math.max(0, Math.min(100, Math.round(score)));
+function instantDiff(stock: Stock, previousPriceMap: Record<string, number>) {
+  const prev = previousPriceOf(stock, previousPriceMap);
+  if (!prev || prev <= 0) return 0;
+  return stock.price - prev;
+}
+
+function instantPercent(stock: Stock, previousPriceMap: Record<string, number>) {
+  const prev = previousPriceOf(stock, previousPriceMap);
+  if (!prev || prev <= 0) return 0;
+  return ((stock.price - prev) / prev) * 100;
 }
 
 function decisionLabel(
@@ -524,7 +497,6 @@ function decisionLabel(
   if (isWaitPullback(stock, mainIndustries, settings, atrInfo, position)) return "等回測";
 
   const score = mainScore(stock, mainIndustries, settings, atrInfo, position);
-  const instant = instantScore(stock, mainIndustries, settings, priceDirections, atrInfo, position);
 
   if (settings.decisionMode === "保守") {
     if (isMain(stock, mainIndustries) && stock.price <= settings.maxPrice && score >= 70) return "可觀察";
@@ -532,14 +504,12 @@ function decisionLabel(
   }
 
   if (settings.decisionMode === "積極") {
-    if ((score >= 70 || instant >= 70) && !isHot(stock, settings) && !isWeak(stock)) return "可觀察";
+    if (score >= 70 && !isWeak(stock)) return "可觀察";
     if (!isMain(stock, mainIndustries) && stock.changePercent >= 5) return "可觀察";
     return "等回測";
   }
 
   if (isMain(stock, mainIndustries) && score >= 70) return "可觀察";
-  if (instant >= 75) return "可觀察";
-
   return "等回測";
 }
 
@@ -547,7 +517,6 @@ function decisionTone(label: string) {
   if (label === "可觀察") return "text-emerald-300";
   if (label === "等回測") return "text-yellow-300";
   if (label === "不追高") return "text-orange-300";
-  if (label === "移除") return "text-emerald-300";
   if (label === "跌破ATR") return "text-red-300";
   return "text-slate-300";
 }
@@ -576,19 +545,6 @@ function decisionReason(
   return reasons.length ? reasons.join(" / ") : "暫無明確理由";
 }
 
-function avoidReason(stock: Stock, mainIndustries: string[], settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const reasons: string[] = [];
-
-  if (isHot(stock, settings)) reasons.push("過熱");
-  if (stock.price < stock.openPrice) reasons.push("跌破開盤");
-  if (stock.price < stock.previousClose) reasons.push("跌破昨收");
-  if (!isMain(stock, mainIndustries)) reasons.push("非主流");
-  if (stock.price > settings.maxPrice) reasons.push(`超過${settings.maxPrice}元`);
-  if (isAtrBroken(stock, settings, atrInfo, position)) reasons.push("跌破ATR停利");
-
-  return reasons.length ? reasons.join(" / ") : "暫無明顯風險";
-}
-
 function getIndustryRanking(stocks: Stock[], settings: Settings, priceDirections: Record<string, PriceDirection>): IndustryItem[] {
   const map = new Map<string, IndustryItem>();
 
@@ -601,30 +557,30 @@ function getIndustryRanking(stocks: Stock[], settings: Settings, priceDirections
         count: 0,
         avg: 0,
         strongCount: 0,
-        hotCount: 0,
         weakCount: 0,
+        hotCount: 0,
         score: 0,
       };
 
     item.count += 1;
-    if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) item.strongCount += 1;
-    if (isHot(stock, settings)) item.hotCount += 1;
-    if (isWeak(stock)) item.weakCount += 1;
     item.avg += stock.changePercent;
+    if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) item.strongCount += 1;
+    if (isWeak(stock)) item.weakCount += 1;
+    if (isHot(stock, settings)) item.hotCount += 1;
+
     map.set(key, item);
   });
 
   return Array.from(map.values())
-    .map((item) => ({
-      ...item,
-      avg: item.avg / Math.max(item.count, 1),
-      score:
-        item.count * 10 +
-        (item.avg / Math.max(item.count, 1)) * 3 +
-        item.strongCount * 6 -
-        item.hotCount * 3 -
-        item.weakCount * 3,
-    }))
+    .map((item) => {
+      const avg = item.avg / Math.max(item.count, 1);
+
+      return {
+        ...item,
+        avg,
+        score: item.count * 10 + avg * 3 + item.strongCount * 5 - item.weakCount * 3 - item.hotCount * 3,
+      };
+    })
     .sort((a, b) => b.score - a.score);
 }
 
@@ -635,6 +591,10 @@ function getKLinks(code: string, name: string) {
     goodinfo: `https://goodinfo.tw/tw/StockDetail.asp?STOCK_ID=${code}`,
     google: `https://www.google.com/search?q=${code}+${encodeURIComponent(name)}+K線`,
   };
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function MiniCard({
@@ -694,32 +654,6 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
   );
 }
 
-function AtrBar({
-  stock,
-  settings,
-  atrInfo,
-  position,
-}: {
-  stock: Stock;
-  settings: Settings;
-  atrInfo: AtrInfo;
-  position?: PositionInfo;
-}) {
-  const distance = Math.max(0, Math.min(100, atrDistancePercent(stock, settings, atrInfo, position) * 8));
-
-  return (
-    <div className="mt-3">
-      <div className="mb-1 flex justify-between text-xs font-black text-slate-400">
-        <span>ATR距離條</span>
-        <span>{formatPercent(atrDistancePercent(stock, settings, atrInfo, position))}</span>
-      </div>
-      <div className="h-3 overflow-hidden rounded-full bg-black/50">
-        <div className="h-full rounded-full bg-cyan-500" style={{ width: `${distance}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function StockCard({
   stock,
   rank,
@@ -757,17 +691,13 @@ function StockCard({
 }) {
   const position = positionMap[stock.code];
   const atrInfo = getAtrInfo(stock, settings, klineMap[stock.code]);
-
-  const isFavorite = favoriteCodes.includes(stock.code);
-  const isTomorrow = tomorrowCodes.includes(stock.code);
+  const label = decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfo, position);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceOf(stock, previousPriceMap);
   const diff = instantDiff(stock, previousPriceMap);
   const diffPct = instantPercent(stock, previousPriceMap);
-  const label = decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfo, position);
-  const mrIndex = mainIndustries.indexOf(stock.industry);
-  const mr = mrIndex >= 0 ? `主流${mrIndex + 1}` : "";
-  const aStatus = atrStatus(stock, settings, atrInfo, position);
+  const isFavorite = favoriteCodes.includes(stock.code);
+  const isTomorrow = tomorrowCodes.includes(stock.code);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -776,9 +706,7 @@ function StockCard({
           <div>
             <div className="text-xs font-bold text-slate-500">#{rank}　{stock.code}</div>
             <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
-            <div className="mt-1 text-xs font-bold text-slate-400">
-              {stock.industry} {mr && `｜${mr}`}
-            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">{stock.industry}</div>
           </div>
 
           <div className="text-right">
@@ -791,7 +719,7 @@ function StockCard({
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(label)}`}>{label}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${atrTone(stock, settings, atrInfo, position)}`}>ATR {aStatus}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${atrTone(stock, settings, atrInfo, position)}`}>ATR {atrStatus(stock, settings, atrInfo, position)}</span>
           <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">{atrInfo.source}</span>
           <span className="rounded-full bg-orange-950 px-3 py-1 text-orange-200">風險 {atrRiskScore(stock, settings, atrInfo, position)}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
@@ -801,16 +729,8 @@ function StockCard({
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          風控一句話：{atrSentence(stock, settings, atrInfo, position)}
+          {atrSentence(stock, settings, atrInfo, position)}
         </div>
-
-        {settings.riskDisplayMode === "詳細" && (
-          <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${atrTone(stock, settings, atrInfo, position)}`}>
-            ATR停利線：{formatPrice(atrTrailingStop(stock, settings, atrInfo, position))}｜
-            ATR：{formatPrice(atrInfo.atr)}｜
-            來源：{atrInfo.source}
-          </div>
-        )}
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
           即時：{directionText(direction)}　
@@ -884,8 +804,13 @@ export default function App() {
   const [priceDirections, setPriceDirections] = useState<Record<string, PriceDirection>>({});
 
   const [klineMap, setKlineMap] = useState<Record<string, KLine[]>>({});
+  const [klineFailMap, setKlineFailMap] = useState<Record<string, string>>({});
   const [klineLoading, setKlineLoading] = useState(false);
-  const [klineFailCodes, setKlineFailCodes] = useState<string[]>([]);
+  const [klineLoadedCount, setKlineLoadedCount] = useState(0);
+  const [klineTargetCount, setKlineTargetCount] = useState(0);
+  const [klineLastUpdatedAt, setKlineLastUpdatedAt] = useState("");
+
+  const inFlightRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const savedSettings = safeParse(localStorage.getItem(SETTINGS_KEY), defaultSettings);
@@ -897,6 +822,15 @@ export default function App() {
     setTomorrowCodes(safeParse(localStorage.getItem(TOMORROW_KEY), []));
     setPositionMap(safeParse(localStorage.getItem(POSITION_KEY), {}));
 
+    const savedKlineCache = safeParse<Record<string, KLineCacheItem>>(localStorage.getItem(KLINE_CACHE_KEY), {});
+    const restored: Record<string, KLine[]> = {};
+
+    Object.values(savedKlineCache).forEach((item) => {
+      if (item.ok && Array.isArray(item.klines)) restored[item.code] = item.klines;
+    });
+
+    setKlineMap(restored);
+
     const cached = safeParse<any>(localStorage.getItem(LAST_SUCCESS_KEY), null);
 
     if (cached && Array.isArray(cached.stocks)) {
@@ -907,6 +841,7 @@ export default function App() {
       cached.stocks.forEach((stock: Stock) => {
         prices[stock.code] = stock.price;
       });
+
       setLastPriceMap(prices);
 
       if (cached.lastSuccessAt) setLastSuccessAt(cached.lastSuccessAt);
@@ -954,52 +889,114 @@ export default function App() {
     saveTomorrow(tomorrowCodes.filter((item) => item !== code));
   }
 
-  async function fetchKLine(code: string, days: number) {
-    const response = await fetch(`${KLINE_API_URL}?code=${code}&days=${Math.max(days + 10, 30)}&t=${Date.now()}`, {
-      cache: "no-store",
-    });
+  async function fetchKLine(code: string, force = false) {
+    const clean = cleanCode(code);
+    if (!clean) return null;
 
-    if (!response.ok) throw new Error("日K API失敗");
+    if (inFlightRef.current.has(clean)) return null;
+    inFlightRef.current.add(clean);
 
-    const json = await response.json();
-    const list = Array.isArray(json.klines)
-      ? json.klines
-      : Array.isArray(json.data)
-        ? json.data
-        : Array.isArray(json)
-          ? json
-          : [];
+    try {
+      const cache = safeParse<Record<string, KLineCacheItem>>(localStorage.getItem(KLINE_CACHE_KEY), {});
+      const cached = cache[clean];
+      const freshMs = settings.klineCacheMinutes * 60 * 1000;
 
-    const klines = list.map(normalizeKLine).filter(Boolean) as KLine[];
-    if (klines.length < 7) throw new Error("日K資料不足");
+      if (!force && cached && Date.now() - cached.savedAt < freshMs) {
+        if (cached.ok && cached.klines.length >= 7) {
+          setKlineMap((old) => ({ ...old, [clean]: cached.klines }));
+          return cached.klines;
+        }
 
-    return klines;
+        setKlineFailMap((old) => ({ ...old, [clean]: cached.message || "快取資料不足" }));
+        return null;
+      }
+
+      const response = await fetch(`${KLINE_API_URL}?code=${clean}&days=${Math.max(settings.atrDays + 16, 30)}&t=${Date.now()}`, {
+        cache: "no-store",
+      });
+
+      const json = await response.json();
+      const list = Array.isArray(json.klines) ? json.klines : Array.isArray(json.data) ? json.data : [];
+      const klines = list.map(normalizeKLine).filter(Boolean) as KLine[];
+
+      const item: KLineCacheItem = {
+        code: clean,
+        savedAt: Date.now(),
+        klines,
+        ok: Boolean(json.ok) && klines.length >= 7,
+        message: json.message || "",
+      };
+
+      cache[clean] = item;
+      localStorage.setItem(KLINE_CACHE_KEY, JSON.stringify(cache));
+
+      if (item.ok) {
+        setKlineMap((old) => ({ ...old, [clean]: klines }));
+        setKlineFailMap((old) => {
+          const next = { ...old };
+          delete next[clean];
+          return next;
+        });
+        return klines;
+      }
+
+      setKlineFailMap((old) => ({ ...old, [clean]: item.message || "日K資料不足" }));
+      return null;
+    } catch (err: any) {
+      setKlineFailMap((old) => ({ ...old, [clean]: err?.message || "日K讀取失敗" }));
+      return null;
+    } finally {
+      inFlightRef.current.delete(clean);
+    }
   }
 
-  async function loadKLines(list: Stock[]) {
-    const target = list.slice(0, 50);
-    if (target.length === 0) return;
+  function buildKlineTargets(list: Stock[]) {
+    const holdingCodes = Object.entries(positionMap)
+      .filter(([, pos]) => pos.holdingStatus === "已進場")
+      .map(([code]) => code);
 
-    setKlineLoading(true);
+    const base = [
+      ...holdingCodes,
+      ...favoriteCodes,
+      ...tomorrowCodes,
+      ...watchableList.map((stock) => stock.code),
+      ...list.map((stock) => stock.code),
+    ];
 
-    const nextMap: Record<string, KLine[]> = {};
-    const fail: string[] = [];
+    const unique = Array.from(new Set(base.map(cleanCode).filter(Boolean)));
 
-    for (const stock of target) {
-      try {
-        const klines = await fetchKLine(stock.code, settings.atrDays);
-        nextMap[stock.code] = klines;
-      } catch {
-        fail.push(stock.code);
-      }
+    if (settings.klineSaveMode) {
+      const important = [
+        ...holdingCodes,
+        ...favoriteCodes,
+        ...tomorrowCodes,
+        ...watchableList.slice(0, 10).map((stock) => stock.code),
+      ];
+
+      return Array.from(new Set(important.map(cleanCode).filter(Boolean))).slice(0, settings.klineLimit);
     }
 
-    setKlineMap(nextMap);
-    setKlineFailCodes(fail);
+    return unique.slice(0, settings.klineLimit);
+  }
+
+  async function loadKLinesBatch(list: Stock[], force = false) {
+    const targets = buildKlineTargets(list);
+    setKlineTargetCount(targets.length);
+    setKlineLoadedCount(0);
+    setKlineLoading(true);
+
+    for (let i = 0; i < targets.length; i += settings.klineBatchSize) {
+      const batch = targets.slice(i, i + settings.klineBatchSize);
+      await Promise.all(batch.map((code) => fetchKLine(code, force)));
+      setKlineLoadedCount((old) => Math.min(targets.length, old + batch.length));
+      await sleep(120);
+    }
+
+    setKlineLastUpdatedAt(nowText());
     setKlineLoading(false);
   }
 
-  async function loadStocks() {
+  async function loadStocks({ withKline = true, forceKline = false } = {}) {
     try {
       setUpdating(true);
       setError("");
@@ -1060,6 +1057,7 @@ export default function App() {
 
         normalized.forEach((stock) => {
           const pos = next[stock.code];
+
           if (pos?.holdingStatus === "已進場") {
             next[stock.code] = {
               ...pos,
@@ -1082,7 +1080,9 @@ export default function App() {
         })
       );
 
-      loadKLines(normalized);
+      if (withKline) {
+        loadKLinesBatch(normalized.slice(0, 50), forceKline);
+      }
     } catch (err: any) {
       setUsingCache(true);
       setError(err?.message || "資料更新失敗，已保留上次成功資料");
@@ -1093,7 +1093,7 @@ export default function App() {
   }
 
   useEffect(() => {
-    loadStocks();
+    loadStocks({ withKline: true });
   }, []);
 
   useEffect(() => {
@@ -1102,7 +1102,7 @@ export default function App() {
     const timer = window.setInterval(() => {
       setAutoSeconds((sec) => {
         if (sec <= 1) {
-          loadStocks();
+          loadStocks({ withKline: false });
           return settings.refreshSeconds;
         }
         return sec - 1;
@@ -1127,14 +1127,7 @@ export default function App() {
   const watchableList = useMemo(
     () =>
       top50
-        .filter((stock) => {
-          const atrInfo = atrInfoOf(stock);
-          return decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfo, posOf(stock)) === "可觀察";
-        })
-        .filter((stock) => {
-          const atrInfo = atrInfoOf(stock);
-          return !isAtrBroken(stock, settings, atrInfo, posOf(stock));
-        })
+        .filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "可觀察")
         .sort((a, b) => mainScore(b, mainIndustries, settings, atrInfoOf(b), posOf(b)) - mainScore(a, mainIndustries, settings, atrInfoOf(a), posOf(a))),
     [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
   );
@@ -1149,82 +1142,42 @@ export default function App() {
 
   const atrSafeList = useMemo(
     () =>
-      top50
-        .filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全")
-        .filter((stock) => !isHot(stock, settings))
-        .sort((a, b) => atrRiskScore(a, settings, atrInfoOf(a), posOf(a)) - atrRiskScore(b, settings, atrInfoOf(b), posOf(b))),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const atrNearList = useMemo(
-    () =>
-      top50
-        .filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "接近停利")
-        .sort((a, b) => atrRiskScore(b, settings, atrInfoOf(b), posOf(b)) - atrRiskScore(a, settings, atrInfoOf(a), posOf(a))),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const atrBrokenList = useMemo(
-    () =>
-      top50
-        .filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利")
-        .sort((a, b) => atrRiskScore(b, settings, atrInfoOf(b), posOf(b)) - atrRiskScore(a, settings, atrInfoOf(a), posOf(a))),
+      top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全"),
     [top50, settings, klineMap, positionMap]
   );
 
   const realAtrSafeList = useMemo(
-    () =>
-      atrSafeList.filter((stock) => {
-        const atrInfo = atrInfoOf(stock);
-        return atrInfo.hasReal;
-      }),
+    () => atrSafeList.filter((stock) => atrInfoOf(stock).hasReal),
     [atrSafeList, klineMap, settings]
   );
 
+  const atrNearList = useMemo(
+    () => top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "接近停利"),
+    [top50, settings, klineMap, positionMap]
+  );
+
+  const atrBrokenList = useMemo(
+    () => top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利"),
+    [top50, settings, klineMap, positionMap]
+  );
+
   const atrMissingList = useMemo(
-    () =>
-      top50.filter((stock) => {
-        const atrInfo = atrInfoOf(stock);
-        return !atrInfo.hasReal;
-      }),
-    [top50, klineMap, settings]
+    () => top50.filter((stock) => !atrInfoOf(stock).hasReal),
+    [top50, settings, klineMap]
   );
 
   const holdingRiskList = useMemo(
     () =>
       top50
         .filter((stock) => posOf(stock)?.holdingStatus === "已進場")
-        .filter((stock) => {
-          const atrInfo = atrInfoOf(stock);
-          return atrStatus(stock, settings, atrInfo, posOf(stock)) !== "安全";
-        }),
+        .filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) !== "安全"),
     [top50, settings, klineMap, positionMap]
   );
 
   const chaseRiskList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isHot(stock, settings))
-        .sort((a, b) => b.changePercent - a.changePercent),
+    () => top50.filter((stock) => isHot(stock, settings)),
     [top50, settings]
   );
-
-  const avoidList = useMemo(
-    () =>
-      top50.filter((stock) => {
-        const atrInfo = atrInfoOf(stock);
-        return (
-          isHot(stock, settings) ||
-          isWeak(stock) ||
-          !isMain(stock, mainIndustries) ||
-          stock.price > settings.maxPrice ||
-          isAtrBroken(stock, settings, atrInfo, posOf(stock))
-        );
-      }),
-    [top50, mainIndustries, settings, klineMap, positionMap]
-  );
-
-  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
 
   const favoriteStocks = useMemo(
     () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
@@ -1236,60 +1189,24 @@ export default function App() {
     [tomorrowCodes, stocks]
   );
 
+  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
+
   const tomorrowCombined = useMemo(() => {
     const map = new Map<string, Stock>();
     [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
     return Array.from(map.values());
   }, [tomorrowStocksManual, tomorrowAutoList]);
 
-  const tomorrowPriorityList = useMemo(() => {
-    const order: Record<string, number> = {
-      可觀察: 1,
-      等回測: 2,
-      不追高: 3,
-      移除: 4,
-      跌破ATR: 5,
-    };
-
-    return [...tomorrowCombined].sort((a, b) => {
-      const da = decisionLabel(a, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a));
-      const db = decisionLabel(b, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b));
-      return (order[da] || 99) - (order[db] || 99);
-    });
-  }, [tomorrowCombined, mainIndustries, settings, priceDirections, klineMap, positionMap]);
-
   const tomorrowAtrBroken = useMemo(
-    () =>
-      tomorrowCombined.filter((stock) => {
-        const atrInfo = atrInfoOf(stock);
-        return isAtrBroken(stock, settings, atrInfo, posOf(stock));
-      }),
+    () => tomorrowCombined.filter((stock) => isAtrBroken(stock, settings, atrInfoOf(stock), posOf(stock))),
     [tomorrowCombined, settings, klineMap, positionMap]
   );
 
-  const atrControlSummary = useMemo(() => {
-    return `真實ATR安全 ${realAtrSafeList.length} 檔，ATR資料不足 ${atrMissingList.length} 檔，接近停利 ${atrNearList.length} 檔，跌破 ${atrBrokenList.length} 檔。`;
-  }, [realAtrSafeList, atrMissingList, atrNearList, atrBrokenList]);
-
-  const holdingSummary = useMemo(() => {
-    const holdingCount = top50.filter((stock) => posOf(stock)?.holdingStatus === "已進場").length;
-    return `${holdingCount} 檔已進場追蹤，${holdingRiskList.length} 檔需要風控注意。`;
-  }, [top50, positionMap, holdingRiskList]);
-
-  const riskMode = useMemo(() => {
-    if (atrBrokenList.length >= 5 || holdingRiskList.length >= 2) return { label: "風控優先", tone: "text-red-300" };
-    if (atrNearList.length >= 8) return { label: "小心", tone: "text-yellow-300" };
-    return { label: "正常", tone: "text-emerald-300" };
-  }, [atrBrokenList, atrNearList, holdingRiskList]);
-
-  const todaySummary = useMemo(() => {
-    const main = mainIndustries.slice(0, 3).join("、") || "主流產業";
-
-    if (riskMode.label === "風控優先") return `今天先看風控，跌破ATR或持有風險增加，避免硬追。`;
-    if (riskMode.label === "小心") return `今天${main}有機會，但多檔接近ATR停利線，先小心。`;
-    if (watchableList.length >= 5) return `今天${main}偏強，優先看真實ATR安全可觀察股。`;
-    return `今天先等回測，接近開盤且ATR安全者優先。`;
-  }, [mainIndustries, riskMode, watchableList]);
+  const atrCompletionRate = useMemo(() => {
+    const total = Math.max(1, Math.min(settings.klineLimit, top50.length));
+    const real = top50.slice(0, settings.klineLimit).filter((stock) => atrInfoOf(stock).hasReal).length;
+    return Math.round((real / total) * 100);
+  }, [top50, settings.klineLimit, klineMap]);
 
   const dataStatus = useMemo(() => {
     if (updating) return "更新中";
@@ -1299,42 +1216,47 @@ export default function App() {
     return "讀取中";
   }, [updating, error, usingCache, lastSuccessAt]);
 
+  const riskMode = useMemo(() => {
+    if (holdingRiskList.length >= 2 || atrBrokenList.length >= 5) return { label: "風控優先", tone: "text-red-300" };
+    if (atrNearList.length >= 8) return { label: "小心", tone: "text-yellow-300" };
+    return { label: "正常", tone: "text-emerald-300" };
+  }, [holdingRiskList, atrBrokenList, atrNearList]);
+
+  const todaySummary = useMemo(() => {
+    const main = mainIndustries.slice(0, 3).join("、") || "主流產業";
+
+    if (riskMode.label === "風控優先") return "今天先看風控，持有或跌破ATR股票需要優先處理。";
+    if (riskMode.label === "小心") return `今天${main}有機會，但接近停利線股票偏多，先小心。`;
+    if (watchableList.length >= 5) return `今天${main}偏強，優先看真實ATR安全可觀察股。`;
+    return "今天先等回測，接近開盤且ATR安全者優先。";
+  }, [riskMode, mainIndustries, watchableList]);
+
   const selectedStock = useMemo(
     () => stocks.find((stock) => stock.code === selectedCode) || null,
     [stocks, selectedCode]
   );
 
   useEffect(() => {
+    if (selectedStock && !klineMap[selectedStock.code] && !inFlightRef.current.has(selectedStock.code)) {
+      fetchKLine(selectedStock.code);
+    }
+
     if (selectedStock) {
-      const position = positionMap[selectedStock.code];
-      setEntryInput(position?.entryPrice ? String(position.entryPrice) : String(selectedStock.openPrice || ""));
+      const pos = positionMap[selectedStock.code];
+      setEntryInput(pos?.entryPrice ? String(pos.entryPrice) : String(selectedStock.openPrice || ""));
     }
   }, [selectedStock]);
 
   function filterTopList(list: Stock[]) {
     if (tab !== "top50") return list;
 
-    if (settings.topFilter === "可觀察") {
-      return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "可觀察");
-    }
-    if (settings.topFilter === "等回測") {
-      return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "等回測");
-    }
-    if (settings.topFilter === "不追高") {
-      return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "不追高");
-    }
-    if (settings.topFilter === "ATR安全") {
-      return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全");
-    }
-    if (settings.topFilter === "真實ATR") {
-      return list.filter((stock) => atrInfoOf(stock).hasReal);
-    }
-    if (settings.topFilter === "ATR資料不足") {
-      return list.filter((stock) => !atrInfoOf(stock).hasReal);
-    }
-    if (settings.topFilter === "跌破ATR") {
-      return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利");
-    }
+    if (settings.topFilter === "可觀察") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "可觀察");
+    if (settings.topFilter === "等回測") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "等回測");
+    if (settings.topFilter === "不追高") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "不追高");
+    if (settings.topFilter === "ATR安全") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全");
+    if (settings.topFilter === "真實ATR") return list.filter((stock) => atrInfoOf(stock).hasReal);
+    if (settings.topFilter === "ATR風險") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) !== "安全");
+    if (settings.topFilter === "跌破ATR") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利");
 
     return list;
   }
@@ -1368,13 +1290,11 @@ export default function App() {
       if (moreView === "watchable") return sortList(watchableList);
       if (moreView === "waitPullback") return sortList(waitPullbackList);
       if (moreView === "atrSafe") return sortList(atrSafeList);
+      if (moreView === "realAtrSafe") return sortList(realAtrSafeList);
       if (moreView === "atrNear") return sortList(atrNearList);
       if (moreView === "atrBroken") return sortList(atrBrokenList);
-      if (moreView === "realAtrSafe") return sortList(realAtrSafeList);
       if (moreView === "atrMissing") return sortList(atrMissingList);
       if (moreView === "holdingRisk") return sortList(holdingRiskList);
-      if (moreView === "chaseRisk") return sortList(chaseRiskList);
-      if (moreView === "tomorrowPriority") return sortList(tomorrowPriorityList);
     }
 
     return [];
@@ -1386,13 +1306,11 @@ export default function App() {
     watchableList,
     waitPullbackList,
     atrSafeList,
+    realAtrSafeList,
     atrNearList,
     atrBrokenList,
-    realAtrSafeList,
     atrMissingList,
     holdingRiskList,
-    chaseRiskList,
-    tomorrowPriorityList,
     searchText,
     sortKey,
     mainIndustries,
@@ -1408,8 +1326,12 @@ export default function App() {
     setMoreView(view);
   }
 
-  function openLink(url: string) {
-    window.open(url, "_blank", "noopener,noreferrer");
+  function clearKlineCache() {
+    localStorage.removeItem(KLINE_CACHE_KEY);
+    setKlineMap({});
+    setKlineFailMap({});
+    setKlineLoadedCount(0);
+    setKlineTargetCount(0);
   }
 
   function addWatchableToTomorrow() {
@@ -1420,10 +1342,6 @@ export default function App() {
   function removeAtrBrokenTomorrow() {
     const removeSet = new Set(tomorrowAtrBroken.map((stock) => stock.code));
     saveTomorrow(tomorrowCodes.filter((code) => !removeSet.has(code)));
-  }
-
-  function clearTomorrow() {
-    saveTomorrow([]);
   }
 
   function setAtrMode(mode: AtrMode) {
@@ -1449,7 +1367,6 @@ export default function App() {
   };
 
   if (selectedStock) {
-    const links = getKLinks(selectedStock.code, selectedStock.name);
     const position = positionMap[selectedStock.code];
     const atrInfo = getAtrInfo(selectedStock, settings, klineMap[selectedStock.code]);
     const label = decisionLabel(selectedStock, mainIndustries, settings, priceDirections, atrInfo, position);
@@ -1457,9 +1374,7 @@ export default function App() {
     const prevPrice = previousPriceOf(selectedStock, previousPriceMap);
     const diff = instantDiff(selectedStock, previousPriceMap);
     const diffPct = instantPercent(selectedStock, previousPriceMap);
-    const isFavorite = favoriteCodes.includes(selectedStock.code);
-    const isTomorrow = tomorrowCodes.includes(selectedStock.code);
-    const aStatus = atrStatus(selectedStock, settings, atrInfo, position);
+    const links = getKLinks(selectedStock.code, selectedStock.name);
 
     const todayAction =
       isAtrBroken(selectedStock, settings, atrInfo, position)
@@ -1482,9 +1397,7 @@ export default function App() {
           <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-sm font-bold text-slate-400">
-                  {selectedStock.code}｜{selectedStock.industry}
-                </div>
+                <div className="text-sm font-bold text-slate-400">{selectedStock.code}｜{selectedStock.industry}</div>
                 <h1 className="mt-1 text-3xl font-black">{selectedStock.name}</h1>
               </div>
 
@@ -1502,8 +1415,8 @@ export default function App() {
             </div>
 
             <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${atrTone(selectedStock, settings, atrInfo, position)}`}>
-              <div className="text-xs font-bold text-slate-400">真實K線 ATR</div>
-              <div className="mt-1 text-2xl font-black">ATR狀態：{aStatus}</div>
+              <div className="text-xs font-bold text-slate-400">日K狀態：{atrInfo.hasReal ? "真實ATR已完成" : klineFailMap[selectedStock.code] ? "使用簡化ATR" : "日K讀取中或等待補抓"}</div>
+              <div className="mt-1 text-2xl font-black">ATR狀態：{atrStatus(selectedStock, settings, atrInfo, position)}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
                 {atrSentence(selectedStock, settings, atrInfo, position)}
                 <br />
@@ -1514,10 +1427,16 @@ export default function App() {
                 ATR停損價：{formatPrice(atrStopLoss(selectedStock, settings, atrInfo, position))}
                 <br />
                 ATR移動停利價：{formatPrice(atrTrailingStop(selectedStock, settings, atrInfo, position))}
-                <br />
-                ATR風險分：{atrRiskScore(selectedStock, settings, atrInfo, position)}
               </div>
-              <AtrBar stock={selectedStock} settings={settings} atrInfo={atrInfo} position={position} />
+
+              {!atrInfo.hasReal && (
+                <button
+                  onClick={() => fetchKLine(selectedStock.code, true)}
+                  className="mt-3 w-full rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200"
+                >
+                  重新補抓這檔日K
+                </button>
+              )}
             </div>
 
             <section className="mt-4 rounded-2xl bg-slate-950 p-4">
@@ -1575,12 +1494,6 @@ export default function App() {
                   保存
                 </button>
               </div>
-
-              <div className="mt-2 text-xs font-bold text-slate-400">
-                目前進場價：{position?.entryPrice ? `${formatPrice(position.entryPrice)}（手動）` : `${formatPrice(selectedStock.openPrice)}（開盤價）`}
-                <br />
-                持有後最高價：{formatPrice(position?.highestPrice || Math.max(selectedStock.price, selectedStock.highPrice))}
-              </div>
             </section>
 
             <section className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
@@ -1606,7 +1519,7 @@ export default function App() {
 
             <div className="mt-4 grid grid-cols-2 gap-2">
               <DetailRow label="主線分數" value={mainScore(selectedStock, mainIndustries, settings, atrInfo, position)} />
-              <DetailRow label="即時強度分" value={instantScore(selectedStock, mainIndustries, settings, priceDirections, atrInfo, position)} />
+              <DetailRow label="ATR風險分" value={atrRiskScore(selectedStock, settings, atrInfo, position)} />
               <DetailRow label="ATR天數" value={`${settings.atrDays}日`} />
               <DetailRow label="停利基準" value={settings.profitAnchor} />
             </div>
@@ -1614,43 +1527,11 @@ export default function App() {
 
           <section className="mt-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
             <h2 className="text-xl font-black">K線入口</h2>
-
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button onClick={() => openLink(links.yahoo)} className="rounded-2xl bg-purple-500/20 py-3 text-sm font-black text-purple-200">Yahoo K線</button>
-              <button onClick={() => openLink(links.tradingView)} className="rounded-2xl bg-blue-500/20 py-3 text-sm font-black text-blue-200">TradingView</button>
-              <button onClick={() => openLink(links.goodinfo)} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">Goodinfo</button>
-              <button onClick={() => openLink(links.google)} className="rounded-2xl bg-slate-700 py-3 text-sm font-black text-slate-200">Google搜尋</button>
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">停利停損說明</h2>
-            <div className="mt-2 text-sm font-bold leading-6 text-slate-300">
-              停損是控制虧損，移動停利是保護獲利。日K成功時使用真實ATR；日K失敗時自動使用簡化ATR備援，避免畫面中斷。
-            </div>
-          </section>
-
-          <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">一鍵加入</h2>
-
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => (isTomorrow ? removeTomorrow(selectedStock.code) : addTomorrow(selectedStock.code))}
-                className={`rounded-2xl py-3 text-sm font-black ${
-                  isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
-                }`}
-              >
-                {isTomorrow ? "📌 移除明日觀察" : "📌 加入明日觀察"}
-              </button>
-
-              <button
-                onClick={() => (isFavorite ? removeFavorite(selectedStock.code) : addFavorite(selectedStock.code))}
-                className={`rounded-2xl py-3 text-sm font-black ${
-                  isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
-                }`}
-              >
-                {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
-              </button>
+              <button onClick={() => window.open(links.yahoo)} className="rounded-2xl bg-purple-500/20 py-3 text-sm font-black text-purple-200">Yahoo K線</button>
+              <button onClick={() => window.open(links.tradingView)} className="rounded-2xl bg-blue-500/20 py-3 text-sm font-black text-blue-200">TradingView</button>
+              <button onClick={() => window.open(links.goodinfo)} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">Goodinfo</button>
+              <button onClick={() => window.open(links.google)} className="rounded-2xl bg-slate-700 py-3 text-sm font-black text-slate-200">Google搜尋</button>
             </div>
           </section>
         </div>
@@ -1664,14 +1545,14 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股真實K線ATR版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">真實ATR風控雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股真實ATR效能優化版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">ATR效能雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                日K資料 → 真實ATR → 停損 / 移動停利。
+                分批抓日K、快取、不卡手機。
               </p>
             </div>
 
-            <button onClick={loadStocks} className="shrink-0 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white shadow-lg active:scale-95">
+            <button onClick={() => loadStocks({ withKline: true })} className="shrink-0 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white shadow-lg active:scale-95">
               {updating ? "更新中" : "立即"}<br />更新
             </button>
           </div>
@@ -1686,7 +1567,7 @@ export default function App() {
                 {settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
               </div>
               <div className="mt-1 text-xs font-bold text-cyan-300">
-                日K：{klineLoading ? "讀取中" : `成功 ${Object.keys(klineMap).length}｜失敗 ${klineFailCodes.length}`}
+                日K：{klineLoading ? `讀取中 ${klineLoadedCount}/${klineTargetCount}` : `完成 ${Object.keys(klineMap).length}｜失敗 ${Object.keys(klineFailMap).length}`}
               </div>
             </div>
 
@@ -1697,34 +1578,35 @@ export default function App() {
         </section>
 
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-          <div className="text-xs font-bold text-yellow-300">ATR風控總結</div>
-          <div className="mt-1 text-xl font-black text-yellow-100">{atrControlSummary}</div>
+          <div className="text-xs font-bold text-yellow-300">ATR效能總結</div>
+          <div className="mt-1 text-xl font-black text-yellow-100">
+            真實ATR完成率 {atrCompletionRate}%｜真實ATR安全 {realAtrSafeList.length} 檔｜資料不足 {atrMissingList.length} 檔
+          </div>
           <div className={`mt-2 text-2xl font-black ${riskMode.tone}`}>今天風控模式：{riskMode.label}</div>
           <div className="mt-2 text-sm font-bold text-slate-300">{todaySummary}</div>
-          <div className="mt-2 text-xs font-bold text-cyan-300">持有風控提醒：{holdingSummary}</div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard title="真實ATR安全" value={realAtrSafeList.length} sub="日K成功 + ATR安全" tone="text-emerald-300" onClick={() => goMore("realAtrSafe")} />
-          <MiniCard title="ATR資料不足" value={atrMissingList.length} sub="使用簡化ATR備援" tone="text-yellow-300" onClick={() => goMore("atrMissing")} />
+          <MiniCard title="日K進度" value={`${klineLoadedCount}/${klineTargetCount || settings.klineLimit}`} sub={klineLoading ? "分批讀取中" : "目前完成"} tone="text-cyan-300" onClick={() => goMore("data")} />
           <MiniCard title="持有風控" value={holdingRiskList.length} sub="已進場且需注意" tone="text-orange-300" onClick={() => goMore("holdingRisk")} />
           <MiniCard title="跌破ATR" value={atrBrokenList.length} sub="建議移出觀察" tone="text-red-300" onClick={() => goMore("atrBroken")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
+          <ActionCard title="只更新股價" sub="不重抓日K，速度最快" badge="快" tone="text-cyan-300" onClick={() => loadStocks({ withKline: false })} />
+          <ActionCard title="重新抓日K" sub="強制重抓日K快取" badge="K" tone="text-yellow-300" onClick={() => loadKLinesBatch(top50, true)} />
           <ActionCard title="50強" sub="含真實ATR來源" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
           <ActionCard title="明日觀察" sub={`跌破 ${tomorrowAtrBroken.length}`} badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
           <ActionCard title="可觀察雷達" sub="主線 + ATR安全" badge={watchableList.length} tone="text-emerald-300" onClick={() => goMore("watchable")} />
           <ActionCard title="等回測雷達" sub="回測 + ATR安全" badge={waitPullbackList.length} tone="text-yellow-300" onClick={() => goMore("waitPullback")} />
-          <ActionCard title="真實ATR安全股" sub="日K成功才列入" badge={realAtrSafeList.length} tone="text-emerald-300" onClick={() => goMore("realAtrSafe")} />
-          <ActionCard title="持有中風控" sub="已進場股票" badge={holdingRiskList.length} tone="text-orange-300" onClick={() => goMore("holdingRisk")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">點股票卡片可切換持有中模式。</p>
+              <p className="text-xs font-bold text-slate-500">日K會背景分批補齊，不影響先看資料。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -1763,7 +1645,7 @@ export default function App() {
 
               {tab === "top50" && (
                 <div className="grid grid-cols-3 gap-2">
-                  {(["全部", "可觀察", "等回測", "不追高", "ATR安全", "真實ATR", "ATR資料不足", "跌破ATR"] as TopFilter[]).map((filter) => (
+                  {(["全部", "可觀察", "等回測", "不追高", "ATR安全", "真實ATR", "ATR風險", "跌破ATR"] as TopFilter[]).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => saveSettings({ ...settings, topFilter: filter })}
@@ -1791,10 +1673,8 @@ export default function App() {
               <ActionCard title="ATR安全股" sub="距離停利線有空間" badge={atrSafeList.length} tone="text-emerald-300" onClick={() => setMoreView("atrSafe")} />
               <ActionCard title="接近停利線" sub="小心守ATR" badge={atrNearList.length} tone="text-yellow-300" onClick={() => setMoreView("atrNear")} />
               <ActionCard title="跌破ATR" sub="建議移出觀察" badge={atrBrokenList.length} tone="text-red-300" onClick={() => setMoreView("atrBroken")} />
-              <ActionCard title="明日優先雷達" sub="含ATR排序" badge={tomorrowPriorityList.length} tone="text-purple-300" onClick={() => setMoreView("tomorrowPriority")} />
-              <ActionCard title="追高風險雷達" sub="過熱 + ATR近" badge={chaseRiskList.length} tone="text-red-300" onClick={() => setMoreView("chaseRisk")} />
               <ActionCard title="產業熱度" sub="主流產業排名" badge={industries.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="ATR天數 / 停利基準" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
+              <ActionCard title="設定" sub="快取 / 數量 / 省流量" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
             </div>
           </section>
         )}
@@ -1810,12 +1690,11 @@ export default function App() {
               {tab === "more" && moreView === "watchable" && "✅ 可觀察雷達"}
               {tab === "more" && moreView === "waitPullback" && "↩️ 等回測雷達"}
               {tab === "more" && moreView === "atrSafe" && "🟢 ATR安全股"}
-              {tab === "more" && moreView === "atrNear" && "🟡 接近ATR停利"}
-              {tab === "more" && moreView === "atrBroken" && "🔴 跌破ATR停利"}
               {tab === "more" && moreView === "realAtrSafe" && "🟢 真實ATR安全股"}
+              {tab === "more" && moreView === "atrNear" && "🟡 接近ATR停利"}
+              {tab === "more" && moreView === "atrBroken" && "🔴 跌破ATR"}
               {tab === "more" && moreView === "atrMissing" && "🟡 ATR資料不足"}
-              {tab === "more" && moreView === "holdingRisk" && "⚠️ 持有中風控雷達"}
-              {tab === "more" && moreView === "tomorrowPriority" && "📌 明日優先雷達"}
+              {tab === "more" && moreView === "holdingRisk" && "⚠️ 持有中風控"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
               {tab === "more" && moreView === "data" && "📡 資料健康檢查"}
             </h2>
@@ -1840,29 +1719,15 @@ export default function App() {
                   ))}
                 </div>
               </section>
-
-              <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">今日先避開 5 檔</h3>
-                <div className="mt-3 space-y-3">
-                  {avoidList.slice(0, 5).map((stock, index) => (
-                    <div key={stock.code}>
-                      <StockCard stock={stock} rank={index + 1} {...cardProps} />
-                      <div className="mt-1 rounded-2xl bg-red-950/50 p-3 text-xs font-black text-red-100">
-                        避開原因：{avoidReason(stock, mainIndustries, settings, atrInfoOf(stock), posOf(stock))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
             </div>
           )}
 
           {tab === "tomorrow" && (
             <div className="space-y-5">
               <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">明日觀察：已進場 / 純觀察</h3>
+                <h3 className="text-xl font-black">明日觀察</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  已進場追蹤會套用持有後最高價做移動停利。
+                  日K優先抓明日觀察、自選、持有中股票。
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1872,25 +1737,22 @@ export default function App() {
                   <button onClick={removeAtrBrokenTomorrow} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
                     移除跌破ATR
                   </button>
-                  <button onClick={clearTomorrow} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
+                  <button onClick={() => saveTomorrow([])} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
                     一鍵清空
                   </button>
                 </div>
               </section>
 
-              <section>
-                <h3 className="mb-2 text-xl font-black">明日優先清單</h3>
-                <div className="space-y-3">
-                  {tomorrowPriorityList.length === 0 && (
-                    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">
-                      目前沒有股票
-                    </div>
-                  )}
-                  {tomorrowPriorityList.map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
-                  ))}
-                </div>
-              </section>
+              <div className="space-y-3">
+                {tomorrowCombined.length === 0 && (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 text-center text-sm font-bold text-slate-500">
+                    目前沒有股票
+                  </div>
+                )}
+                {tomorrowCombined.map((stock, index) => (
+                  <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps} />
+                ))}
+              </div>
             </div>
           )}
 
@@ -1912,7 +1774,6 @@ export default function App() {
                       <div className={`text-sm font-black ${item.avg >= 0 ? "text-red-300" : "text-emerald-300"}`}>
                         平均 {formatPercent(item.avg)}
                       </div>
-                      <div className="text-xs font-black text-slate-400">強度 {item.score.toFixed(0)}</div>
                     </div>
                   </div>
                 </div>
@@ -1922,6 +1783,66 @@ export default function App() {
 
           {tab === "more" && moreView === "settings" && (
             <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
+              <div>
+                <div className="mb-2 text-lg font-black">日K快取時間</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[10, 30, 60].map((min) => (
+                    <button
+                      key={min}
+                      onClick={() => saveSettings({ ...settings, klineCacheMinutes: min })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.klineCacheMinutes === min ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {min}分
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-lg font-black">日K抓取數量</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[20, 30, 50].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => saveSettings({ ...settings, klineLimit: num })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.klineLimit === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      前{num}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-2 text-lg font-black">日K每批數量</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[5, 8, 10].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => saveSettings({ ...settings, klineBatchSize: num })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.klineBatchSize === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {num}檔
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={() => saveSettings({ ...settings, klineSaveMode: !settings.klineSaveMode })}
+                className={`w-full rounded-2xl py-3 text-lg font-black ${
+                  settings.klineSaveMode ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
+                }`}
+              >
+                省流量日K模式：{settings.klineSaveMode ? "開啟" : "關閉"}
+              </button>
+
               <div>
                 <div className="mb-2 text-lg font-black">ATR天數</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -1974,57 +1895,6 @@ export default function App() {
               </div>
 
               <div>
-                <div className="mb-2 text-lg font-black">ATR敏感度</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["敏感", "標準", "保守"] as AtrSensitivity[]).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => saveSettings({ ...settings, atrSensitivity: mode })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.atrSensitivity === mode ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">ATR倍數</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[1.5, 2, 2.5, 3].map((m) => (
-                    <button
-                      key={m}
-                      onClick={() => saveSettings({ ...settings, atrMultiple: m, atrMode: m <= 1.5 ? "短線" : m >= 3 ? "寬鬆" : "標準" })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.atrMultiple === m ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {m}倍
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">決策模式</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["保守", "標準", "積極"] as DecisionMode[]).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => saveSettings({ ...settings, decisionMode: mode })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.decisionMode === mode ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {mode}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
                 <div className="mb-2 text-lg font-black">即時更新頻率</div>
                 <div className="grid grid-cols-4 gap-2">
                   {[
@@ -2060,27 +1930,32 @@ export default function App() {
                 <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
                 <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
                 <div>資料來源：{source || "讀取中"}</div>
-                <div>是否使用快取：{usingCache ? "是" : "否"}</div>
-                <div>更新失敗原因：{error || "無"}</div>
-                <div>日K資料狀態：成功 {Object.keys(klineMap).length}｜失敗 {klineFailCodes.length}</div>
-                <div>ATR資料狀態：真實ATR {Object.keys(klineMap).length}｜簡化ATR備援 {atrMissingList.length}</div>
-                <div>ATR天數：{settings.atrDays}</div>
-                <div>ATR倍數：{settings.atrMultiple}</div>
-                <div>停利基準：{settings.profitAnchor}</div>
-                <div>已保存持有設定：{Object.keys(positionMap).length} 檔</div>
-                <div>自動更新頻率：{settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${settings.refreshSeconds}秒`}</div>
-                <div>下一次更新：{settings.dataSaver || settings.refreshSeconds === 0 ? "--" : `${autoSeconds}s`}</div>
+                <div>日K載入進度：{klineLoading ? `${klineLoadedCount}/${klineTargetCount}` : "目前未載入中"}</div>
+                <div>真實ATR完成率：{atrCompletionRate}%</div>
+                <div>真實ATR：{Object.keys(klineMap).length} 檔</div>
+                <div>日K失敗：{Object.keys(klineFailMap).length} 檔</div>
+                <div>快取時間：{settings.klineCacheMinutes} 分鐘</div>
+                <div>抓取數量：前 {settings.klineLimit} 檔</div>
+                <div>每批數量：{settings.klineBatchSize} 檔</div>
+                <div>省流量日K：{settings.klineSaveMode ? "開啟" : "關閉"}</div>
+                <div>最後日K更新：{klineLastUpdatedAt || "--"}</div>
+                <div>下一次股價更新：{settings.dataSaver || settings.refreshSeconds === 0 ? "--" : `${autoSeconds}s`}</div>
               </div>
 
-              {(usingCache || error) && (
-                <div className="mt-3 rounded-2xl border border-yellow-500 bg-yellow-950/50 p-3 text-sm font-black text-yellow-200">
-                  ⚠️ {error || "目前使用上次成功資料，畫面不會清空。"}
-                </div>
-              )}
-
-              <button onClick={loadStocks} className="mt-4 w-full rounded-2xl bg-blue-500/20 py-3 text-lg font-black text-blue-200">
-                重新讀取資料
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button onClick={() => loadStocks({ withKline: false })} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+                  只更新股價
+                </button>
+                <button onClick={() => loadKLinesBatch(top50, true)} className="rounded-2xl bg-yellow-500/20 py-3 text-sm font-black text-yellow-200">
+                  重新抓日K
+                </button>
+                <button onClick={clearKlineCache} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+                  清除日K快取
+                </button>
+                <button onClick={() => loadStocks({ withKline: true, forceKline: true })} className="rounded-2xl bg-purple-500/20 py-3 text-sm font-black text-purple-200">
+                  股價+日K全更新
+                </button>
+              </div>
             </div>
           )}
 
