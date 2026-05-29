@@ -28,7 +28,8 @@ type PopupKey =
   | "amount"
   | "top50"
   | "settings"
-  | "data";
+  | "data"
+  | "search";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 
@@ -41,7 +42,6 @@ type Settings = {
   attackConfirmTimes: number;
   noisePercent: number;
   stableIndustryLock: boolean;
-  topFilter: string;
 };
 
 type ApiResponse = {
@@ -97,14 +97,16 @@ type IndustryLineItem = {
 };
 
 const API_URL = "/api/stocks";
+const SEARCH_API_URL = "/api/search";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
-const SETTINGS_KEY = "taiwan-stock-radar-category-popup-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-category-popup-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-category-popup-signals";
-const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-category-popup-industry";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-category-popup-locked";
+const SETTINGS_KEY = "taiwan-stock-radar-all-search-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-all-search-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-all-search-signals";
+const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-all-search-industry";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-all-search-locked";
+const SEARCH_HISTORY_KEY = "taiwan-stock-radar-all-search-history";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -115,7 +117,6 @@ const defaultSettings: Settings = {
   attackConfirmTimes: 3,
   noisePercent: 0.3,
   stableIndustryLock: true,
-  topFilter: "全部",
 };
 
 const industryMap: Record<string, string> = {
@@ -125,10 +126,11 @@ const industryMap: Record<string, string> = {
   "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
   "2201": "汽車", "2207": "汽車",
   "2301": "電子", "2303": "半導體", "2308": "電源能源",
-  "2313": "電子零組件", "2317": "電子代工", "2327": "電子零組件",
-  "2330": "半導體", "2354": "電子", "2356": "電腦週邊", "2357": "電腦週邊",
+  "2313": "電子零組件", "2317": "電子代工", "2324": "電腦週邊",
+  "2330": "半導體", "2337": "記憶體", "2344": "記憶體",
+  "2354": "電子", "2356": "電腦週邊", "2357": "電腦週邊",
   "2367": "電子零組件", "2379": "半導體", "2382": "電子代工",
-  "2408": "半導體", "2409": "面板", "2454": "半導體",
+  "2408": "記憶體", "2409": "面板", "2454": "半導體",
   "2603": "航運", "2609": "航運", "2615": "航運", "2618": "航運",
   "2881": "金融", "2882": "金融", "2884": "金融", "2886": "金融",
   "2891": "金融", "2892": "金融",
@@ -186,7 +188,7 @@ function formatAmount(value: number) {
 }
 
 function normalizeStock(raw: any, updateTime: string): Stock {
-  const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "");
+  const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "").replace(".TWO", "");
   const name = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
   const price = n(raw.price ?? raw.close ?? raw.lastPrice ?? raw.z);
   const previousClose = n(raw.previousClose ?? raw.prevClose ?? raw.yesterdayClose ?? raw.y);
@@ -347,14 +349,14 @@ function rawMoneyOut(stock: Stock, list: Stock[]) {
   return volumeRankPercent(stock, list) >= 65 && stock.price < stock.openPrice && stock.changePercent < 2;
 }
 
-function lastNAllTrue(values: boolean[] | undefined, n: number) {
-  if (!values || values.length < n) return false;
-  return values.slice(-n).every(Boolean);
+function lastNAllTrue(values: boolean[] | undefined, count: number) {
+  if (!values || values.length < count) return false;
+  return values.slice(-count).every(Boolean);
 }
 
-function lastNAnyTrue(values: boolean[] | undefined, n: number) {
-  if (!values || values.length < n) return false;
-  return values.slice(-n).some(Boolean);
+function lastNAnyTrue(values: boolean[] | undefined, count: number) {
+  if (!values || values.length < count) return false;
+  return values.slice(-count).some(Boolean);
 }
 
 function stableCount(values: boolean[] | undefined) {
@@ -693,21 +695,9 @@ function IndustryLineCard({ item, rank }: { item: IndustryLineItem; rank: number
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
-          主攻續航
-          <br />
-          {item.attackContinueCount}
-        </div>
-        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-          高品質
-          <br />
-          {item.highQualityCount}
-        </div>
-        <div className="rounded-2xl bg-black/30 p-2 text-red-300">
-          失效
-          <br />
-          {item.failCount}
-        </div>
+        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">主攻續航<br />{item.attackContinueCount}</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">高品質<br />{item.highQualityCount}</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-red-300">失效<br />{item.failCount}</div>
       </div>
     </div>
   );
@@ -757,8 +747,6 @@ function StockCard({
   const score = rawEntryScore(stock, top50, mainIndustries, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
-  const diff = prevPrice ? stock.price - prevPrice : 0;
-  const diffPct = prevPrice ? ((stock.price - prevPrice) / prevPrice) * 100 : 0;
   const isFavorite = favoriteCodes.includes(stock.code);
   const isWatch = watchCodes.includes(stock.code);
   const mainIndex = mainIndustries.indexOf(stock.industry);
@@ -812,9 +800,7 @@ function StockCard({
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
           即時：{directionText(direction)}｜{trendText(history)}
           <br />
-          {prevPrice
-            ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}｜${diff > 0 ? "+" : ""}${diff.toFixed(2)}｜${formatPercent(diffPct)}`
-            : "尚無上一筆"}
+          {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
           <br />
           更新：{stock.updatedAt || lastSuccessAt || "--"}
         </div>
@@ -988,7 +974,9 @@ function StockQuickModal({
           <div className="mt-2 text-sm font-bold text-slate-300">
             {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
             <br />
-            開盤：{formatPrice(stock.openPrice)}｜現價：{formatPrice(stock.price)}
+            開盤：{formatPrice(stock.openPrice)}｜昨收：{formatPrice(stock.previousClose)}
+            <br />
+            最高：{formatPrice(stock.highPrice)}｜最低：{formatPrice(stock.lowPrice)}
             <br />
             更新：{stock.updatedAt || lastSuccessAt || "--"}
           </div>
@@ -1018,27 +1006,7 @@ function StockQuickModal({
   );
 }
 
-function CategoryListModal({
-  title,
-  sub,
-  stocks,
-  top50,
-  mainIndustries,
-  settings,
-  signalMap,
-  industryStatusMap,
-  favoriteCodes,
-  watchCodes,
-  priceDirections,
-  previousPriceMap,
-  lastSuccessAt,
-  onClose,
-  onOpenStock,
-  onAddFavorite,
-  onRemoveFavorite,
-  onAddWatch,
-  onRemoveWatch,
-}: {
+function CategoryListModal(props: {
   title: string;
   sub: string;
   stocks: Stock[];
@@ -1060,52 +1028,47 @@ function CategoryListModal({
   onRemoveWatch: (code: string) => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-bold text-slate-500">{sub}</div>
-              <div className="mt-1 text-2xl font-black text-white">{title}</div>
-              <div className="mt-1 text-sm font-bold text-cyan-300">共 {stocks.length} 檔｜點股票直接快看</div>
+              <div className="text-xs font-bold text-slate-500">{props.sub}</div>
+              <div className="mt-1 text-2xl font-black text-white">{props.title}</div>
+              <div className="mt-1 text-sm font-bold text-cyan-300">共 {props.stocks.length} 檔｜點股票直接快看</div>
             </div>
 
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
-              ×
-            </button>
+            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
           </div>
         </div>
 
         <div className="mt-4 space-y-3">
-          {stocks.length === 0 && (
+          {props.stocks.length === 0 && (
             <div className="rounded-2xl border border-slate-800 bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
               目前沒有符合條件的股票。
             </div>
           )}
 
-          {stocks.map((stock, index) => (
+          {props.stocks.map((stock, index) => (
             <StockCard
               key={`${stock.code}-${index}`}
               stock={stock}
               rank={index + 1}
-              top50={top50}
-              mainIndustries={mainIndustries}
-              settings={settings}
-              signalMap={signalMap}
-              industryStatus={industryStatusMap[stock.industry] || "觀察中"}
-              favoriteCodes={favoriteCodes}
-              watchCodes={watchCodes}
-              priceDirections={priceDirections}
-              previousPriceMap={previousPriceMap}
-              lastSuccessAt={lastSuccessAt}
-              onOpen={onOpenStock}
-              onAddFavorite={onAddFavorite}
-              onRemoveFavorite={onRemoveFavorite}
-              onAddWatch={onAddWatch}
-              onRemoveWatch={onRemoveWatch}
+              top50={props.top50}
+              mainIndustries={props.mainIndustries}
+              settings={props.settings}
+              signalMap={props.signalMap}
+              industryStatus={props.industryStatusMap[stock.industry] || "觀察中"}
+              favoriteCodes={props.favoriteCodes}
+              watchCodes={props.watchCodes}
+              priceDirections={props.priceDirections}
+              previousPriceMap={props.previousPriceMap}
+              lastSuccessAt={props.lastSuccessAt}
+              onOpen={props.onOpenStock}
+              onAddFavorite={props.onAddFavorite}
+              onRemoveFavorite={props.onRemoveFavorite}
+              onAddWatch={props.onAddWatch}
+              onRemoveWatch={props.onRemoveWatch}
             />
           ))}
         </div>
@@ -1114,29 +1077,107 @@ function CategoryListModal({
   );
 }
 
-function IndustryPopup({
-  items,
+function SearchPopup({
+  query,
+  setQuery,
+  loading,
+  message,
+  history,
+  onSearch,
+  onPick,
   onClose,
 }: {
-  items: IndustryLineItem[];
+  query: string;
+  setQuery: (value: string) => void;
+  loading: boolean;
+  message: string;
+  history: Stock[];
+  onSearch: () => void;
+  onPick: (stock: Stock) => void;
   onClose: () => void;
 }) {
   return (
+    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">不限50強</div>
+              <div className="mt-1 text-2xl font-black text-white">全個股查詢</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <div className="text-sm font-black text-cyan-200">輸入股票代號或常見名稱</div>
+
+          <div className="mt-3 flex gap-2">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearch();
+              }}
+              placeholder="例如 2330、2344、華邦電"
+              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+            />
+            <button onClick={onSearch} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
+              {loading ? "查詢中" : "查詢"}
+            </button>
+          </div>
+
+          {message && <div className="mt-3 text-sm font-bold text-yellow-200">{message}</div>}
+        </div>
+
+        <div className="mt-4">
+          <div className="text-lg font-black text-white">最近查詢</div>
+          <div className="mt-3 space-y-2">
+            {history.length === 0 && (
+              <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                尚無查詢紀錄。
+              </div>
+            )}
+
+            {history.map((stock) => (
+              <button
+                key={stock.code}
+                onClick={() => onPick(stock)}
+                className="w-full rounded-2xl border border-slate-800 bg-black/30 p-3 text-left active:scale-95"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
+                    <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-lg font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
+                      {formatPercent(stock.changePercent)}
+                    </div>
+                    <div className="text-sm font-black text-white">{formatPrice(stock.price)}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IndustryPopup({ items, onClose }: { items: IndustryLineItem[]; onClose: () => void }) {
+  return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold text-slate-500">產業資金主線</div>
               <div className="mt-1 text-2xl font-black text-white">產業主線權重排行</div>
             </div>
-
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
-              ×
-            </button>
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
           </div>
         </div>
 
@@ -1150,14 +1191,7 @@ function IndustryPopup({
   );
 }
 
-function SettingsPopup({
-  settings,
-  saveSettings,
-  lockCurrentIndustries,
-  clearLockedIndustries,
-  resetSignals,
-  onClose,
-}: {
+function SettingsPopup(props: {
   settings: Settings;
   saveSettings: (next: Settings) => void;
   lockCurrentIndustries: () => void;
@@ -1165,22 +1199,18 @@ function SettingsPopup({
   resetSignals: () => void;
   onClose: () => void;
 }) {
+  const { settings, saveSettings } = props;
+
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold text-slate-500">快看設定</div>
               <div className="mt-1 text-2xl font-black text-white">設定</div>
             </div>
-
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
-              ×
-            </button>
+            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
           </div>
         </div>
 
@@ -1229,10 +1259,10 @@ function SettingsPopup({
           </button>
 
           <div className="grid grid-cols-2 gap-2">
-            <button onClick={lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+            <button onClick={props.lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
               鎖定目前主流
             </button>
-            <button onClick={clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
+            <button onClick={props.clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
               解除鎖定
             </button>
           </div>
@@ -1259,7 +1289,7 @@ function SettingsPopup({
             </div>
           </div>
 
-          <button onClick={resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
+          <button onClick={props.resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
             重置所有主線確認紀錄
           </button>
         </div>
@@ -1268,27 +1298,7 @@ function SettingsPopup({
   );
 }
 
-function DataPopup({
-  stocks,
-  top50,
-  totalEstimatedAmount,
-  lastSuccessAt,
-  lastAttemptAt,
-  apiDataTime,
-  source,
-  error,
-  mainlineCoreList,
-  mainlinePullbackList,
-  mainlineNewStrongList,
-  mainlineOverheatList,
-  mainlineFailedList,
-  holdingList,
-  topLineIndustry,
-  marketStructure,
-  loadStocks,
-  resetSignals,
-  onClose,
-}: {
+function DataPopup(props: {
   stocks: Stock[];
   top50: Stock[];
   totalEstimatedAmount: number;
@@ -1310,48 +1320,42 @@ function DataPopup({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold text-slate-500">資料健康檢查</div>
               <div className="mt-1 text-2xl font-black text-white">主線統計</div>
             </div>
-
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
-              ×
-            </button>
+            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
           </div>
         </div>
 
         <div className="mt-4 space-y-2 text-sm font-bold text-slate-300">
-          <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
-          <div>資料筆數：{stocks.length}</div>
-          <div>50強筆數：{top50.length}</div>
-          <div>最新資料時間：{apiDataTime || "讀取中"}</div>
-          <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
-          <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
-          <div>資料來源：{source || "讀取中"}</div>
-          <div>50強總成交金額估算：{formatAmount(totalEstimatedAmount)}</div>
-          <div>主線核心股數：{mainlineCoreList.length}</div>
-          <div>主線等回測股數：{mainlinePullbackList.length}</div>
-          <div>主線剛轉強股數：{mainlineNewStrongList.length}</div>
-          <div>主線失效股數：{mainlineFailedList.length}</div>
-          <div>主線過熱股數：{mainlineOverheatList.length}</div>
-          <div>持股管理股數：{holdingList.length}</div>
-          <div>今日最強主線：{topLineIndustry?.industry || "--"}</div>
-          <div>盤中型態：{marketStructure}</div>
+          <div>API是否成功：{props.error ? "失敗" : props.lastSuccessAt ? "成功" : "尚未成功"}</div>
+          <div>資料筆數：{props.stocks.length}</div>
+          <div>50強筆數：{props.top50.length}</div>
+          <div>最新資料時間：{props.apiDataTime || "讀取中"}</div>
+          <div>最後嘗試更新：{props.lastAttemptAt || "--"}</div>
+          <div>最後成功更新：{props.lastSuccessAt || "尚未成功"}</div>
+          <div>資料來源：{props.source || "讀取中"}</div>
+          <div>50強總成交金額估算：{formatAmount(props.totalEstimatedAmount)}</div>
+          <div>主線核心股數：{props.mainlineCoreList.length}</div>
+          <div>主線等回測股數：{props.mainlinePullbackList.length}</div>
+          <div>主線剛轉強股數：{props.mainlineNewStrongList.length}</div>
+          <div>主線失效股數：{props.mainlineFailedList.length}</div>
+          <div>主線過熱股數：{props.mainlineOverheatList.length}</div>
+          <div>持股管理股數：{props.holdingList.length}</div>
+          <div>今日最強主線：{props.topLineIndustry?.industry || "--"}</div>
+          <div>盤中型態：{props.marketStructure}</div>
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+          <button onClick={props.loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
             立即更新
           </button>
-          <button onClick={resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+          <button onClick={props.resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
             重置主線紀錄
           </button>
         </div>
@@ -1362,6 +1366,7 @@ function DataPopup({
 
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
+  const [searchHistory, setSearchHistory] = useState<Stock[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
 
   const [tab, setTab] = useState<TabKey>("home");
@@ -1376,6 +1381,10 @@ export default function App() {
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState("mainline");
   const [showFilters, setShowFilters] = useState(false);
+
+  const [queryText, setQueryText] = useState("");
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [queryMessage, setQueryMessage] = useState("");
 
   const [updating, setUpdating] = useState(false);
   const [usingCache, setUsingCache] = useState(false);
@@ -1436,7 +1445,9 @@ export default function App() {
     return industryStatusMap[stock.industry] || "觀察中";
   }
 
-  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
+  const selectedStock = useMemo(() => {
+    return stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null;
+  }, [stocks, searchHistory, selectedCode]);
 
   const mainlineCoreList = useMemo(
     () =>
@@ -1489,22 +1500,25 @@ export default function App() {
   const moneyAmountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
 
   const favoriteStocks = useMemo(
-    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [favoriteCodes, stocks]
+    () =>
+      favoriteCodes
+        .map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code))
+        .filter(Boolean) as Stock[],
+    [favoriteCodes, stocks, searchHistory]
   );
 
   const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
 
     watchCodes.forEach((code) => {
-      const stock = stocks.find((s) => s.code === code);
+      const stock = stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code);
       if (stock) map.set(code, stock);
     });
 
     [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
 
     return Array.from(map.values());
-  }, [watchCodes, stocks, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
+  }, [watchCodes, stocks, searchHistory, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
 
   const totalEstimatedAmount = useMemo(() => top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0), [top50]);
 
@@ -1552,6 +1566,7 @@ export default function App() {
 
     setFavoriteCodes(safeParse(localStorage.getItem(FAVORITE_KEY), []));
     setWatchCodes(safeParse(localStorage.getItem(WATCH_KEY), []));
+    setSearchHistory(safeParse(localStorage.getItem(SEARCH_HISTORY_KEY), []));
     setSignalMap(safeParse(localStorage.getItem(SIGNAL_KEY), {}));
     setIndustryHistoryMap(safeParse(localStorage.getItem(INDUSTRY_SIGNAL_KEY), {}));
     setLockedIndustries(safeParse(localStorage.getItem(LOCKED_INDUSTRY_KEY), []));
@@ -1609,6 +1624,12 @@ export default function App() {
     const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 80);
     setWatchCodes(clean);
     localStorage.setItem(WATCH_KEY, JSON.stringify(clean));
+  }
+
+  function saveSearchHistory(next: Stock[]) {
+    const unique = Array.from(new Map(next.map((stock) => [stock.code, stock])).values()).slice(0, 20);
+    setSearchHistory(unique);
+    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(unique));
   }
 
   function lockCurrentIndustries() {
@@ -1813,6 +1834,41 @@ export default function App() {
     }
   }
 
+  async function searchAnyStock() {
+    const q = queryText.trim();
+    if (!q) {
+      setQueryMessage("請先輸入股票代號或名稱。");
+      return;
+    }
+
+    try {
+      setQueryLoading(true);
+      setQueryMessage("");
+
+      const response = await fetch(`${SEARCH_API_URL}?q=${encodeURIComponent(q)}&t=${Date.now()}`, { cache: "no-store" });
+      const json = await response.json();
+
+      if (!json.ok || !json.stock) {
+        setQueryMessage(json.message || "查無資料，請確認代號。");
+        return;
+      }
+
+      const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
+      saveSearchHistory([stock, ...searchHistory]);
+
+      setPreviousPriceMap((old) => ({ ...old, [stock.code]: old[stock.code] || stock.price }));
+      setLastPriceMap((old) => ({ ...old, [stock.code]: stock.price }));
+      setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
+
+      setSelectedCode(stock.code);
+      setQueryMessage(`已查到 ${stock.code} ${stock.name}`);
+    } catch (err: any) {
+      setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
+    } finally {
+      setQueryLoading(false);
+    }
+  }
+
   function sortList(list: Stock[]) {
     const keyword = searchText.trim();
     let arr = [...list];
@@ -1937,10 +1993,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股分類卡片彈窗快選版</div>
+              <div className="text-sm font-bold text-slate-400">台股全個股查詢搜尋版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">主線快選雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                點分類卡片直接跳出清單，不用往下滑；再點股票直接快看。
+                50強主線雷達 + 全個股查詢，不限漲幅排行。
               </p>
             </div>
 
@@ -1949,6 +2005,35 @@ export default function App() {
             </button>
           </div>
         </header>
+
+        <section className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-lg font-black text-cyan-100">全個股查詢</div>
+              <div className="mt-1 text-xs font-bold text-slate-400">輸入代號，例如 2330、2344、2408；常見名稱也可查。</div>
+            </div>
+            <button onClick={() => setPopup("search")} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
+              查詢
+            </button>
+          </div>
+
+          <div className="mt-3 flex gap-2">
+            <input
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") searchAnyStock();
+              }}
+              placeholder="輸入股票代號或名稱"
+              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+            />
+            <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500/80 px-4 py-3 text-sm font-black text-white">
+              {queryLoading ? "查詢中" : "查"}
+            </button>
+          </div>
+
+          {queryMessage && <div className="mt-2 text-sm font-bold text-yellow-200">{queryMessage}</div>}
+        </section>
 
         <section className="mt-4 rounded-3xl border border-blue-500/40 bg-blue-950/20 p-4">
           <div className="flex items-center justify-between gap-3">
@@ -1979,7 +2064,7 @@ export default function App() {
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="點擊模式" value="分類彈窗" />
+            <DetailRow label="新增功能" value="全個股查詢" />
           </div>
         </section>
 
@@ -1991,19 +2076,19 @@ export default function App() {
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
+          <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
           <ActionCard title="主線過熱不追" sub="等回測 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
           <ActionCard title="持股管理" sub="續抱 / 警覺 / 停利" badge={holdingList.length} tone="text-purple-300" onClick={() => setPopup("holding")} />
           <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
           <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
           <ActionCard title="50強" sub="主線篩選" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
-          <ActionCard title="設定" sub="確認次數 / 主流鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">分類卡片會直接跳出清單。</p>
+              <p className="text-xs font-bold text-slate-500">這個搜尋是篩選目前清單；上方「全個股查詢」可查全部代號。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -2014,7 +2099,7 @@ export default function App() {
           <input
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            placeholder="搜尋股票代號、名稱、產業"
+            placeholder="篩選目前清單"
             className="mt-3 w-full rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
           />
 
@@ -2093,6 +2178,22 @@ export default function App() {
                   ))}
                 </div>
               </section>
+
+              {searchHistory.length > 0 && (
+                <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-xl font-black">最近查詢</h3>
+                    <button onClick={() => setPopup("search")} className="rounded-2xl bg-cyan-500/20 px-3 py-2 text-xs font-black text-cyan-200">
+                      查更多
+                    </button>
+                  </div>
+                  <div className="mt-3 space-y-3">
+                    {searchHistory.slice(0, 5).map((stock, index) => (
+                      <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           )}
 
@@ -2132,12 +2233,12 @@ export default function App() {
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
+              <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
               <ActionCard title="主線核心股" sub="彈窗快選" badge={mainlineCoreList.length} tone="text-emerald-300" onClick={() => setPopup("core")} />
               <ActionCard title="主線等回測" sub="彈窗快選" badge={mainlinePullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
               <ActionCard title="主線剛轉強" sub="彈窗快選" badge={mainlineNewStrongList.length} tone="text-yellow-300" onClick={() => setPopup("newStrong")} />
               <ActionCard title="主線失效" sub="彈窗快選" badge={mainlineFailedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
-              <ActionCard title="主線過熱" sub="彈窗快選" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-              <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
+              <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
           )}
         </section>
@@ -2167,12 +2268,20 @@ export default function App() {
         />
       )}
 
-      {popup === "industry" && (
-        <IndustryPopup
-          items={industryLineRanking}
+      {popup === "search" && (
+        <SearchPopup
+          query={queryText}
+          setQuery={setQueryText}
+          loading={queryLoading}
+          message={queryMessage}
+          history={searchHistory}
+          onSearch={searchAnyStock}
+          onPick={(stock) => setSelectedCode(stock.code)}
           onClose={() => setPopup("")}
         />
       )}
+
+      {popup === "industry" && <IndustryPopup items={industryLineRanking} onClose={() => setPopup("")} />}
 
       {popup === "settings" && (
         <SettingsPopup
@@ -2212,7 +2321,7 @@ export default function App() {
       {selectedStock && (
         <StockQuickModal
           stock={selectedStock}
-          top50={top50}
+          top50={top50.length > 0 ? top50 : [selectedStock]}
           mainIndustries={mainIndustries}
           settings={settings}
           signalMap={signalMap}
