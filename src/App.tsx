@@ -19,17 +19,14 @@ type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
 
 type MoreView =
   | "menu"
-  | "industryContinuation"
-  | "industryNewMoney"
-  | "industryDivergence"
-  | "industryOut"
-  | "attackContinuation"
-  | "attackNew"
-  | "attackFailed"
-  | "moneyAmount"
-  | "volumeNoRise"
-  | "lowVolumeFake"
-  | "highQuality"
+  | "core"
+  | "pullback"
+  | "newStrong"
+  | "overheat"
+  | "failed"
+  | "holding"
+  | "industry"
+  | "amount"
   | "settings"
   | "data";
 
@@ -60,14 +57,15 @@ type SignalHistory = {
   code: string;
   prices: number[];
   entryRaw: boolean[];
-  highQualityRaw: boolean[];
-  noiseRaw: boolean[];
   moneyAttackRaw: boolean[];
+  highQualityRaw: boolean[];
+  failRaw: boolean[];
+  overheatRaw: boolean[];
+  pullbackRaw: boolean[];
+  validBreakoutRaw: boolean[];
+  moneyOutRaw: boolean[];
   volumeNoRiseRaw: boolean[];
   lowVolumeFakeRaw: boolean[];
-  moneyOutRaw: boolean[];
-  validBreakoutRaw: boolean[];
-  invalidBreakoutRaw: boolean[];
   changedAt?: string;
 };
 
@@ -78,24 +76,22 @@ type IndustryHistory = {
   outRaw: boolean[];
 };
 
-type IndustryFlowItem = {
+type IndustryLineItem = {
   industry: string;
   count: number;
-  totalVolume: number;
   totalAmount: number;
+  totalVolume: number;
   avgChange: number;
-  volumeShare: number;
   amountShare: number;
-  continuationScore: number;
+  volumeShare: number;
+  lineWeight: number;
   retentionRate: number;
   attackCount: number;
-  attackContinuationCount: number;
+  attackContinueCount: number;
   highQualityCount: number;
-  volumeNoRiseCount: number;
-  lowVolumeFakeCount: number;
-  moneyOutCount: number;
-  noiseCount: number;
-  status: "資金續航中" | "資金剛轉入" | "資金分歧" | "資金退潮" | "短線過熱" | "觀察中";
+  failCount: number;
+  overheatCount: number;
+  status: "主線續航" | "主線剛轉入" | "主線分歧" | "主線退潮" | "主線過熱" | "觀察中";
   light: "綠燈" | "黃燈" | "紅燈" | "灰燈";
   stocks: Stock[];
 };
@@ -104,11 +100,11 @@ const API_URL = "/api/stocks";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-flow-continuation-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-flow-continuation-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-flow-continuation-signals";
-const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-flow-continuation-industry-signals";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-flow-continuation-locked-industries";
+const SETTINGS_KEY = "taiwan-stock-radar-mainline-decision-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-mainline-decision-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-mainline-decision-signals";
+const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-mainline-decision-industry";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-mainline-decision-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -265,16 +261,17 @@ function volumeRankIndex(stock: Stock, list: Stock[]) {
   return index >= 0 ? index + 1 : 999;
 }
 
+function rankPercent(rank: number, length: number) {
+  if (rank >= 999 || length <= 1) return 0;
+  return Math.round(((length - rank + 1) / length) * 100);
+}
+
 function amountRankPercent(stock: Stock, list: Stock[]) {
-  const rank = amountRankIndex(stock, list);
-  if (rank >= 999 || list.length <= 1) return 0;
-  return Math.round(((list.length - rank + 1) / list.length) * 100);
+  return rankPercent(amountRankIndex(stock, list), list.length);
 }
 
 function volumeRankPercent(stock: Stock, list: Stock[]) {
-  const rank = volumeRankIndex(stock, list);
-  if (rank >= 999 || list.length <= 1) return 0;
-  return Math.round(((list.length - rank + 1) / list.length) * 100);
+  return rankPercent(volumeRankIndex(stock, list), list.length);
 }
 
 function volumeState(stock: Stock, list: Stock[]) {
@@ -353,6 +350,32 @@ function rawMoneyOut(stock: Stock, list: Stock[]) {
   return volumeRankPercent(stock, list) >= 65 && stock.price < stock.openPrice && stock.changePercent < 2;
 }
 
+function lastNAllTrue(values: boolean[] | undefined, n: number) {
+  if (!values || values.length < n) return false;
+  return values.slice(-n).every(Boolean);
+}
+
+function lastNAnyTrue(values: boolean[] | undefined, n: number) {
+  if (!values || values.length < n) return false;
+  return values.slice(-n).some(Boolean);
+}
+
+function stableCount(values: boolean[] | undefined) {
+  if (!values || values.length === 0) return 0;
+  let count = 0;
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (values[i]) count += 1;
+    else break;
+  }
+  return count;
+}
+
+function signalProgress(history: SignalHistory | undefined, total: number, field: keyof SignalHistory) {
+  const values = history?.[field];
+  const count = Array.isArray(values) ? stableCount(values as boolean[]) : 0;
+  return `${Math.min(count, total)}/${total}`;
+}
+
 function rawEntryScore(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
   let score = 0;
   const cont = rawContinuation(stock, list, mainIndustries, settings);
@@ -380,102 +403,67 @@ function rawEntryScore(stock: Stock, list: Stock[], mainIndustries: string[], se
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-function rawEntryOk(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
-  return (
-    rawEntryScore(stock, list, mainIndustries, settings) >= 72 &&
-    mainIndustries.includes(stock.industry) &&
-    rawValidBreakout(stock, list, settings) &&
-    rawMoneyAttack(stock, list, mainIndustries, settings) &&
-    !isHot(stock, settings) &&
-    !isWeak(stock)
-  );
+function mainlineDecision(
+  stock: Stock,
+  history: SignalHistory | undefined,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  industryStatus: string
+) {
+  const attackContinue = lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes);
+  const attackRecent = lastNAnyTrue(history?.moneyAttackRaw, 5);
+  const fail = lastNAllTrue(history?.failRaw, settings.breakConfirmTimes) || lastNAllTrue(history?.moneyOutRaw, settings.breakConfirmTimes);
+  const overheat = lastNAllTrue(history?.overheatRaw, settings.breakConfirmTimes) || isHot(stock, settings);
+  const pullback = lastNAllTrue(history?.pullbackRaw, settings.breakConfirmTimes);
+
+  if (fail) return "主線失效";
+  if (overheat && attackContinue) return "主線過熱不追";
+  if (pullback) return "主線等回測";
+  if (industryStatus === "主線續航" && attackContinue && rawEntryScore(stock, list, mainIndustries, settings) >= 72) return "主線核心股";
+  if (industryStatus === "主線剛轉入" || attackRecent) return "主線剛轉強";
+  if (mainIndustries.includes(stock.industry) && rawMoneyAttack(stock, list, mainIndustries, settings)) return "主線可觀察";
+  return "等待主線";
 }
 
-function rawHighQuality(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
-  return (
-    rawEntryOk(stock, list, mainIndustries, settings) &&
-    rawMoneyAttack(stock, list, mainIndustries, settings) &&
-    priceVolumeState(stock, list, settings) === "量價同步" &&
-    !rawVolumeNoRise(stock, list) &&
-    !rawMoneyOut(stock, list) &&
-    !rawLowVolumeFake(stock, list, settings)
-  );
-}
+function holdingDecision(
+  stock: Stock,
+  history: SignalHistory | undefined,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  industryStatus: string
+) {
+  const decision = mainlineDecision(stock, history, list, mainIndustries, settings, industryStatus);
 
-function lastNAllTrue(values: boolean[] | undefined, n: number) {
-  if (!values || values.length < n) return false;
-  return values.slice(-n).every(Boolean);
-}
-
-function lastNAnyTrue(values: boolean[] | undefined, n: number) {
-  if (!values || values.length < n) return false;
-  return values.slice(-n).some(Boolean);
-}
-
-function stableCount(values: boolean[] | undefined) {
-  if (!values || values.length === 0) return 0;
-  let count = 0;
-  for (let i = values.length - 1; i >= 0; i--) {
-    if (values[i]) count += 1;
-    else break;
-  }
-  return count;
-}
-
-function signalProgress(history: SignalHistory | undefined, total: number, field: keyof SignalHistory) {
-  const values = history?.[field];
-  const count = Array.isArray(values) ? stableCount(values as boolean[]) : 0;
-  return `${Math.min(count, total)}/${total}`;
-}
-
-function attackState(stock: Stock, history: SignalHistory | undefined, settings: Settings) {
-  const attackOk = lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes);
-  const attackRecently = lastNAnyTrue(history?.moneyAttackRaw, 5);
-  const failed = lastNAllTrue(history?.volumeNoRiseRaw, settings.breakConfirmTimes) || lastNAllTrue(history?.moneyOutRaw, settings.breakConfirmTimes);
-
-  if (attackOk) return "主攻續航中";
-  if (failed && attackRecently) return "主攻失效";
-  if (attackRecently) return "主攻剛轉強";
-  if (rawVolumeNoRise(stock, [] as Stock[])) return "爆量不漲";
-  return "等待主攻";
-}
-
-function stableDecision(stock: Stock, history: SignalHistory | undefined, list: Stock[], mainIndustries: string[], settings: Settings) {
-  if (lastNAllTrue(history?.moneyOutRaw, settings.breakConfirmTimes)) return "資金退潮";
-  if (lastNAllTrue(history?.volumeNoRiseRaw, settings.breakConfirmTimes)) return "爆量不漲";
-  if (lastNAllTrue(history?.lowVolumeFakeRaw, settings.breakConfirmTimes)) return "低量假強";
-  if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) return "主攻續航";
-  if (lastNAllTrue(history?.entryRaw, settings.confirmTimes)) return "可進場";
-  if (lastNAnyTrue(history?.moneyAttackRaw, 5)) return "主攻剛轉強";
-  if (lastNAnyTrue(history?.entryRaw, 5)) return "確認中";
-  if (rawMoneyAttack(stock, list, mainIndustries, settings)) return "資金轉入";
+  if (decision === "主線核心股" || decision === "主線可觀察") return "可續抱";
+  if (decision === "主線剛轉強" || decision === "主線等回測") return "提高警覺";
+  if (decision === "主線過熱不追") return "分批停利";
+  if (decision === "主線失效") return "主線失效";
   return "等待確認";
 }
 
-function stockMoneyQuality(stock: Stock, history: SignalHistory | undefined, list: Stock[], mainIndustries: string[], settings: Settings) {
-  if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) return "主攻續航中";
-  if (lastNAllTrue(history?.volumeNoRiseRaw, settings.breakConfirmTimes)) return "爆量不漲";
-  if (lastNAllTrue(history?.moneyOutRaw, settings.breakConfirmTimes)) return "量增價弱";
-  if (lastNAllTrue(history?.lowVolumeFakeRaw, settings.breakConfirmTimes)) return "低量假強";
-  if (lastNAnyTrue(history?.moneyAttackRaw, 5)) return "主攻剛轉強";
-  if (rawMoneyAttack(stock, list, mainIndustries, settings)) return "資金轉入";
-  if (volumeRankPercent(stock, list) >= 60) return "量增觀察";
-  return "資金普通";
+function buyZone(stock: Stock) {
+  return {
+    observe: `${formatPrice(stock.openPrice)} ～ ${formatPrice(stock.openPrice * 1.015)}`,
+    breakout: formatPrice(stock.openPrice * 1.005),
+    chase: `高於 ${formatPrice(stock.openPrice * 1.03)}`,
+  };
 }
 
 function decisionTone(label: string) {
-  if (["主攻續航", "主攻續航中", "可進場", "資金轉入"].includes(label)) return "text-emerald-300";
-  if (["主攻剛轉強", "確認中", "等待確認", "量增觀察", "資金普通"].includes(label)) return "text-yellow-300";
-  if (["爆量不漲", "低量假強", "短線過熱"].includes(label)) return "text-orange-300";
-  if (["量增價弱", "資金退潮", "主攻失效"].includes(label)) return "text-red-300";
+  if (["主線核心股", "主線可觀察", "可續抱"].includes(label)) return "text-emerald-300";
+  if (["主線等回測", "主線剛轉強", "等待主線", "提高警覺", "等待確認"].includes(label)) return "text-yellow-300";
+  if (["主線過熱不追", "分批停利"].includes(label)) return "text-orange-300";
+  if (["主線失效"].includes(label)) return "text-red-300";
   return "text-slate-300";
 }
 
 function flowTone(label: string) {
-  if (label === "資金續航中" || label === "綠燈") return "text-emerald-300";
-  if (label === "資金剛轉入" || label === "資金分歧" || label === "黃燈") return "text-yellow-300";
-  if (label === "短線過熱") return "text-orange-300";
-  if (label === "資金退潮" || label === "紅燈") return "text-red-300";
+  if (label === "主線續航" || label === "綠燈") return "text-emerald-300";
+  if (label === "主線剛轉入" || label === "主線分歧" || label === "黃燈") return "text-yellow-300";
+  if (label === "主線過熱") return "text-orange-300";
+  if (label === "主線退潮" || label === "紅燈") return "text-red-300";
   return "text-slate-300";
 }
 
@@ -511,39 +499,26 @@ function progressBar(count: number, total: number) {
   return "●".repeat(filled) + "○".repeat(empty);
 }
 
-function stockMoneySentence(
-  stock: Stock,
-  history: SignalHistory | undefined,
-  list: Stock[],
-  mainIndustries: string[],
-  settings: Settings,
-  industryStatus: string
-) {
-  const q = stockMoneyQuality(stock, history, list, mainIndustries, settings);
-
-  if (q === "主攻續航中" && industryStatus === "資金續航中") {
-    return `這檔連續 ${settings.attackConfirmTimes} 次維持主力主攻，且所屬產業資金續航中，屬於今日資金核心股。`;
-  }
-  if (q === "主攻續航中") return "這檔連續維持主力主攻，屬於資金續航個股。";
-  if (q === "主攻剛轉強") return "這檔剛出現主攻訊號，先觀察下一次更新是否延續。";
-  if (q === "主攻失效") return "原本主攻轉弱，出現爆量不漲或量增價弱，小心換手。";
-  if (q === "爆量不漲") return "成交量與成交金額偏大，但價格沒有有效上攻，可能換手或出貨。";
-  if (q === "量增價弱") return "量增加但股價跌回開盤下，資金退潮風險升高。";
-  if (q === "低量假強") return "漲幅看似強，但量能排名偏低，小心低量假強。";
-  if (q === "資金轉入") return "資金有轉入跡象，但還需要連續確認。";
-  return "目前還不是明確主攻股，先看產業續航與量價同步。";
+function mainlineSentence(decision: string, stock: Stock, industryStatus: string) {
+  if (decision === "主線核心股") return `這檔屬於資金續航產業，主攻已連續確認，若不追高可列入主線核心觀察。`;
+  if (decision === "主線等回測") return `這檔仍在主線內，但距離開盤價較遠，現在不追，等回測合理位置。`;
+  if (decision === "主線剛轉強") return `主線剛轉強，先觀察下一次更新是否延續，不急著追。`;
+  if (decision === "主線過熱不追") return `主線短線過熱，成交量放大但位置偏高，不追，持有者可考慮分批停利。`;
+  if (decision === "主線失效") return `主攻失效或資金退潮，降低持有意願，先避開。`;
+  if (industryStatus === "主線分歧") return `所屬產業資金分歧，只挑最高品質，不碰爆量不漲股。`;
+  return `等待資金主線更明確，先看產業續航與主攻確認。`;
 }
 
-function getIndustryFlowRanking(
+function getIndustryLineRanking(
   stocks: Stock[],
   mainIndustries: string[],
   settings: Settings,
   signalMap: Record<string, SignalHistory>,
   industryHistoryMap: Record<string, IndustryHistory>
-): IndustryFlowItem[] {
+): IndustryLineItem[] {
   const totalVolume = stocks.reduce((sum, stock) => sum + Math.max(0, stock.volume), 0);
   const totalAmount = stocks.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
-  const map = new Map<string, IndustryFlowItem>();
+  const map = new Map<string, IndustryLineItem>();
 
   stocks.forEach((stock) => {
     const history = signalMap[stock.code];
@@ -553,38 +528,34 @@ function getIndustryFlowRanking(
       {
         industry: stock.industry,
         count: 0,
-        totalVolume: 0,
         totalAmount: 0,
+        totalVolume: 0,
         avgChange: 0,
-        volumeShare: 0,
         amountShare: 0,
-        continuationScore: 0,
+        volumeShare: 0,
+        lineWeight: 0,
         retentionRate: 0,
         attackCount: 0,
-        attackContinuationCount: 0,
+        attackContinueCount: 0,
         highQualityCount: 0,
-        volumeNoRiseCount: 0,
-        lowVolumeFakeCount: 0,
-        moneyOutCount: 0,
-        noiseCount: 0,
+        failCount: 0,
+        overheatCount: 0,
         status: "觀察中",
         light: "灰燈",
         stocks: [],
       };
 
     item.count += 1;
-    item.totalVolume += Math.max(0, stock.volume);
     item.totalAmount += estimatedAmount(stock);
+    item.totalVolume += Math.max(0, stock.volume);
     item.avgChange += stock.changePercent;
     item.stocks.push(stock);
 
     if (rawMoneyAttack(stock, stocks, mainIndustries, settings)) item.attackCount += 1;
-    if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) item.attackContinuationCount += 1;
+    if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) item.attackContinueCount += 1;
     if (lastNAllTrue(history?.highQualityRaw, settings.confirmTimes)) item.highQualityCount += 1;
-    if (rawVolumeNoRise(stock, stocks)) item.volumeNoRiseCount += 1;
-    if (rawLowVolumeFake(stock, stocks, settings)) item.lowVolumeFakeCount += 1;
-    if (rawMoneyOut(stock, stocks)) item.moneyOutCount += 1;
-    if (lastNAllTrue(history?.noiseRaw, settings.breakConfirmTimes)) item.noiseCount += 1;
+    if (lastNAllTrue(history?.failRaw, settings.breakConfirmTimes) || rawMoneyOut(stock, stocks) || rawVolumeNoRise(stock, stocks)) item.failCount += 1;
+    if (isHot(stock, settings)) item.overheatCount += 1;
 
     map.set(stock.industry, item);
   });
@@ -592,65 +563,60 @@ function getIndustryFlowRanking(
   return Array.from(map.values())
     .map((item) => {
       const avgChange = item.avgChange / Math.max(item.count, 1);
-      const volumeShare = totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0;
       const amountShare = totalAmount > 0 ? (item.totalAmount / totalAmount) * 100 : 0;
-
+      const volumeShare = totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0;
       const h = industryHistoryMap[item.industry];
+
       const retentionRate = h?.continuationRaw?.length
         ? (h.continuationRaw.filter(Boolean).length / h.continuationRaw.length) * 100
         : 0;
 
-      const hotRisk = avgChange >= 7 || amountShare >= 28;
-      const divergence =
-        item.attackCount > 0 &&
-        item.volumeNoRiseCount + item.moneyOutCount + item.lowVolumeFakeCount >= Math.max(1, item.count * 0.25);
+      const overheatRisk = avgChange >= 7 || item.overheatCount >= Math.max(2, item.count * 0.35);
+      const divergence = item.attackCount > 0 && item.failCount >= Math.max(1, item.count * 0.25);
 
-      const continuationScore =
+      const lineWeight =
         amountShare * 2.4 +
         volumeShare * 1.7 +
         Math.max(0, avgChange) * 4 +
-        item.attackCount * 12 +
-        item.attackContinuationCount * 18 +
+        item.attackCount * 10 +
+        item.attackContinueCount * 18 +
         item.highQualityCount * 14 +
         retentionRate * 0.5 -
-        item.volumeNoRiseCount * 9 -
-        item.moneyOutCount * 14 -
-        item.lowVolumeFakeCount * 10 -
-        item.noiseCount * 8 -
-        (hotRisk ? 12 : 0);
+        item.failCount * 14 -
+        item.overheatCount * 7;
 
-      let status: IndustryFlowItem["status"] = "觀察中";
-      let light: IndustryFlowItem["light"] = "灰燈";
+      let status: IndustryLineItem["status"] = "觀察中";
+      let light: IndustryLineItem["light"] = "灰燈";
 
-      if (item.moneyOutCount >= Math.max(1, item.count * 0.3)) {
-        status = "資金退潮";
+      if (item.failCount >= Math.max(2, item.count * 0.35)) {
+        status = "主線退潮";
         light = "紅燈";
-      } else if (hotRisk && item.volumeNoRiseCount + item.lowVolumeFakeCount >= 1) {
-        status = "短線過熱";
+      } else if (overheatRisk && item.attackContinueCount > 0) {
+        status = "主線過熱";
         light = "紅燈";
       } else if (divergence) {
-        status = "資金分歧";
+        status = "主線分歧";
         light = "黃燈";
-      } else if (retentionRate >= 60 && item.attackContinuationCount >= 1 && item.highQualityCount >= 1) {
-        status = "資金續航中";
+      } else if (retentionRate >= 55 && item.attackContinueCount >= 1 && item.highQualityCount >= 1) {
+        status = "主線續航";
         light = "綠燈";
       } else if (amountShare >= 10 || volumeShare >= 10 || item.attackCount >= 1) {
-        status = "資金剛轉入";
+        status = "主線剛轉入";
         light = "黃燈";
       }
 
       return {
         ...item,
         avgChange,
-        volumeShare,
         amountShare,
-        continuationScore,
+        volumeShare,
+        lineWeight,
         retentionRate,
         status,
         light,
       };
     })
-    .sort((a, b) => b.continuationScore - a.continuationScore);
+    .sort((a, b) => b.lineWeight - a.lineWeight);
 }
 
 function MiniCard({
@@ -710,12 +676,12 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
   );
 }
 
-function IndustryFlowCard({ item, rank }: { item: IndustryFlowItem; rank: number }) {
+function IndustryLineCard({ item, rank }: { item: IndustryLineItem; rank: number }) {
   return (
     <div className="rounded-3xl border border-slate-800 bg-slate-950 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">#{rank} 產業資金續航</div>
+          <div className="text-xs font-bold text-slate-500">#{rank} 產業主線權重</div>
           <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
           <div className={`mt-1 text-sm font-black ${flowTone(item.status)}`}>
             {item.light}｜{item.status}
@@ -724,8 +690,8 @@ function IndustryFlowCard({ item, rank }: { item: IndustryFlowItem; rank: number
 
         <div className="text-right">
           <div className="text-xl font-black text-yellow-300">{formatAmount(item.totalAmount)}</div>
-          <div className="text-sm font-black text-emerald-300">留存 {item.retentionRate.toFixed(0)}%</div>
-          <div className="text-xs font-black text-slate-400">金額占 {item.amountShare.toFixed(1)}%</div>
+          <div className="text-sm font-black text-emerald-300">權重 {item.lineWeight.toFixed(0)}</div>
+          <div className="text-xs font-black text-slate-400">留存 {item.retentionRate.toFixed(0)}%</div>
         </div>
       </div>
 
@@ -733,17 +699,17 @@ function IndustryFlowCard({ item, rank }: { item: IndustryFlowItem; rank: number
         <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
           主攻續航
           <br />
-          {item.attackContinuationCount}
+          {item.attackContinueCount}
         </div>
         <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-          分數
+          高品質
           <br />
-          {item.continuationScore.toFixed(0)}
+          {item.highQualityCount}
         </div>
         <div className="rounded-2xl bg-black/30 p-2 text-red-300">
-          退潮
+          失效
           <br />
-          {item.moneyOutCount}
+          {item.failCount}
         </div>
       </div>
     </div>
@@ -788,8 +754,8 @@ function StockCard({
   onRemoveTomorrow: (code: string) => void;
 }) {
   const history = signalMap[stock.code];
-  const decision = stableDecision(stock, history, top50, mainIndustries, settings);
-  const moneyQuality = stockMoneyQuality(stock, history, top50, mainIndustries, settings);
+  const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
+  const holding = holdingDecision(stock, history, top50, mainIndustries, settings, industryStatus);
   const cont = rawContinuation(stock, top50, mainIndustries, settings);
   const score = rawEntryScore(stock, top50, mainIndustries, settings);
   const direction = priceDirections[stock.code];
@@ -810,7 +776,7 @@ function StockCard({
             <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
               {stock.industry}
-              {mainIndex >= 0 ? `｜續航主流${mainIndex + 1}` : ""}
+              {mainIndex >= 0 ? `｜資金主線${mainIndex + 1}` : ""}
             </div>
           </div>
 
@@ -819,6 +785,16 @@ function StockCard({
               {formatPercent(stock.changePercent)}
             </div>
             <div className="mt-1 text-sm font-black text-white">{formatNumber(stock.price)}</div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl bg-black/30 p-2">
+          <div className="flex items-center justify-between text-xs font-black text-slate-300">
+            <span>主攻確認</span>
+            <span>{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}</span>
+          </div>
+          <div className="mt-1 text-lg tracking-widest text-emerald-300">
+            {progressBar(attackCount, settings.attackConfirmTimes)}
           </div>
         </div>
 
@@ -834,20 +810,10 @@ function StockCard({
           </div>
         </div>
 
-        <div className="mt-3 rounded-2xl bg-black/30 p-2">
-          <div className="flex items-center justify-between text-xs font-black text-slate-300">
-            <span>主攻確認</span>
-            <span>{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}</span>
-          </div>
-          <div className="mt-1 text-lg tracking-widest text-emerald-300">
-            {progressBar(attackCount, settings.attackConfirmTimes)}
-          </div>
-        </div>
-
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(moneyQuality)}`}>{moneyQuality}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(decision)}`}>{decision}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(attackState(stock, history, settings))}`}>{attackState(stock, history, settings)}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(holding)}`}>持股：{holding}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${flowTone(industryStatus)}`}>{industryStatus}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(cont)}`}>{cont}</span>
           <span className="rounded-full bg-emerald-950 px-3 py-1 text-emerald-200">分數 {score}</span>
           <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{priceVolumeState(stock, top50, settings)}</span>
@@ -857,7 +823,7 @@ function StockCard({
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
-          {stockMoneySentence(stock, history, top50, mainIndustries, settings, industryStatus)}
+          {mainlineSentence(decision, stock, industryStatus)}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -908,7 +874,7 @@ export default function App() {
   const [industryHistoryMap, setIndustryHistoryMap] = useState<Record<string, IndustryHistory>>({});
 
   const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState("flow");
+  const [sortKey, setSortKey] = useState("mainline");
   const [showFilters, setShowFilters] = useState(false);
 
   const [updating, setUpdating] = useState(false);
@@ -953,87 +919,68 @@ export default function App() {
     return floatingIndustries;
   }, [floatingIndustries, lockedIndustries, settings.stableIndustryLock]);
 
-  const industryFlowRanking = useMemo(
-    () => getIndustryFlowRanking(top50, mainIndustries, settings, signalMap, industryHistoryMap),
+  const industryLineRanking = useMemo(
+    () => getIndustryLineRanking(top50, mainIndustries, settings, signalMap, industryHistoryMap),
     [top50, mainIndustries, settings, signalMap, industryHistoryMap]
   );
 
   const industryStatusMap = useMemo(() => {
     const map: Record<string, string> = {};
-    industryFlowRanking.forEach((item) => {
+    industryLineRanking.forEach((item) => {
       map[item.industry] = item.status;
     });
     return map;
-  }, [industryFlowRanking]);
+  }, [industryLineRanking]);
 
-  const industryContinuationList = useMemo(
-    () => industryFlowRanking.filter((item) => item.status === "資金續航中"),
-    [industryFlowRanking]
-  );
-
-  const industryNewMoneyList = useMemo(
-    () => industryFlowRanking.filter((item) => item.status === "資金剛轉入"),
-    [industryFlowRanking]
-  );
-
-  const industryDivergenceList = useMemo(
-    () => industryFlowRanking.filter((item) => item.status === "資金分歧" || item.status === "短線過熱"),
-    [industryFlowRanking]
-  );
-
-  const industryOutList = useMemo(
-    () => industryFlowRanking.filter((item) => item.status === "資金退潮"),
-    [industryFlowRanking]
-  );
-
-  const attackContinuationList = useMemo(
+  const mainlineCoreList = useMemo(
     () =>
       top50
-        .filter((stock) => lastNAllTrue(signalMap[stock.code]?.moneyAttackRaw, settings.attackConfirmTimes))
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線核心股")
         .sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings)),
-    [top50, signalMap, mainIndustries, settings]
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
 
-  const attackNewList = useMemo(
+  const mainlinePullbackList = useMemo(
     () =>
       top50
-        .filter((stock) => lastNAnyTrue(signalMap[stock.code]?.moneyAttackRaw, 5) && !lastNAllTrue(signalMap[stock.code]?.moneyAttackRaw, settings.attackConfirmTimes))
-        .sort((a, b) => stableCount(signalMap[b.code]?.moneyAttackRaw) - stableCount(signalMap[a.code]?.moneyAttackRaw)),
-    [top50, signalMap, settings]
-  );
-
-  const attackFailedList = useMemo(
-    () =>
-      top50
-        .filter((stock) => {
-          const h = signalMap[stock.code];
-          const hadAttack = lastNAnyTrue(h?.moneyAttackRaw, 5);
-          const failed = lastNAllTrue(h?.volumeNoRiseRaw, settings.breakConfirmTimes) || lastNAllTrue(h?.moneyOutRaw, settings.breakConfirmTimes);
-          return hadAttack && failed;
-        })
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線等回測")
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, signalMap, settings]
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+  );
+
+  const mainlineNewStrongList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線剛轉強")
+        .sort((a, b) => stableCount(signalMap[b.code]?.moneyAttackRaw) - stableCount(signalMap[a.code]?.moneyAttackRaw)),
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+  );
+
+  const mainlineOverheatList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線過熱不追")
+        .sort((a, b) => b.changePercent - a.changePercent),
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+  );
+
+  const mainlineFailedList = useMemo(
+    () =>
+      top50
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線失效")
+        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+  );
+
+  const holdingList = useMemo(
+    () =>
+      top50
+        .filter((stock) => ["可續抱", "提高警覺", "分批停利", "主線失效"].includes(holdingDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中")))
+        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
+    [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
 
   const moneyAmountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
-
-  const volumeNoRiseList = useMemo(
-    () => top50.filter((stock) => rawVolumeNoRise(stock, top50)).sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50]
-  );
-
-  const lowVolumeFakeList = useMemo(
-    () => top50.filter((stock) => rawLowVolumeFake(stock, top50, settings)).sort((a, b) => b.changePercent - a.changePercent),
-    [top50, settings]
-  );
-
-  const highQualityList = useMemo(
-    () =>
-      top50
-        .filter((stock) => lastNAllTrue(signalMap[stock.code]?.highQualityRaw, settings.confirmTimes))
-        .sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings)),
-    [top50, signalMap, mainIndustries, settings]
-  );
 
   const favoriteStocks = useMemo(
     () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
@@ -1048,46 +995,47 @@ export default function App() {
       if (stock) map.set(code, stock);
     });
 
-    [...attackContinuationList, ...highQualityList, ...attackNewList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
+    [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
 
     return Array.from(map.values());
-  }, [tomorrowCodes, stocks, attackContinuationList, highQualityList, attackNewList]);
+  }, [tomorrowCodes, stocks, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
 
   const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
 
   const totalEstimatedAmount = useMemo(() => top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0), [top50]);
 
-  const topFlowIndustry = industryFlowRanking[0];
+  const topLineIndustry = industryLineRanking[0];
 
   const marketStructure = useMemo(() => {
-    if (industryOutList.length >= 2 || attackFailedList.length >= 6) return "資金退潮，不追";
-    if (industryDivergenceList.length >= 2) return "資金分歧，只挑高品質";
-    if (industryContinuationList.length >= 1 && attackContinuationList.length >= 3) return "資金續航，看主攻股";
-    if (industryNewMoneyList.length >= 1) return "資金剛轉入，等第二次確認";
-    return "等待資金續航";
-  }, [industryOutList, attackFailedList, industryDivergenceList, industryContinuationList, attackContinuationList, industryNewMoneyList]);
+    if (mainlineFailedList.length >= 6) return "主線失效偏多，避開";
+    if (mainlineOverheatList.length >= 6) return "主線過熱，不追";
+    if (industryLineRanking.some((item) => item.status === "主線分歧")) return "資金分歧，只挑核心";
+    if (mainlineCoreList.length >= 3) return "主線明確，看核心股";
+    if (mainlineNewStrongList.length >= 5) return "主線剛轉強，等確認";
+    return "等待主線確認";
+  }, [mainlineFailedList, mainlineOverheatList, industryLineRanking, mainlineCoreList, mainlineNewStrongList]);
 
   const homeSentence = useMemo(() => {
-    if (!topFlowIndustry) return "目前資金方向尚未形成，先等資料。";
+    if (!topLineIndustry) return "目前資金主線尚未形成，先等資料。";
 
-    if (topFlowIndustry.status === "資金續航中") {
-      return `資金續航：優先看 ${topFlowIndustry.industry} 主攻股，避開爆量不漲股。`;
+    if (marketStructure === "主線明確，看核心股") {
+      return `今日主線策略：資金集中在 ${topLineIndustry.industry}，主攻續航股優先，爆量不漲股避開。`;
     }
-    if (topFlowIndustry.status === "資金剛轉入") {
-      return `${topFlowIndustry.industry} 資金剛轉入，先觀察下一次更新是否延續。`;
+    if (marketStructure === "主線剛轉強，等確認") {
+      return `${topLineIndustry.industry} 主線剛轉強，先等下一次確認，不急追。`;
     }
-    if (topFlowIndustry.status === "資金分歧") {
-      return `${topFlowIndustry.industry} 有主攻也有換手，資金分歧，只挑高品質。`;
+    if (marketStructure === "資金分歧，只挑核心") {
+      return `資金分歧，只挑主線核心股，避開爆量不漲與低量假強。`;
     }
-    if (topFlowIndustry.status === "短線過熱") {
-      return `${topFlowIndustry.industry} 資金集中但短線過熱，不追，等回測。`;
+    if (marketStructure === "主線過熱，不追") {
+      return `主線過熱，不追高；有持股者留意分批停利。`;
     }
-    if (topFlowIndustry.status === "資金退潮") {
-      return `${topFlowIndustry.industry} 量增價弱，資金退潮，不追。`;
+    if (marketStructure === "主線失效偏多，避開") {
+      return `主線失效訊號偏多，先避開，等資金重新集中。`;
     }
 
-    return `目前資金最集中在 ${topFlowIndustry.industry}，但尚未形成明確續航。`;
-  }, [topFlowIndustry]);
+    return `目前最強主線是 ${topLineIndustry.industry}，但還需要更多主攻確認。`;
+  }, [topLineIndustry, marketStructure]);
 
   useEffect(() => {
     if (initedRef.current) return;
@@ -1206,7 +1154,7 @@ export default function App() {
 
         const industryStocks = list.slice(0, 50).filter((stock) => stock.industry === industry);
         const attackCount = industryStocks.filter((stock) => rawMoneyAttack(stock, list.slice(0, 50), ranked, settings)).length;
-        const outCount = industryStocks.filter((stock) => rawMoneyOut(stock, list.slice(0, 50))).length;
+        const outCount = industryStocks.filter((stock) => rawMoneyOut(stock, list.slice(0, 50)) || rawVolumeNoRise(stock, list.slice(0, 50))).length;
         const continuation = ranked.includes(industry) && attackCount > 0 && outCount === 0;
 
         next[industry] = {
@@ -1239,39 +1187,42 @@ export default function App() {
             code: stock.code,
             prices: [],
             entryRaw: [],
-            highQualityRaw: [],
-            noiseRaw: [],
             moneyAttackRaw: [],
+            highQualityRaw: [],
+            failRaw: [],
+            overheatRaw: [],
+            pullbackRaw: [],
+            validBreakoutRaw: [],
+            moneyOutRaw: [],
             volumeNoRiseRaw: [],
             lowVolumeFakeRaw: [],
-            moneyOutRaw: [],
-            validBreakoutRaw: [],
-            invalidBreakoutRaw: [],
           };
 
         const meaningful = isMeaningfulMove(stock, prevPrice, settings);
-        const entryOk = meaningful && rawEntryOk(stock, topList, activeMain, settings);
-        const highQualityOk = meaningful && rawHighQuality(stock, topList, activeMain, settings);
         const moneyAttackOk = meaningful && rawMoneyAttack(stock, topList, activeMain, settings);
+        const validBreakoutOk = rawValidBreakout(stock, topList, settings);
+        const moneyOutOk = rawMoneyOut(stock, topList);
         const volumeNoRiseOk = rawVolumeNoRise(stock, topList);
         const lowVolumeFakeOk = rawLowVolumeFake(stock, topList, settings);
-        const moneyOutOk = rawMoneyOut(stock, topList);
-        const validBreakoutOk = rawValidBreakout(stock, topList, settings);
-        const invalidBreakoutOk = rawInvalidBreakout(stock, topList, settings);
-        const noiseOk = !meaningful || invalidBreakoutOk || lowVolumeFakeOk;
+        const failOk = moneyOutOk || volumeNoRiseOk || lowVolumeFakeOk || rawInvalidBreakout(stock, topList, settings);
+        const overheatOk = isHot(stock, settings) && (moneyAttackOk || lastNAnyTrue(oldItem.moneyAttackRaw, 5));
+        const pullbackOk = moneyAttackOk && afterOpenPercent(stock) > 2.5 && !overheatOk;
+        const entryOk = moneyAttackOk && validBreakoutOk && !failOk && !overheatOk;
+        const highQualityOk = entryOk && activeMain.includes(stock.industry) && priceVolumeState(stock, topList, settings) === "量價同步";
 
         next[stock.code] = {
           ...oldItem,
           prices: [...oldItem.prices, stock.price].slice(-8),
           entryRaw: [...oldItem.entryRaw, entryOk].slice(-8),
-          highQualityRaw: [...oldItem.highQualityRaw, highQualityOk].slice(-8),
-          noiseRaw: [...oldItem.noiseRaw, noiseOk].slice(-8),
           moneyAttackRaw: [...oldItem.moneyAttackRaw, moneyAttackOk].slice(-8),
+          highQualityRaw: [...oldItem.highQualityRaw, highQualityOk].slice(-8),
+          failRaw: [...oldItem.failRaw, failOk].slice(-8),
+          overheatRaw: [...oldItem.overheatRaw, overheatOk].slice(-8),
+          pullbackRaw: [...oldItem.pullbackRaw, pullbackOk].slice(-8),
+          validBreakoutRaw: [...oldItem.validBreakoutRaw, validBreakoutOk].slice(-8),
+          moneyOutRaw: [...oldItem.moneyOutRaw, moneyOutOk].slice(-8),
           volumeNoRiseRaw: [...oldItem.volumeNoRiseRaw, volumeNoRiseOk].slice(-8),
           lowVolumeFakeRaw: [...oldItem.lowVolumeFakeRaw, lowVolumeFakeOk].slice(-8),
-          moneyOutRaw: [...oldItem.moneyOutRaw, moneyOutOk].slice(-8),
-          validBreakoutRaw: [...oldItem.validBreakoutRaw, validBreakoutOk].slice(-8),
-          invalidBreakoutRaw: [...oldItem.invalidBreakoutRaw, invalidBreakoutOk].slice(-8),
           changedAt: nowText(),
         };
       });
@@ -1358,18 +1309,21 @@ export default function App() {
     }
   }
 
+  function stockIndustryStatus(stock: Stock) {
+    return industryStatusMap[stock.industry] || "觀察中";
+  }
+
   function filterList(list: Stock[]) {
     let arr = [...list];
 
     if (tab === "top50") {
-      if (settings.topFilter === "主攻續航") arr = arr.filter((stock) => lastNAllTrue(signalMap[stock.code]?.moneyAttackRaw, settings.attackConfirmTimes));
-      if (settings.topFilter === "主攻剛轉強") arr = arr.filter((stock) => lastNAnyTrue(signalMap[stock.code]?.moneyAttackRaw, 5) && !lastNAllTrue(signalMap[stock.code]?.moneyAttackRaw, settings.attackConfirmTimes));
-      if (settings.topFilter === "主攻失效") arr = arr.filter((stock) => attackFailedList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "主線核心") arr = arr.filter((stock) => mainlineCoreList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "等回測") arr = arr.filter((stock) => mainlinePullbackList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "剛轉強") arr = arr.filter((stock) => mainlineNewStrongList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "過熱不追") arr = arr.filter((stock) => mainlineOverheatList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "主線失效") arr = arr.filter((stock) => mainlineFailedList.some((item) => item.code === stock.code));
+      if (settings.topFilter === "持股管理") arr = arr.filter((stock) => holdingList.some((item) => item.code === stock.code));
       if (settings.topFilter === "成交金額") arr = arr.sort((a, b) => estimatedAmount(b) - estimatedAmount(a));
-      if (settings.topFilter === "爆量不漲") arr = arr.filter((stock) => rawVolumeNoRise(stock, top50));
-      if (settings.topFilter === "量增價弱") arr = arr.filter((stock) => rawMoneyOut(stock, top50));
-      if (settings.topFilter === "低量假強") arr = arr.filter((stock) => rawLowVolumeFake(stock, top50, settings));
-      if (settings.topFilter === "高品質") arr = arr.filter((stock) => lastNAllTrue(signalMap[stock.code]?.highQualityRaw, settings.confirmTimes));
       if (settings.topFilter === "主流產業") arr = arr.filter((stock) => mainIndustries.includes(stock.industry));
     }
 
@@ -1385,22 +1339,31 @@ export default function App() {
   function sortList(list: Stock[]) {
     const arr = filterList(list);
 
-    if (sortKey === "flow") {
+    if (sortKey === "mainline") {
       return arr.sort((a, b) => {
         const ah = signalMap[a.code];
         const bh = signalMap[b.code];
 
+        const aIndustry = industryLineRanking.find((item) => item.industry === a.industry)?.lineWeight || 0;
+        const bIndustry = industryLineRanking.find((item) => item.industry === b.industry)?.lineWeight || 0;
+
         const aScore =
+          aIndustry +
           stableCount(ah?.moneyAttackRaw) * 30 +
           amountRankPercent(a, top50) +
           volumeRankPercent(a, top50) +
-          rawEntryScore(a, top50, mainIndustries, settings);
+          rawEntryScore(a, top50, mainIndustries, settings) -
+          (isHot(a, settings) ? 30 : 0) -
+          (lastNAllTrue(ah?.failRaw, settings.breakConfirmTimes) ? 60 : 0);
 
         const bScore =
+          bIndustry +
           stableCount(bh?.moneyAttackRaw) * 30 +
           amountRankPercent(b, top50) +
           volumeRankPercent(b, top50) +
-          rawEntryScore(b, top50, mainIndustries, settings);
+          rawEntryScore(b, top50, mainIndustries, settings) -
+          (isHot(b, settings) ? 30 : 0) -
+          (lastNAllTrue(bh?.failRaw, settings.breakConfirmTimes) ? 60 : 0);
 
         return bScore - aScore;
       });
@@ -1411,8 +1374,8 @@ export default function App() {
     if (sortKey === "entry") return arr.sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings));
     if (sortKey === "industry") {
       return arr.sort((a, b) => {
-        const ia = industryFlowRanking.findIndex((item) => item.industry === a.industry);
-        const ib = industryFlowRanking.findIndex((item) => item.industry === b.industry);
+        const ia = industryLineRanking.findIndex((item) => item.industry === a.industry);
+        const ib = industryLineRanking.findIndex((item) => item.industry === b.industry);
         return ia - ib;
       });
     }
@@ -1427,13 +1390,13 @@ export default function App() {
     if (tab === "favorite") return sortList(favoriteStocks);
 
     if (tab === "more") {
-      if (moreView === "attackContinuation") return sortList(attackContinuationList);
-      if (moreView === "attackNew") return sortList(attackNewList);
-      if (moreView === "attackFailed") return sortList(attackFailedList);
-      if (moreView === "moneyAmount") return sortList(moneyAmountList);
-      if (moreView === "volumeNoRise") return sortList(volumeNoRiseList);
-      if (moreView === "lowVolumeFake") return sortList(lowVolumeFakeList);
-      if (moreView === "highQuality") return sortList(highQualityList);
+      if (moreView === "core") return sortList(mainlineCoreList);
+      if (moreView === "pullback") return sortList(mainlinePullbackList);
+      if (moreView === "newStrong") return sortList(mainlineNewStrongList);
+      if (moreView === "overheat") return sortList(mainlineOverheatList);
+      if (moreView === "failed") return sortList(mainlineFailedList);
+      if (moreView === "holding") return sortList(holdingList);
+      if (moreView === "amount") return sortList(moneyAmountList);
     }
 
     return [];
@@ -1442,13 +1405,13 @@ export default function App() {
     moreView,
     top50,
     favoriteStocks,
-    attackContinuationList,
-    attackNewList,
-    attackFailedList,
+    mainlineCoreList,
+    mainlinePullbackList,
+    mainlineNewStrongList,
+    mainlineOverheatList,
+    mainlineFailedList,
+    holdingList,
     moneyAmountList,
-    volumeNoRiseList,
-    lowVolumeFakeList,
-    highQualityList,
     searchText,
     sortKey,
     settings,
@@ -1462,12 +1425,11 @@ export default function App() {
     setMoreView(view);
   }
 
-  const cardProps = {
+  const cardBaseProps = {
     top50,
     mainIndustries,
     settings,
     signalMap,
-    industryStatus: "",
     favoriteCodes,
     tomorrowCodes,
     priceDirections,
@@ -1482,20 +1444,21 @@ export default function App() {
 
   function stockCardPropsFor(stock: Stock) {
     return {
-      ...cardProps,
-      industryStatus: industryStatusMap[stock.industry] || "觀察中",
+      ...cardBaseProps,
+      industryStatus: stockIndustryStatus(stock),
     };
   }
 
   if (selectedStock) {
     const history = signalMap[selectedStock.code];
-    const moneyQuality = stockMoneyQuality(selectedStock, history, top50, mainIndustries, settings);
-    const decision = stableDecision(selectedStock, history, top50, mainIndustries, settings);
+    const industryStatus = stockIndustryStatus(selectedStock);
+    const decision = mainlineDecision(selectedStock, history, top50, mainIndustries, settings, industryStatus);
+    const holding = holdingDecision(selectedStock, history, top50, mainIndustries, settings, industryStatus);
     const cont = rawContinuation(selectedStock, top50, mainIndustries, settings);
     const score = rawEntryScore(selectedStock, top50, mainIndustries, settings);
     const prevPrice = previousPriceMap[selectedStock.code];
     const direction = priceDirections[selectedStock.code];
-    const industryStatus = industryStatusMap[selectedStock.industry] || "觀察中";
+    const zone = buyZone(selectedStock);
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -1516,16 +1479,26 @@ export default function App() {
               </div>
             </div>
 
-            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(moneyQuality)}`}>
-              <div className="text-xs font-bold text-slate-400">主力資金一句話</div>
-              <div className="mt-1 text-3xl font-black">{moneyQuality}</div>
+            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
+              <div className="text-xs font-bold text-slate-400">主線一句話</div>
+              <div className="mt-1 text-3xl font-black">{decision}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                {stockMoneySentence(selectedStock, history, top50, mainIndustries, settings, industryStatus)}
+                {mainlineSentence(decision, selectedStock, industryStatus)}
+              </div>
+            </div>
+
+            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
+              <div className="text-xs font-bold text-slate-400">現在該怎麼做 / 持股管理</div>
+              <div className="mt-1 text-2xl font-black">{holding}</div>
+              <div className="mt-2 text-sm font-bold text-slate-300">
+                主線停損提醒：跌破開盤價或主攻失效，降低持有意願。
+                <br />
+                主線停利提醒：短線過熱、成交量放大但股價不再創高，分批停利。
               </div>
             </div>
 
             <section className={`mt-4 rounded-2xl bg-black/30 p-4 ${flowTone(industryStatus)}`}>
-              <div className="text-xs font-bold text-slate-400">所屬產業資金狀態</div>
+              <div className="text-xs font-bold text-slate-400">所屬產業主線</div>
               <div className="mt-1 text-2xl font-black">{industryStatus}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
                 產業：{selectedStock.industry}
@@ -1534,8 +1507,21 @@ export default function App() {
               </div>
             </section>
 
+            <section className="mt-4 rounded-2xl bg-blue-950/30 p-4">
+              <div className="text-lg font-black text-blue-100">主線買點區</div>
+              <div className="mt-2 text-sm font-bold text-blue-100">
+                理想觀察區：{zone.observe}
+                <br />
+                有效突破區：{zone.breakout}
+                <br />
+                追高風險區：{zone.chase}
+                <br />
+                目前開盤後：{formatPercent(afterOpenPercent(selectedStock))}
+              </div>
+            </section>
+
             <section className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
-              <div className="text-lg font-black text-yellow-100">資金與主攻續航</div>
+              <div className="text-lg font-black text-yellow-100">資金與主攻確認</div>
               <div className="mt-2 text-sm font-bold text-yellow-100">
                 估算成交金額：{formatAmount(estimatedAmount(selectedStock))}
                 <br />
@@ -1548,11 +1534,6 @@ export default function App() {
                 進場確認：{signalProgress(history, settings.confirmTimes, "entryRaw")}
               </div>
             </section>
-
-            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
-              <div className="text-xs font-bold text-slate-400">降噪後結論</div>
-              <div className="mt-1 text-2xl font-black">{decision}</div>
-            </div>
 
             <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(cont)}`}>
               <div className="text-xs font-bold text-slate-400">盤中續航</div>
@@ -1576,8 +1557,6 @@ export default function App() {
                 <br />
                 開盤：{formatPrice(selectedStock.openPrice)}｜現價：{formatPrice(selectedStock.price)}
                 <br />
-                開盤後：{formatPercent(afterOpenPercent(selectedStock))}
-                <br />
                 更新：{selectedStock.updatedAt || lastSuccessAt || "--"}
               </div>
             </section>
@@ -1593,10 +1572,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股產業資金續航強弱版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">資金續航雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股資金主線進出場決策版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">主線決策雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                看資金有沒有留下來，找出續航產業與核心主攻股。
+                先找資金主線 → 找主攻核心股 → 判斷能不能進 → 過熱不追 → 失效避開。
               </p>
             </div>
 
@@ -1622,44 +1601,44 @@ export default function App() {
             </div>
 
             <button onClick={() => goMore("data")} className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200">
-              續航統計
+              主線統計
             </button>
           </div>
         </section>
 
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-          <div className="text-xs font-bold text-yellow-300">現在該看哪裡</div>
+          <div className="text-xs font-bold text-yellow-300">今日主線策略</div>
           <div className="mt-1 text-xl font-black text-yellow-100">
-            {topFlowIndustry ? `${topFlowIndustry.light}｜${topFlowIndustry.industry}｜${topFlowIndustry.status}` : "尚未形成"}
+            {topLineIndustry ? `${topLineIndustry.light}｜${topLineIndustry.industry}｜${topLineIndustry.status}` : "尚未形成"}
           </div>
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="最強續航產業" value={topFlowIndustry?.industry || "--"} />
+            <DetailRow label="最強主線" value={topLineIndustry?.industry || "--"} />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="資金續航產業" value={industryContinuationList.length} sub="綠燈主流" tone="text-emerald-300" onClick={() => goMore("industryContinuation")} />
-          <MiniCard title="資金剛轉入" value={industryNewMoneyList.length} sub="黃燈觀察" tone="text-yellow-300" onClick={() => goMore("industryNewMoney")} />
-          <MiniCard title="資金分歧" value={industryDivergenceList.length} sub="只挑高品質" tone="text-orange-300" onClick={() => goMore("industryDivergence")} />
-          <MiniCard title="資金退潮" value={industryOutList.length} sub="紅燈不追" tone="text-red-300" onClick={() => goMore("industryOut")} />
+          <MiniCard title="主線核心股" value={mainlineCoreList.length} sub="主線+主攻續航" tone="text-emerald-300" onClick={() => goMore("core")} />
+          <MiniCard title="主線等回測" value={mainlinePullbackList.length} sub="不追高" tone="text-yellow-300" onClick={() => goMore("pullback")} />
+          <MiniCard title="主線剛轉強" value={mainlineNewStrongList.length} sub="等下一次確認" tone="text-yellow-300" onClick={() => goMore("newStrong")} />
+          <MiniCard title="主線失效" value={mainlineFailedList.length} sub="避開" tone="text-red-300" onClick={() => goMore("failed")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="主攻續航個股" sub="連續主攻確認" badge={attackContinuationList.length} tone="text-emerald-300" onClick={() => goMore("attackContinuation")} />
-          <ActionCard title="主攻剛轉強" sub="先看下一次" badge={attackNewList.length} tone="text-yellow-300" onClick={() => goMore("attackNew")} />
-          <ActionCard title="主攻失效" sub="小心換手" badge={attackFailedList.length} tone="text-red-300" onClick={() => goMore("attackFailed")} />
-          <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => goMore("moneyAmount")} />
-          <ActionCard title="爆量不漲" sub="換手疑慮" badge={volumeNoRiseList.length} tone="text-orange-300" onClick={() => goMore("volumeNoRise")} />
-          <ActionCard title="低量假強" sub="漲但沒量" badge={lowVolumeFakeList.length} tone="text-orange-300" onClick={() => goMore("lowVolumeFake")} />
+          <ActionCard title="主線過熱不追" sub="等回測 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => goMore("overheat")} />
+          <ActionCard title="持股管理" sub="續抱 / 警覺 / 停利" badge={holdingList.length} tone="text-purple-300" onClick={() => goMore("holding")} />
+          <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => goMore("industry")} />
+          <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => goMore("amount")} />
+          <ActionCard title="50強" sub="主線篩選" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
+          <ActionCard title="設定" sub="確認次數 / 主流鎖定" badge="⚙️" tone="text-purple-300" onClick={() => goMore("settings")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">這版主要看產業續航、主攻連續次數。</p>
+              <p className="text-xs font-bold text-slate-500">這版主要看資金主線進出場決策。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -1678,7 +1657,7 @@ export default function App() {
             <div className="mt-3 space-y-3">
               <div className="grid grid-cols-4 gap-2">
                 {[
-                  ["flow", "續航"],
+                  ["mainline", "主線"],
                   ["money", "金額"],
                   ["volume", "成交量"],
                   ["entry", "進場"],
@@ -1700,7 +1679,7 @@ export default function App() {
 
               {tab === "top50" && (
                 <div className="grid grid-cols-3 gap-2">
-                  {["全部", "主攻續航", "主攻剛轉強", "主攻失效", "成交金額", "爆量不漲", "量增價弱", "低量假強", "高品質", "主流產業"].map((filter) => (
+                  {["全部", "主線核心", "等回測", "剛轉強", "過熱不追", "主線失效", "持股管理", "成交金額", "主流產業"].map((filter) => (
                     <button
                       key={filter}
                       onClick={() => saveSettings({ ...settings, topFilter: filter })}
@@ -1719,17 +1698,17 @@ export default function App() {
 
         {tab === "more" && (
           <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">資金續航雷達</h2>
+            <h2 className="text-xl font-black">主線決策雷達</h2>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="資金續航產業" sub="綠燈主流" badge={industryContinuationList.length} tone="text-emerald-300" onClick={() => setMoreView("industryContinuation")} />
-              <ActionCard title="資金剛轉入產業" sub="黃燈觀察" badge={industryNewMoneyList.length} tone="text-yellow-300" onClick={() => setMoreView("industryNewMoney")} />
-              <ActionCard title="資金分歧產業" sub="只挑高品質" badge={industryDivergenceList.length} tone="text-orange-300" onClick={() => setMoreView("industryDivergence")} />
-              <ActionCard title="資金退潮產業" sub="紅燈不追" badge={industryOutList.length} tone="text-red-300" onClick={() => setMoreView("industryOut")} />
-              <ActionCard title="主攻續航個股" sub="核心主攻股" badge={attackContinuationList.length} tone="text-emerald-300" onClick={() => setMoreView("attackContinuation")} />
-              <ActionCard title="主攻失效個股" sub="小心換手" badge={attackFailedList.length} tone="text-red-300" onClick={() => setMoreView("attackFailed")} />
-              <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => setMoreView("moneyAmount")} />
-              <ActionCard title="設定" sub="確認次數 / 主流鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
+              <ActionCard title="主線核心股" sub="只等合理位置" badge={mainlineCoreList.length} tone="text-emerald-300" onClick={() => setMoreView("core")} />
+              <ActionCard title="主線等回測" sub="不追高" badge={mainlinePullbackList.length} tone="text-yellow-300" onClick={() => setMoreView("pullback")} />
+              <ActionCard title="主線剛轉強" sub="等確認" badge={mainlineNewStrongList.length} tone="text-yellow-300" onClick={() => setMoreView("newStrong")} />
+              <ActionCard title="主線過熱" sub="不追 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setMoreView("overheat")} />
+              <ActionCard title="主線失效" sub="避開" badge={mainlineFailedList.length} tone="text-red-300" onClick={() => setMoreView("failed")} />
+              <ActionCard title="持股管理" sub="可續抱 / 分批停利" badge={holdingList.length} tone="text-purple-300" onClick={() => setMoreView("holding")} />
+              <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => setMoreView("industry")} />
+              <ActionCard title="設定" sub="主攻確認 / 降噪" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
             </div>
           </section>
         )}
@@ -1741,74 +1720,71 @@ export default function App() {
               {tab === "top50" && "📊 今日50強"}
               {tab === "tomorrow" && "📌 明日觀察"}
               {tab === "favorite" && "⭐ 自選股"}
-              {tab === "more" && moreView === "industryContinuation" && "🟢 資金續航產業"}
-              {tab === "more" && moreView === "industryNewMoney" && "🟡 資金剛轉入產業"}
-              {tab === "more" && moreView === "industryDivergence" && "🟠 資金分歧產業"}
-              {tab === "more" && moreView === "industryOut" && "🔴 資金退潮產業"}
-              {tab === "more" && moreView === "attackContinuation" && "🟢 主攻續航個股"}
-              {tab === "more" && moreView === "attackNew" && "🟡 主攻剛轉強"}
-              {tab === "more" && moreView === "attackFailed" && "🔴 主攻失效"}
-              {tab === "more" && moreView === "moneyAmount" && "💰 成交金額排行"}
-              {tab === "more" && moreView === "volumeNoRise" && "🟠 爆量不漲"}
-              {tab === "more" && moreView === "lowVolumeFake" && "🟠 低量假強"}
-              {tab === "more" && moreView === "highQuality" && "🟢 高品質訊號"}
+              {tab === "more" && moreView === "core" && "🟢 主線核心股"}
+              {tab === "more" && moreView === "pullback" && "🟡 主線等回測"}
+              {tab === "more" && moreView === "newStrong" && "🟡 主線剛轉強"}
+              {tab === "more" && moreView === "overheat" && "🟠 主線過熱不追"}
+              {tab === "more" && moreView === "failed" && "🔴 主線失效"}
+              {tab === "more" && moreView === "holding" && "🟣 持股管理"}
+              {tab === "more" && moreView === "industry" && "🏭 產業主線權重"}
+              {tab === "more" && moreView === "amount" && "💰 成交金額排行"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
-              {tab === "more" && moreView === "data" && "📡 續航統計"}
+              {tab === "more" && moreView === "data" && "📡 主線統計"}
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              資金主流：{industryFlowRanking.slice(0, 3).map((item) => item.industry).join("、") || "--"}｜型態：{marketStructure}
+              資金主線：{industryLineRanking.slice(0, 3).map((item) => item.industry).join("、") || "--"}｜型態：{marketStructure}
             </p>
           </div>
 
           {tab === "home" && (
             <div className="space-y-4">
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">產業資金續航強弱排行</h3>
+                <h3 className="text-xl font-black">產業主線權重排行</h3>
                 <div className="mt-3 space-y-3">
-                  {industryFlowRanking.slice(0, 3).map((item, index) => (
-                    <IndustryFlowCard key={item.industry} item={item} rank={index + 1} />
+                  {industryLineRanking.slice(0, 3).map((item, index) => (
+                    <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
                   ))}
                 </div>
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">主攻續航個股 5 檔</h3>
+                <h3 className="text-xl font-black">主線核心股 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {attackContinuationList.slice(0, 5).length === 0 && (
+                  {mainlineCoreList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有連續主攻續航股。
+                      目前沒有明確主線核心股。
                     </div>
                   )}
-                  {attackContinuationList.slice(0, 5).map((stock, index) => (
+                  {mainlineCoreList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
                   ))}
                 </div>
               </section>
 
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">主攻剛轉強 5 檔</h3>
+                <h3 className="text-xl font-black">主線等回測 / 剛轉強 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {attackNewList.slice(0, 5).length === 0 && (
+                  {[...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有主攻剛轉強。
+                      目前沒有等回測或剛轉強股票。
                     </div>
                   )}
-                  {attackNewList.slice(0, 5).map((stock, index) => (
+                  {[...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
                   ))}
                 </div>
               </section>
 
               <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">主攻失效 / 不要追</h3>
+                <h3 className="text-xl font-black">主線失效 / 過熱警報</h3>
                 <div className="mt-3 space-y-3">
-                  {[...attackFailedList, ...volumeNoRiseList, ...lowVolumeFakeList].slice(0, 5).length === 0 && (
+                  {[...mainlineFailedList, ...mainlineOverheatList].slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯主攻失效。
+                      目前沒有明顯主線失效或過熱。
                     </div>
                   )}
-                  {[...attackFailedList, ...volumeNoRiseList, ...lowVolumeFakeList].slice(0, 5).map((stock, index) => (
+                  {[...mainlineFailedList, ...mainlineOverheatList].slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
                   ))}
                 </div>
@@ -1829,17 +1805,10 @@ export default function App() {
             </div>
           )}
 
-          {tab === "more" && ["industryContinuation", "industryNewMoney", "industryDivergence", "industryOut"].includes(moreView) && (
+          {tab === "more" && moreView === "industry" && (
             <div className="space-y-3">
-              {(moreView === "industryContinuation"
-                ? industryContinuationList
-                : moreView === "industryNewMoney"
-                  ? industryNewMoneyList
-                  : moreView === "industryDivergence"
-                    ? industryDivergenceList
-                    : industryOutList
-              ).map((item, index) => (
-                <IndustryFlowCard key={item.industry} item={item} rank={index + 1} />
+              {industryLineRanking.map((item, index) => (
+                <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
               ))}
             </div>
           )}
@@ -1921,14 +1890,14 @@ export default function App() {
               </div>
 
               <button onClick={resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
-                重置所有資金續航紀錄
+                重置所有主線確認紀錄
               </button>
             </div>
           )}
 
           {tab === "more" && moreView === "data" && (
             <div className="rounded-3xl border border-blue-500/50 bg-blue-950/20 p-5">
-              <div className="text-xl font-black">續航統計</div>
+              <div className="text-xl font-black">主線統計</div>
 
               <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
                 <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
@@ -1939,16 +1908,13 @@ export default function App() {
                 <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
                 <div>資料來源：{source || "讀取中"}</div>
                 <div>50強總成交金額估算：{formatAmount(totalEstimatedAmount)}</div>
-                <div>資金續航產業數：{industryContinuationList.length}</div>
-                <div>資金剛轉入產業數：{industryNewMoneyList.length}</div>
-                <div>資金分歧產業數：{industryDivergenceList.length}</div>
-                <div>資金退潮產業數：{industryOutList.length}</div>
-                <div>主攻續航股數：{attackContinuationList.length}</div>
-                <div>主攻剛轉強股數：{attackNewList.length}</div>
-                <div>主攻失效股數：{attackFailedList.length}</div>
-                <div>爆量不漲股數：{volumeNoRiseList.length}</div>
-                <div>低量假強股數：{lowVolumeFakeList.length}</div>
-                <div>今日最強續航產業：{topFlowIndustry?.industry || "--"}</div>
+                <div>主線核心股數：{mainlineCoreList.length}</div>
+                <div>主線等回測股數：{mainlinePullbackList.length}</div>
+                <div>主線剛轉強股數：{mainlineNewStrongList.length}</div>
+                <div>主線失效股數：{mainlineFailedList.length}</div>
+                <div>主線過熱股數：{mainlineOverheatList.length}</div>
+                <div>持股管理股數：{holdingList.length}</div>
+                <div>今日最強主線：{topLineIndustry?.industry || "--"}</div>
                 <div>盤中型態：{marketStructure}</div>
               </div>
 
@@ -1957,7 +1923,7 @@ export default function App() {
                   立即更新
                 </button>
                 <button onClick={resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-                  重置續航紀錄
+                  重置主線紀錄
                 </button>
               </div>
             </div>
@@ -1965,7 +1931,7 @@ export default function App() {
 
           {tab !== "home" &&
             tab !== "tomorrow" &&
-            !(tab === "more" && ["settings", "data", "industryContinuation", "industryNewMoney", "industryDivergence", "industryOut", "menu"].includes(moreView)) && (
+            !(tab === "more" && ["settings", "data", "industry", "menu"].includes(moreView)) && (
               <div className="space-y-3">
                 {currentList.length === 0 && (
                   <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
