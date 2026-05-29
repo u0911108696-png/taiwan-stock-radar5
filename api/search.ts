@@ -55,66 +55,107 @@ function resolveCode(q: string) {
 
   if (code.length >= 4) return code;
 
-  const exact = nameToCode[keyword];
-  if (exact) return exact;
+  if (nameToCode[keyword]) return nameToCode[keyword];
 
-  const found = Object.entries(nameToCode).find(([name]) => name.includes(keyword) || keyword.includes(name));
+  const found = Object.entries(nameToCode).find(([name]) => {
+    return name.includes(keyword) || keyword.includes(name);
+  });
+
   return found?.[1] || "";
 }
 
+function safeNumber(value: any, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function taiwanTimeText(timestampMs?: number) {
+  const date = timestampMs ? new Date(timestampMs) : new Date();
+
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  const ss = String(date.getSeconds()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+}
+
 async function fetchYahoo(symbol: string) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d`;
+  const safeSymbol = encodeURIComponent(symbol);
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${safeSymbol}?interval=1m&range=1d`;
+
   const response = await fetch(url, {
+    method: "GET",
     headers: {
       "User-Agent": "Mozilla/5.0",
-      "Accept": "application/json",
+      Accept: "application/json,text/plain,*/*",
     },
   });
 
-  if (!response.ok) throw new Error(`Yahoo ${symbol} ${response.status}`);
+  if (!response.ok) {
+    throw new Error(`Yahoo ${symbol} status ${response.status}`);
+  }
 
   const json = await response.json();
   const result = json?.chart?.result?.[0];
 
-  if (!result) throw new Error(`Yahoo ${symbol} no result`);
+  if (!result) {
+    throw new Error(`Yahoo ${symbol} no result`);
+  }
 
   return result;
 }
 
 function parseYahoo(result: any, code: string, market: "TW" | "TWO") {
   const meta = result?.meta || {};
-  const timestamps: number[] = result?.timestamp || [];
-  const quote = result?.indicators?.quote?.[0] || {};
+  const timestamps: number[] = Array.isArray(result?.timestamp) ? result.timestamp : [];
 
-  const closes: Array<number | null> = quote.close || [];
-  const opens: Array<number | null> = quote.open || [];
-  const highs: Array<number | null> = quote.high || [];
-  const lows: Array<number | null> = quote.low || [];
-  const volumes: Array<number | null> = quote.volume || [];
+  const quote = result?.indicators?.quote?.[0] || {};
+  const closes: Array<number | null> = Array.isArray(quote.close) ? quote.close : [];
+  const opens: Array<number | null> = Array.isArray(quote.open) ? quote.open : [];
+  const highs: Array<number | null> = Array.isArray(quote.high) ? quote.high : [];
+  const lows: Array<number | null> = Array.isArray(quote.low) ? quote.low : [];
+  const volumes: Array<number | null> = Array.isArray(quote.volume) ? quote.volume : [];
 
   let lastIndex = closes.length - 1;
-  while (lastIndex >= 0 && (closes[lastIndex] === null || closes[lastIndex] === undefined)) {
+
+  while (lastIndex >= 0) {
+    const v = closes[lastIndex];
+    if (v !== null && v !== undefined && Number.isFinite(Number(v))) break;
     lastIndex -= 1;
   }
 
-  if (lastIndex < 0) throw new Error("no price");
+  if (lastIndex < 0) {
+    throw new Error("Yahoo no valid price");
+  }
 
-  const price = Number(closes[lastIndex] ?? meta.regularMarketPrice ?? 0);
-  const openPrice = Number(opens.find((v) => v !== null && v !== undefined) ?? meta.regularMarketOpen ?? price);
-  const previousClose = Number(meta.chartPreviousClose ?? meta.previousClose ?? price);
-  const highPrice = Number(Math.max(...highs.filter((v) => typeof v === "number") as number[], price));
-  const lowPrice = Number(Math.min(...lows.filter((v) => typeof v === "number") as number[], price));
-  const volume = Number(volumes.reduce((sum, v) => sum + Number(v || 0), 0));
+  const price = safeNumber(closes[lastIndex], safeNumber(meta.regularMarketPrice, 0));
+  const firstOpen = opens.find((v) => v !== null && v !== undefined && Number.isFinite(Number(v)));
+  const openPrice = safeNumber(firstOpen, safeNumber(meta.regularMarketOpen, price));
+  const previousClose = safeNumber(meta.chartPreviousClose, safeNumber(meta.previousClose, price));
 
-  const changePercent = previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0;
-  const openPremiumPercent = previousClose > 0 ? ((openPrice - previousClose) / previousClose) * 100 : 0;
+  const highValues = highs.filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
+  const lowValues = lows.filter((v) => v !== null && v !== undefined && Number.isFinite(Number(v))).map(Number);
 
-  const timestamp = timestamps[lastIndex] ? timestamps[lastIndex] * 1000 : Date.now();
+  const highPrice = highValues.length > 0 ? Math.max(...highValues, price) : price;
+  const lowPrice = lowValues.length > 0 ? Math.min(...lowValues, price) : price;
+
+  const volume = volumes.reduce((sum, v) => sum + safeNumber(v, 0), 0);
+
+  const changePercent =
+    previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0;
+
+  const openPremiumPercent =
+    previousClose > 0 ? ((openPrice - previousClose) / previousClose) * 100 : 0;
+
+  const timestampMs = timestamps[lastIndex] ? timestamps[lastIndex] * 1000 : Date.now();
 
   return {
     code,
     symbol: `${code}.${market}`,
-    name: meta.shortName || meta.longName || code,
+    name: String(meta.shortName || meta.longName || code).replace(".TW", "").replace(".TWO", ""),
     price,
     changePercent,
     volume,
@@ -124,8 +165,8 @@ function parseYahoo(result: any, code: string, market: "TW" | "TWO") {
     highPrice,
     lowPrice,
     industry: industryMap[code] || "其他",
-    updatedAt: new Date(timestamp).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", hour12: false }),
-    source: "Yahoo Finance Search",
+    updatedAt: taiwanTimeText(timestampMs),
+    source: "Yahoo Finance Search Safe",
   };
 }
 
@@ -145,8 +186,8 @@ export default async function handler(req: any, res: any) {
     if (!code) {
       return res.status(200).json({
         ok: false,
-        message: "請輸入股票代號，例如 2330；或常見名稱，例如 台積電、華邦電。",
         query: q,
+        message: "請輸入股票代號，例如 2330、2344、3481；或常見名稱，例如 台積電、華邦電、群創。",
       });
     }
 
@@ -155,7 +196,7 @@ export default async function handler(req: any, res: any) {
       { symbol: `${code}.TWO`, market: "TWO" as const },
     ];
 
-    let lastError = "";
+    const errors: string[] = [];
 
     for (const item of symbols) {
       try {
@@ -168,7 +209,7 @@ export default async function handler(req: any, res: any) {
           updatedAt: new Date().toISOString(),
         });
       } catch (err: any) {
-        lastError = err?.message || String(err);
+        errors.push(`${item.symbol}: ${err?.message || String(err)}`);
       }
     }
 
@@ -176,12 +217,12 @@ export default async function handler(req: any, res: any) {
       ok: false,
       code,
       message: "查無此股票，請確認代號是否正確。",
-      error: lastError,
+      error: errors.join(" | "),
     });
   } catch (err: any) {
-    return res.status(500).json({
+    return res.status(200).json({
       ok: false,
-      message: "search api error",
+      message: "查詢功能暫時失敗，請稍後再試。",
       error: err?.message || String(err),
     });
   }
