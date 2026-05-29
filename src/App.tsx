@@ -28,15 +28,18 @@ type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
 
 type MoreView =
   | "menu"
-  | "industry"
+  | "openingIndustry"
   | "industryDetail"
-  | "watchable"
-  | "waitPullback"
   | "moneyIn"
   | "moneyTurning"
   | "moneyHot"
   | "moneyOut"
-  | "moneyIndustry"
+  | "openingPosition"
+  | "openingContinue"
+  | "openingWeak"
+  | "openingQuietTurn"
+  | "watchable"
+  | "waitPullback"
   | "realAtrSafe"
   | "atrMissing"
   | "settings"
@@ -48,10 +51,22 @@ type AtrMode = "短線" | "標準" | "寬鬆";
 type HoldingStatus = "未進場" | "已進場";
 type ProfitAnchor = "今日高點" | "近N日高點" | "持有後最高價";
 
-type SortKey = "money" | "industry" | "decision" | "score" | "atr" | "change" | "price";
+type SortKey =
+  | "opening"
+  | "money"
+  | "industry"
+  | "decision"
+  | "score"
+  | "atr"
+  | "change"
+  | "price";
 
 type TopFilter =
   | "全部"
+  | "開盤卡位"
+  | "開高走強"
+  | "開高走弱"
+  | "低調轉強"
   | "資金流入"
   | "資金轉強"
   | "資金過熱"
@@ -113,10 +128,20 @@ type MoneyState = "資金流入" | "資金剛轉強" | "資金過熱" | "資金�
 type VolumeState = "量能強" | "量能普通" | "量能不足";
 type PriceVolumeState = "量價同步" | "量價背離" | "量縮觀望" | "轉弱退潮";
 
+type OpeningState =
+  | "主力開盤卡位"
+  | "開高走強"
+  | "開高走弱"
+  | "開高過熱"
+  | "低調轉強"
+  | "開盤普通"
+  | "開盤偏弱";
+
 type IndustryItem = {
   industry: string;
   count: number;
   avg: number;
+  avgOpenPremium: number;
   strongCount: number;
   weakCount: number;
   hotCount: number;
@@ -126,14 +151,20 @@ type IndustryItem = {
   moneyTurningCount: number;
   moneyOutCount: number;
   moneyHotCount: number;
+  openingStrongCount: number;
+  openingContinueCount: number;
+  openingWeakCount: number;
+  quietTurnCount: number;
   score: number;
   moneyScore: number;
+  openingScore: number;
   safetyRate: number;
   hotRate: number;
   weakRate: number;
   moneyInRate: number;
+  openingStrongRate: number;
   concentrationRate: number;
-  status: "資金流入" | "資金擴散" | "過熱中" | "資金退潮" | "觀察中";
+  status: "開盤資金流入" | "資金流入" | "資金擴散" | "過熱中" | "資金退潮" | "觀察中";
   stocks: Stock[];
 };
 
@@ -143,9 +174,9 @@ const KLINE_API_URL = "/api/kline";
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
 const POSITION_KEY = "taiwan-stock-radar-position-info";
-const SETTINGS_KEY = "taiwan-stock-radar-money-flow-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-money-flow-cache";
-const KLINE_CACHE_KEY = "taiwan-stock-radar-kline-cache-money";
+const SETTINGS_KEY = "taiwan-stock-radar-opening-money-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-opening-money-cache";
+const KLINE_CACHE_KEY = "taiwan-stock-radar-kline-cache-opening-money";
 
 const defaultSettings: Settings = {
   maxPrice: 200,
@@ -248,7 +279,7 @@ function normalizeStock(raw: any, updateTime: string): Stock {
   const openPremiumPercent =
     raw.openPremiumPercent !== undefined && raw.openPremiumPercent !== null
       ? n(raw.openPremiumPercent)
-      : previousClose > 0
+      : previousClose > 0 && openPrice > 0
         ? ((openPrice - previousClose) / previousClose) * 100
         : null;
 
@@ -356,13 +387,8 @@ function getEntryPrice(stock: Stock, position?: PositionInfo) {
 function getAnchorPrice(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
   const entry = getEntryPrice(stock, position);
 
-  if (settings.profitAnchor === "今日高點") {
-    return Math.max(stock.highPrice, stock.price, entry);
-  }
-
-  if (settings.profitAnchor === "持有後最高價") {
-    return Math.max(position?.highestPrice || 0, stock.price, entry);
-  }
+  if (settings.profitAnchor === "今日高點") return Math.max(stock.highPrice, stock.price, entry);
+  if (settings.profitAnchor === "持有後最高價") return Math.max(position?.highestPrice || 0, stock.price, entry);
 
   return Math.max(atrInfo.highN, stock.price, entry);
 }
@@ -392,7 +418,7 @@ function isAtrNear(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?
 }
 
 function isHot(stock: Stock, settings: Settings) {
-  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
+  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 6;
 }
 
 function isWeak(stock: Stock) {
@@ -408,9 +434,13 @@ function isNearOpen(stock: Stock) {
   return Math.abs(stock.price - stock.openPrice) / stock.openPrice <= 0.015;
 }
 
-function distanceFromOpen(stock: Stock) {
-  if (stock.openPrice <= 0) return 999;
+function openingAfterPercent(stock: Stock) {
+  if (stock.openPrice <= 0) return 0;
   return ((stock.price - stock.openPrice) / stock.openPrice) * 100;
+}
+
+function distanceFromOpen(stock: Stock) {
+  return openingAfterPercent(stock);
 }
 
 function atrStatus(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
@@ -470,6 +500,69 @@ function priceVolumeState(stock: Stock, list: Stock[], settings: Settings): Pric
   return "量價同步";
 }
 
+function openingPremium(stock: Stock) {
+  return stock.openPremiumPercent ?? 0;
+}
+
+function openingState(stock: Stock, list: Stock[], settings: Settings): OpeningState {
+  const premium = openingPremium(stock);
+  const afterOpen = openingAfterPercent(stock);
+  const pv = priceVolumeState(stock, list, settings);
+  const vol = volumeState(stock, list);
+
+  if (premium >= 5 && stock.changePercent >= settings.hotPercent) return "開高過熱";
+  if (premium >= 2 && afterOpen >= 0.5 && pv === "量價同步" && vol === "量能強") return "主力開盤卡位";
+  if (premium >= 2 && afterOpen > 0) return "開高走強";
+  if (premium >= 2 && afterOpen < 0) return "開高走弱";
+  if (premium >= 0 && premium < 2 && afterOpen > 0.8 && pv === "量價同步") return "低調轉強";
+  if (premium < 0 || stock.price < stock.previousClose) return "開盤偏弱";
+  return "開盤普通";
+}
+
+function openingTone(state: OpeningState) {
+  if (state === "主力開盤卡位") return "text-emerald-300";
+  if (state === "開高走強") return "text-cyan-300";
+  if (state === "低調轉強") return "text-blue-300";
+  if (state === "開高過熱") return "text-orange-300";
+  if (state === "開高走弱" || state === "開盤偏弱") return "text-red-300";
+  return "text-slate-300";
+}
+
+function openingScore(stock: Stock, list: Stock[], settings: Settings) {
+  let score = 0;
+  const premium = openingPremium(stock);
+  const afterOpen = openingAfterPercent(stock);
+  const state = openingState(stock, list, settings);
+  const volRank = volumeRankPercent(stock, list);
+
+  score += Math.max(0, Math.min(30, premium * 6));
+  score += Math.max(0, Math.min(20, afterOpen * 8));
+  score += Math.min(25, volRank * 0.25);
+
+  if (state === "主力開盤卡位") score += 25;
+  if (state === "開高走強") score += 18;
+  if (state === "低調轉強") score += 20;
+  if (state === "開高過熱") score -= 15;
+  if (state === "開高走弱") score -= 25;
+  if (state === "開盤偏弱") score -= 20;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function openingSentence(stock: Stock, list: Stock[], settings: Settings) {
+  const state = openingState(stock, list, settings);
+  const premium = openingPremium(stock);
+  const afterOpen = openingAfterPercent(stock);
+
+  if (state === "主力開盤卡位") return `開盤溢價 ${formatPercent(premium)}，開盤後 ${formatPercent(afterOpen)}，量價同步，主力資金可能先卡位。`;
+  if (state === "開高走強") return `開盤溢價 ${formatPercent(premium)}，目前仍站上開盤，開盤資金有延續。`;
+  if (state === "開高走弱") return `開盤溢價 ${formatPercent(premium)}，但現價跌回開盤下，可能開高走弱。`;
+  if (state === "開高過熱") return `開盤溢價 ${formatPercent(premium)} 且漲幅偏大，主力資金有進來但不適合追高。`;
+  if (state === "低調轉強") return `開盤不算太高，但開盤後轉強，這種通常比追高安全。`;
+  if (state === "開盤偏弱") return `開盤資金偏弱，先不要急。`;
+  return `開盤溢價 ${formatPercent(premium)}，目前沒有明顯開盤主力訊號。`;
+}
+
 function moneyScore(
   stock: Stock,
   list: Stock[],
@@ -484,24 +577,32 @@ function moneyScore(
   const volRank = volumeRankPercent(stock, list);
   const pv = priceVolumeState(stock, list, settings);
   const atr = atrStatus(stock, settings, atrInfo, position);
+  const openState = openingState(stock, list, settings);
 
-  score += Math.min(35, volRank * 0.35);
+  score += Math.min(30, volRank * 0.3);
+  score += Math.min(18, Math.max(0, stock.changePercent) * 2.2);
+  score += Math.min(20, Math.max(0, openingPremium(stock)) * 4);
 
-  if (stock.changePercent >= 2 && stock.changePercent <= 7.5) score += 18;
-  if (stock.changePercent > 7.5) score += 8;
-  if (stock.price >= stock.openPrice) score += 12;
+  if (openingAfterPercent(stock) > 0) score += 10;
+  if (stock.price >= stock.openPrice) score += 10;
   if (stock.price >= stock.previousClose) score += 8;
-  if (priceDirections[stock.code] === "up") score += 12;
-  if (isMain(stock, mainIndustries)) score += 15;
-  if (pv === "量價同步") score += 15;
-  if (atr === "安全") score += 10;
+  if (priceDirections[stock.code] === "up") score += 10;
+  if (isMain(stock, mainIndustries)) score += 14;
+  if (pv === "量價同步") score += 14;
+  if (atr === "安全") score += 8;
   if (atrInfo.hasReal) score += 4;
 
-  if (isHot(stock, settings)) score -= 20;
+  if (openState === "主力開盤卡位") score += 18;
+  if (openState === "開高走強") score += 12;
+  if (openState === "低調轉強") score += 14;
+  if (openState === "開高過熱") score -= 18;
+  if (openState === "開高走弱") score -= 25;
+
+  if (isHot(stock, settings)) score -= 18;
   if (pv === "量價背離") score -= 15;
   if (pv === "轉弱退潮") score -= 25;
   if (priceDirections[stock.code] === "down") score -= 15;
-  if (isWeak(stock)) score -= 25;
+  if (isWeak(stock)) score -= 22;
 
   return Math.max(0, Math.min(100, Math.round(score)));
 }
@@ -517,9 +618,12 @@ function moneyState(
 ): MoneyState {
   const score = moneyScore(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
   const pv = priceVolumeState(stock, list, settings);
+  const open = openingState(stock, list, settings);
 
-  if (isWeak(stock) || pv === "轉弱退潮" || priceDirections[stock.code] === "down") return "資金退潮";
-  if (isHot(stock, settings) && score >= 55) return "資金過熱";
+  if (isWeak(stock) || pv === "轉弱退潮" || priceDirections[stock.code] === "down" || open === "開高走弱") return "資金退潮";
+  if ((isHot(stock, settings) || open === "開高過熱") && score >= 55) return "資金過熱";
+  if (open === "主力開盤卡位" || open === "開高走強") return "資金流入";
+  if (open === "低調轉強") return "資金剛轉強";
   if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice && stock.changePercent < settings.hotPercent) return "資金剛轉強";
   if (score >= 70 && pv === "量價同步") return "資金流入";
 
@@ -546,13 +650,14 @@ function moneySentence(
   const state = moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
   const pv = priceVolumeState(stock, list, settings);
   const vol = volumeState(stock, list);
+  const open = openingState(stock, list, settings);
 
-  if (state === "資金流入") return `${pv}，${vol}，股價站上開盤，資金偏流入。`;
-  if (state === "資金剛轉強") return `股價即時轉強，尚未過熱，可列入盤中觀察。`;
-  if (state === "資金過熱") return `資金有進來，但漲幅偏熱，不適合追高。`;
-  if (state === "資金退潮") return `股價轉弱或跌破開盤，資金有退潮跡象。`;
+  if (state === "資金流入") return `${open}，${pv}，${vol}，資金偏流入。`;
+  if (state === "資金剛轉強") return `${open}，股價即時轉強，尚未過熱，可列入盤中觀察。`;
+  if (state === "資金過熱") return `${open}，資金有進來，但漲幅偏熱，不適合追高。`;
+  if (state === "資金退潮") return `${open}，股價轉弱或跌破開盤，資金有退潮跡象。`;
 
-  return `${vol}，目前資金觀望，先等更明確量價同步。`;
+  return `${open}，${vol}，目前資金觀望。`;
 }
 
 function mainScore(
@@ -565,25 +670,28 @@ function mainScore(
   position?: PositionInfo
 ) {
   let score = 0;
+  const money = moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+  const open = openingState(stock, list, settings);
 
-  if (isMain(stock, mainIndustries)) score += 30;
-  if (stock.price > 0 && stock.price <= settings.maxPrice) score += 18;
-  if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 15;
+  if (isMain(stock, mainIndustries)) score += 28;
+  if (stock.price > 0 && stock.price <= settings.maxPrice) score += 16;
+  if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 12;
   if (stock.price >= stock.openPrice) score += 10;
   if (isBreakout(stock)) score += 8;
   if (isNearOpen(stock)) score += 6;
   if (atrStatus(stock, settings, atrInfo, position) === "安全") score += 10;
-  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金流入") score += 15;
-  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金剛轉強") score += 10;
+  if (money === "資金流入") score += 16;
+  if (money === "資金剛轉強") score += 12;
+  if (open === "主力開盤卡位") score += 12;
+  if (open === "低調轉強") score += 10;
   if (atrInfo.hasReal) score += 4;
 
-  if (isHot(stock, settings)) score -= 25;
-  if (isWeak(stock)) score -= 30;
+  if (isHot(stock, settings)) score -= 20;
+  if (isWeak(stock)) score -= 28;
   if (priceVolumeState(stock, list, settings) === "量價背離") score -= 10;
-  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金退潮") score -= 25;
-
-  if (settings.decisionMode === "保守" && !isMain(stock, mainIndustries)) score -= 25;
-  if (settings.decisionMode === "保守" && stock.price > settings.maxPrice) score -= 20;
+  if (money === "資金退潮") score -= 25;
+  if (open === "開高走弱") score -= 20;
+  if (open === "開高過熱") score -= 14;
 
   return Math.max(0, Math.min(100, Math.round(score)));
 }
@@ -598,18 +706,19 @@ function decisionLabel(
   position?: PositionInfo
 ) {
   const money = moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+  const open = openingState(stock, list, settings);
 
   if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破ATR";
   if (money === "資金退潮") return "移除";
-  if (money === "資金過熱") return "不追高";
-  if (isWeak(stock)) return "移除";
+  if (money === "資金過熱" || open === "開高過熱") return "不追高";
+  if (isWeak(stock) || open === "開高走弱") return "移除";
   if (isHot(stock, settings)) return "不追高";
 
   if (
     isMain(stock, mainIndustries) &&
     stock.price <= settings.maxPrice &&
     atrStatus(stock, settings, atrInfo, position) === "安全" &&
-    (money === "資金流入" || money === "資金剛轉強")
+    (money === "資金流入" || money === "資金剛轉強" || open === "主力開盤卡位" || open === "低調轉強")
   ) {
     return "可觀察";
   }
@@ -676,6 +785,7 @@ function getIndustryRanking(
     const atr = getAtr(stock);
     const pos = getPos(stock);
     const money = moneyState(stock, stocks, mainIndustries, settings, priceDirections, atr, pos);
+    const open = openingState(stock, stocks, settings);
 
     const item =
       map.get(key) ??
@@ -683,6 +793,7 @@ function getIndustryRanking(
         industry: key,
         count: 0,
         avg: 0,
+        avgOpenPremium: 0,
         strongCount: 0,
         weakCount: 0,
         hotCount: 0,
@@ -692,12 +803,18 @@ function getIndustryRanking(
         moneyTurningCount: 0,
         moneyOutCount: 0,
         moneyHotCount: 0,
+        openingStrongCount: 0,
+        openingContinueCount: 0,
+        openingWeakCount: 0,
+        quietTurnCount: 0,
         score: 0,
         moneyScore: 0,
+        openingScore: 0,
         safetyRate: 0,
         hotRate: 0,
         weakRate: 0,
         moneyInRate: 0,
+        openingStrongRate: 0,
         concentrationRate: 0,
         status: "觀察中",
         stocks: [],
@@ -705,6 +822,7 @@ function getIndustryRanking(
 
     item.count += 1;
     item.avg += stock.changePercent;
+    item.avgOpenPremium += openingPremium(stock);
     item.stocks.push(stock);
 
     if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) item.strongCount += 1;
@@ -718,7 +836,13 @@ function getIndustryRanking(
     if (money === "資金退潮") item.moneyOutCount += 1;
     if (money === "資金過熱") item.moneyHotCount += 1;
 
+    if (open === "主力開盤卡位" || open === "開高走強") item.openingStrongCount += 1;
+    if (open === "主力開盤卡位") item.openingContinueCount += 1;
+    if (open === "開高走弱") item.openingWeakCount += 1;
+    if (open === "低調轉強") item.quietTurnCount += 1;
+
     item.moneyScore += moneyScore(stock, stocks, mainIndustries, settings, priceDirections, atr, pos);
+    item.openingScore += openingScore(stock, stocks, settings);
 
     map.set(key, item);
   });
@@ -726,28 +850,37 @@ function getIndustryRanking(
   return Array.from(map.values())
     .map((item) => {
       const avg = item.avg / Math.max(item.count, 1);
+      const avgOpenPremium = item.avgOpenPremium / Math.max(item.count, 1);
       const safetyRate = (item.atrSafeCount / Math.max(item.count, 1)) * 100;
       const hotRate = (item.hotCount / Math.max(item.count, 1)) * 100;
       const weakRate = (item.weakCount / Math.max(item.count, 1)) * 100;
       const moneyInRate = ((item.moneyInCount + item.moneyTurningCount) / Math.max(item.count, 1)) * 100;
+      const openingStrongRate = ((item.openingStrongCount + item.quietTurnCount) / Math.max(item.count, 1)) * 100;
       const concentrationRate = (item.count / Math.max(stocks.length, 1)) * 100;
       const avgMoney = item.moneyScore / Math.max(item.count, 1);
+      const avgOpening = item.openingScore / Math.max(item.count, 1);
 
       let status: IndustryItem["status"] = "觀察中";
 
       if (item.moneyOutCount >= Math.max(2, Math.ceil(item.count * 0.4)) || weakRate >= 45) status = "資金退潮";
       else if (hotRate >= 35 || item.moneyHotCount >= Math.max(2, Math.ceil(item.count * 0.35))) status = "過熱中";
+      else if (openingStrongRate >= 40 && avgOpening >= 55) status = "開盤資金流入";
       else if (moneyInRate >= 45 && safetyRate >= 45 && avgMoney >= 55) status = "資金流入";
       else if (moneyInRate >= 25 && item.count >= 2) status = "資金擴散";
 
       const score =
         item.count * 10 +
         avg * 2.5 +
+        avgOpenPremium * 4 +
         item.strongCount * 5 +
         item.atrSafeCount * 4 +
         item.realAtrCount * 2 +
         item.moneyInCount * 12 +
-        item.moneyTurningCount * 8 -
+        item.moneyTurningCount * 8 +
+        item.openingStrongCount * 10 +
+        item.openingContinueCount * 12 +
+        item.quietTurnCount * 9 -
+        item.openingWeakCount * 10 -
         item.moneyOutCount * 10 -
         item.moneyHotCount * 5 -
         item.weakCount * 5;
@@ -755,17 +888,20 @@ function getIndustryRanking(
       return {
         ...item,
         avg,
+        avgOpenPremium,
         safetyRate,
         hotRate,
         weakRate,
         moneyInRate,
+        openingStrongRate,
         concentrationRate,
         status,
         moneyScore: avgMoney,
+        openingScore: avgOpening,
         score,
       };
     })
-    .sort((a, b) => b.moneyScore + b.score * 0.25 - (a.moneyScore + a.score * 0.25));
+    .sort((a, b) => b.openingScore + b.moneyScore + b.score * 0.2 - (a.openingScore + a.moneyScore + a.score * 0.2));
 }
 
 function getKLinks(code: string, name: string) {
@@ -782,6 +918,7 @@ function sleep(ms: number) {
 }
 
 function industryTone(status: IndustryItem["status"]) {
+  if (status === "開盤資金流入") return "text-emerald-300";
   if (status === "資金流入") return "text-emerald-300";
   if (status === "資金擴散") return "text-cyan-300";
   if (status === "過熱中") return "text-orange-300";
@@ -851,21 +988,22 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
     <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">#{rank} 資金流向產業</div>
+          <div className="text-xs font-bold text-slate-500">#{rank} 開盤主力資金產業</div>
           <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
           <div className={`mt-1 text-sm font-black ${industryTone(item.status)}`}>{item.status}</div>
         </div>
 
         <div className="text-right">
           <div className="text-2xl font-black text-yellow-300">{item.count}檔</div>
-          <div className="text-sm font-black text-cyan-300">資金 {item.moneyScore.toFixed(0)}</div>
+          <div className="text-sm font-black text-cyan-300">開盤 {item.openingScore.toFixed(0)}</div>
+          <div className="text-xs font-black text-slate-400">資金 {item.moneyScore.toFixed(0)}</div>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">流入率<br />{item.moneyInRate.toFixed(0)}%</div>
-        <div className="rounded-2xl bg-black/30 p-2 text-orange-300">過熱率<br />{item.hotRate.toFixed(0)}%</div>
-        <div className="rounded-2xl bg-black/30 p-2 text-red-300">退潮率<br />{item.weakRate.toFixed(0)}%</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">開盤強<br />{item.openingStrongRate.toFixed(0)}%</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">平均溢價<br />{formatPercent(item.avgOpenPremium)}</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-red-300">走弱率<br />{item.weakRate.toFixed(0)}%</div>
       </div>
     </button>
   );
@@ -914,6 +1052,7 @@ function StockCard({
   const atrInfo = getAtrInfo(stock, settings, klineMap[stock.code]);
   const label = decisionLabel(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
   const money = moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
+  const open = openingState(stock, top50, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceOf(stock, previousPriceMap);
   const diff = instantDiff(stock, previousPriceMap);
@@ -931,7 +1070,7 @@ function StockCard({
             <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
               {stock.industry}
-              {mainIndex >= 0 ? `｜資金主流${mainIndex + 1}` : ""}
+              {mainIndex >= 0 ? `｜開盤主流${mainIndex + 1}` : ""}
               {industryRank ? `｜產業第${industryRank}` : ""}
             </div>
           </div>
@@ -946,10 +1085,12 @@ function StockCard({
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(label)}`}>{label}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${openingTone(open)}`}>{open}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${moneyTone(money)}`}>{money}</span>
-          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">資金 {moneyScore(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}</span>
-          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{priceVolumeState(stock, top50, settings)}</span>
-          <span className="rounded-full bg-blue-950 px-3 py-1 text-blue-200">{volumeState(stock, top50)}</span>
+          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">開盤 {formatPercent(openingPremium(stock))}</span>
+          <span className="rounded-full bg-blue-950 px-3 py-1 text-blue-200">開盤後 {formatPercent(openingAfterPercent(stock))}</span>
+          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">資金 {moneyScore(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}</span>
+          <span className="rounded-full bg-slate-800 px-3 py-1 text-slate-200">{priceVolumeState(stock, top50, settings)}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${atrTone(stock, settings, atrInfo, position)}`}>ATR {atrStatus(stock, settings, atrInfo, position)}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
           {isTomorrow && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">明日觀察</span>}
@@ -957,7 +1098,7 @@ function StockCard({
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          {moneySentence(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}
+          {openingSentence(stock, top50, settings)}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -1015,7 +1156,7 @@ export default function App() {
   const [entryInput, setEntryInput] = useState("");
 
   const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("money");
+  const [sortKey, setSortKey] = useState<SortKey>("opening");
   const [showFilters, setShowFilters] = useState(false);
 
   const [updating, setUpdating] = useState(false);
@@ -1118,6 +1259,198 @@ export default function App() {
     saveTomorrow(tomorrowCodes.filter((item) => item !== code));
   }
 
+  const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
+
+  function atrInfoOf(stock: Stock) {
+    return getAtrInfo(stock, settings, klineMap[stock.code]);
+  }
+
+  function posOf(stock: Stock) {
+    return positionMap[stock.code];
+  }
+
+  const industryRanking = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections, [], atrInfoOf, posOf),
+    [top50, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const mainIndustries = useMemo(() => industryRanking.slice(0, 3).map((item) => item.industry), [industryRanking]);
+
+  const finalIndustryRanking = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections, mainIndustries, atrInfoOf, posOf),
+    [top50, settings, priceDirections, klineMap, positionMap, mainIndustries]
+  );
+
+  const openingPositionList = useMemo(
+    () =>
+      top50
+        .filter((stock) => openingState(stock, top50, settings) === "主力開盤卡位")
+        .sort((a, b) => openingScore(b, top50, settings) - openingScore(a, top50, settings)),
+    [top50, settings]
+  );
+
+  const openingContinueList = useMemo(
+    () =>
+      top50
+        .filter((stock) => ["主力開盤卡位", "開高走強"].includes(openingState(stock, top50, settings)))
+        .filter((stock) => {
+          const atr = atrInfoOf(stock);
+          return atrStatus(stock, settings, atr, posOf(stock)) === "安全";
+        })
+        .sort((a, b) => openingScore(b, top50, settings) - openingScore(a, top50, settings)),
+    [top50, settings, klineMap, positionMap]
+  );
+
+  const openingWeakList = useMemo(
+    () =>
+      top50
+        .filter((stock) => openingState(stock, top50, settings) === "開高走弱")
+        .sort((a, b) => openingScore(a, top50, settings) - openingScore(b, top50, settings)),
+    [top50, settings]
+  );
+
+  const openingQuietTurnList = useMemo(
+    () =>
+      top50
+        .filter((stock) => openingState(stock, top50, settings) === "低調轉強")
+        .sort((a, b) => openingScore(b, top50, settings) - openingScore(a, top50, settings)),
+    [top50, settings]
+  );
+
+  const moneyInList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金流入")
+        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyTurningList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金剛轉強")
+        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyHotList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金過熱")
+        .sort((a, b) => b.changePercent - a.changePercent),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyOutList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金退潮")
+        .sort((a, b) => moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)) - moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const watchableList = useMemo(
+    () =>
+      top50
+        .filter((stock) => {
+          const atr = atrInfoOf(stock);
+          const pos = posOf(stock);
+          return decisionLabel(stock, top50, mainIndustries, settings, priceDirections, atr, pos) === "可觀察";
+        })
+        .sort((a, b) => mainScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - mainScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const waitPullbackList = useMemo(
+    () =>
+      top50
+        .filter((stock) => isMain(stock, mainIndustries) && isNearOpen(stock) && !isHot(stock, settings))
+        .sort((a, b) => Math.abs(distanceFromOpen(a)) - Math.abs(distanceFromOpen(b))),
+    [top50, mainIndustries, settings]
+  );
+
+  const realAtrSafeList = useMemo(
+    () =>
+      top50.filter((stock) => {
+        const atr = atrInfoOf(stock);
+        return atr.hasReal && atrStatus(stock, settings, atr, posOf(stock)) === "安全";
+      }),
+    [top50, settings, klineMap, positionMap]
+  );
+
+  const atrMissingList = useMemo(
+    () => top50.filter((stock) => !atrInfoOf(stock).hasReal),
+    [top50, settings, klineMap]
+  );
+
+  const favoriteStocks = useMemo(
+    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    [favoriteCodes, stocks]
+  );
+
+  const tomorrowStocksManual = useMemo(
+    () => tomorrowCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    [tomorrowCodes, stocks]
+  );
+
+  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
+
+  const tomorrowCombined = useMemo(() => {
+    const map = new Map<string, Stock>();
+    [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
+    return Array.from(map.values());
+  }, [tomorrowStocksManual, tomorrowAutoList]);
+
+  const tomorrowGroupedByIndustry = useMemo(() => {
+    const map = new Map<string, Stock[]>();
+
+    tomorrowCombined.forEach((stock) => {
+      const list = map.get(stock.industry) || [];
+      list.push(stock);
+      map.set(stock.industry, list);
+    });
+
+    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+  }, [tomorrowCombined]);
+
+  const selectedIndustryItem = useMemo(
+    () => finalIndustryRanking.find((item) => item.industry === selectedIndustry) || null,
+    [finalIndustryRanking, selectedIndustry]
+  );
+
+  const selectedIndustryStocks = useMemo(() => {
+    if (!selectedIndustry) return [];
+
+    return top50
+      .filter((stock) => stock.industry === selectedIndustry)
+      .sort((a, b) => openingScore(b, top50, settings) + moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - (openingScore(a, top50, settings) + moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))));
+  }, [selectedIndustry, top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
+
+  const industryMapList = useMemo(() => {
+    const map = new Map<string, Stock[]>();
+
+    top50.forEach((stock) => {
+      const list = map.get(stock.industry) || [];
+      list.push(stock);
+      map.set(stock.industry, list);
+    });
+
+    map.forEach((list, key) => {
+      map.set(
+        key,
+        list.sort((a, b) => openingScore(b, top50, settings) - openingScore(a, top50, settings))
+      );
+    });
+
+    return map;
+  }, [top50, settings]);
+
+  function industryRankOf(stock: Stock) {
+    const list = industryMapList.get(stock.industry) || [];
+    const index = list.findIndex((item) => item.code === stock.code);
+    return index >= 0 ? index + 1 : undefined;
+  }
+
   async function fetchKLine(code: string, force = false) {
     const clean = cleanCode(code);
     if (!clean) return null;
@@ -1179,164 +1512,6 @@ export default function App() {
     }
   }
 
-  const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
-
-  function atrInfoOf(stock: Stock) {
-    return getAtrInfo(stock, settings, klineMap[stock.code]);
-  }
-
-  function posOf(stock: Stock) {
-    return positionMap[stock.code];
-  }
-
-  const industryRanking = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections, [], atrInfoOf, posOf),
-    [top50, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const moneyIndustries = useMemo(() => industryRanking.slice(0, 3).map((item) => item.industry), [industryRanking]);
-
-  const finalIndustryRanking = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections, moneyIndustries, atrInfoOf, posOf),
-    [top50, settings, priceDirections, klineMap, positionMap, moneyIndustries]
-  );
-
-  const mainIndustries = moneyIndustries;
-
-  const watchableList = useMemo(
-    () =>
-      top50
-        .filter((stock) => {
-          const atr = atrInfoOf(stock);
-          const pos = posOf(stock);
-          return decisionLabel(stock, top50, mainIndustries, settings, priceDirections, atr, pos) === "可觀察";
-        })
-        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const waitPullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isMain(stock, mainIndustries) && isNearOpen(stock) && !isHot(stock, settings))
-        .sort((a, b) => Math.abs(distanceFromOpen(a)) - Math.abs(distanceFromOpen(b))),
-    [top50, mainIndustries, settings]
-  );
-
-  const moneyInList = useMemo(
-    () =>
-      top50
-        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金流入")
-        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const moneyTurningList = useMemo(
-    () =>
-      top50
-        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金剛轉強")
-        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const moneyHotList = useMemo(
-    () =>
-      top50
-        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金過熱")
-        .sort((a, b) => b.changePercent - a.changePercent),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const moneyOutList = useMemo(
-    () =>
-      top50
-        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金退潮")
-        .sort((a, b) => moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)) - moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b))),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const realAtrSafeList = useMemo(
-    () =>
-      top50.filter((stock) => {
-        const atr = atrInfoOf(stock);
-        return atr.hasReal && atrStatus(stock, settings, atr, posOf(stock)) === "安全";
-      }),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const atrMissingList = useMemo(
-    () => top50.filter((stock) => !atrInfoOf(stock).hasReal),
-    [top50, settings, klineMap]
-  );
-
-  const favoriteStocks = useMemo(
-    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [favoriteCodes, stocks]
-  );
-
-  const tomorrowStocksManual = useMemo(
-    () => tomorrowCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [tomorrowCodes, stocks]
-  );
-
-  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
-
-  const tomorrowCombined = useMemo(() => {
-    const map = new Map<string, Stock>();
-    [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
-    return Array.from(map.values());
-  }, [tomorrowStocksManual, tomorrowAutoList]);
-
-  const tomorrowGroupedByIndustry = useMemo(() => {
-    const map = new Map<string, Stock[]>();
-
-    tomorrowCombined.forEach((stock) => {
-      const list = map.get(stock.industry) || [];
-      list.push(stock);
-      map.set(stock.industry, list);
-    });
-
-    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-  }, [tomorrowCombined]);
-
-  const selectedIndustryItem = useMemo(
-    () => finalIndustryRanking.find((item) => item.industry === selectedIndustry) || null,
-    [finalIndustryRanking, selectedIndustry]
-  );
-
-  const selectedIndustryStocks = useMemo(() => {
-    if (!selectedIndustry) return [];
-
-    return top50
-      .filter((stock) => stock.industry === selectedIndustry)
-      .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)));
-  }, [selectedIndustry, top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
-
-  const industryMapList = useMemo(() => {
-    const map = new Map<string, Stock[]>();
-
-    top50.forEach((stock) => {
-      const list = map.get(stock.industry) || [];
-      list.push(stock);
-      map.set(stock.industry, list);
-    });
-
-    map.forEach((list, key) => {
-      map.set(
-        key,
-        list.sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)))
-      );
-    });
-
-    return map;
-  }, [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
-
-  function industryRankOf(stock: Stock) {
-    const list = industryMapList.get(stock.industry) || [];
-    const index = list.findIndex((item) => item.code === stock.code);
-    return index >= 0 ? index + 1 : undefined;
-  }
-
   function buildKlineTargets(list: Stock[]) {
     const holdingCodes = Object.entries(positionMap)
       .filter(([, pos]) => pos.holdingStatus === "已進場")
@@ -1346,6 +1521,8 @@ export default function App() {
       ...holdingCodes,
       ...favoriteCodes,
       ...tomorrowCodes,
+      ...openingPositionList.map((stock) => stock.code),
+      ...openingContinueList.map((stock) => stock.code),
       ...moneyInList.map((stock) => stock.code),
       ...moneyTurningList.map((stock) => stock.code),
       ...watchableList.map((stock) => stock.code),
@@ -1359,8 +1536,8 @@ export default function App() {
         ...holdingCodes,
         ...favoriteCodes,
         ...tomorrowCodes,
+        ...openingPositionList.slice(0, 10).map((stock) => stock.code),
         ...moneyInList.slice(0, 10).map((stock) => stock.code),
-        ...moneyTurningList.slice(0, 10).map((stock) => stock.code),
       ];
 
       return Array.from(new Set(important.map(cleanCode).filter(Boolean))).slice(0, settings.klineLimit);
@@ -1509,27 +1686,28 @@ export default function App() {
     return Math.round((real / total) * 100);
   }, [top50, settings.klineLimit, klineMap]);
 
-  const moneyConcentrationRate = useMemo(() => {
+  const openingConcentrationRate = useMemo(() => {
     const count = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
     return top50.length ? Math.round((count / top50.length) * 100) : 0;
   }, [top50, mainIndustries]);
 
-  const moneyFlowStructure = useMemo(() => {
-    if (moneyOutList.length >= 18) return "資金退潮";
-    if (moneyConcentrationRate >= 40 && moneyInList.length >= 6) return "資金集中";
-    if (moneyConcentrationRate < 25) return "資金擴散";
-    return "資金輪動";
-  }, [moneyOutList, moneyConcentrationRate, moneyInList]);
+  const openingFlowStructure = useMemo(() => {
+    if (openingWeakList.length >= 15) return "開盤退潮";
+    if (openingConcentrationRate >= 40 && openingPositionList.length >= 4) return "開盤集中";
+    if (openingConcentrationRate < 25) return "開盤分散";
+    return "開盤輪動";
+  }, [openingWeakList, openingConcentrationRate, openingPositionList]);
 
-  const moneySentenceHome = useMemo(() => {
+  const openingSentenceHome = useMemo(() => {
     const top = finalIndustryRanking[0];
 
-    if (!top) return "目前資金流向尚未明確，先等資料更新。";
-    if (top.status === "資金流入") return `資金目前集中在 ${top.industry}，優先看量價同步、ATR安全的個股。`;
-    if (top.status === "資金擴散") return `資金從 ${top.industry} 擴散中，可看同產業剛轉強股。`;
-    if (top.status === "過熱中") return `${top.industry} 有資金但偏過熱，先等回測，不追高。`;
-    if (top.status === "資金退潮") return `${top.industry} 進榜但退潮訊號多，先保守。`;
-    return `${top.industry} 暫列資金第一，但仍需看量價是否同步。`;
+    if (!top) return "目前開盤主力方向尚未明確，先等資料更新。";
+    if (top.status === "開盤資金流入") return `開盤主力資金集中在 ${top.industry}，優先看開高走強、量價同步、ATR安全股。`;
+    if (top.status === "資金流入") return `${top.industry} 盤中資金流入明顯，可從裡面挑低風險延續股。`;
+    if (top.status === "資金擴散") return `資金從 ${top.industry} 擴散中，可看低調轉強股。`;
+    if (top.status === "過熱中") return `${top.industry} 有開盤資金但偏過熱，先等回測，不追高。`;
+    if (top.status === "資金退潮") return `${top.industry} 開盤後走弱訊號多，先保守。`;
+    return `${top.industry} 暫列開盤資金第一，但仍要確認是否站上開盤價。`;
   }, [finalIndustryRanking]);
 
   const dataStatus = useMemo(() => {
@@ -1559,6 +1737,10 @@ export default function App() {
   function filterTopList(list: Stock[]) {
     if (tab !== "top50") return list;
 
+    if (settings.topFilter === "開盤卡位") return list.filter((stock) => openingState(stock, top50, settings) === "主力開盤卡位");
+    if (settings.topFilter === "開高走強") return list.filter((stock) => ["主力開盤卡位", "開高走強"].includes(openingState(stock, top50, settings)));
+    if (settings.topFilter === "開高走弱") return list.filter((stock) => openingState(stock, top50, settings) === "開高走弱");
+    if (settings.topFilter === "低調轉強") return list.filter((stock) => openingState(stock, top50, settings) === "低調轉強");
     if (settings.topFilter === "資金流入") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金流入");
     if (settings.topFilter === "資金轉強") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金剛轉強");
     if (settings.topFilter === "資金過熱") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金過熱");
@@ -1578,6 +1760,7 @@ export default function App() {
       arr = arr.filter((stock) => stock.code.includes(keyword) || stock.name.includes(keyword) || stock.industry.includes(keyword));
     }
 
+    if (sortKey === "opening") return arr.sort((a, b) => openingScore(b, top50, settings) - openingScore(a, top50, settings));
     if (sortKey === "money") return arr.sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)));
     if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
     if (sortKey === "price") return arr.sort((a, b) => a.price - b.price);
@@ -1590,18 +1773,35 @@ export default function App() {
 
         if (ia !== ib) return ia - ib;
 
-        return moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a));
+        return openingScore(b, top50, settings) - openingScore(a, top50, settings);
       });
     }
 
     return arr;
   }
 
+  const selectedIndustryItem = useMemo(
+    () => finalIndustryRanking.find((item) => item.industry === selectedIndustry) || null,
+    [finalIndustryRanking, selectedIndustry]
+  );
+
+  const selectedIndustryStocks = useMemo(() => {
+    if (!selectedIndustry) return [];
+
+    return top50
+      .filter((stock) => stock.industry === selectedIndustry)
+      .sort((a, b) => openingScore(b, top50, settings) + moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - (openingScore(a, top50, settings) + moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))));
+  }, [selectedIndustry, top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
+
   const currentList = useMemo(() => {
     if (tab === "top50") return sortList(top50);
     if (tab === "favorite") return sortList(favoriteStocks);
 
     if (tab === "more") {
+      if (moreView === "openingPosition") return sortList(openingPositionList);
+      if (moreView === "openingContinue") return sortList(openingContinueList);
+      if (moreView === "openingWeak") return sortList(openingWeakList);
+      if (moreView === "openingQuietTurn") return sortList(openingQuietTurnList);
       if (moreView === "watchable") return sortList(watchableList);
       if (moreView === "waitPullback") return sortList(waitPullbackList);
       if (moreView === "moneyIn") return sortList(moneyInList);
@@ -1619,6 +1819,10 @@ export default function App() {
     moreView,
     top50,
     favoriteStocks,
+    openingPositionList,
+    openingContinueList,
+    openingWeakList,
+    openingQuietTurnList,
     watchableList,
     waitPullbackList,
     moneyInList,
@@ -1689,6 +1893,7 @@ export default function App() {
     const position = positionMap[selectedStock.code];
     const atrInfo = getAtrInfo(selectedStock, settings, klineMap[selectedStock.code]);
     const money = moneyState(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
+    const open = openingState(selectedStock, top50, settings);
     const label = decisionLabel(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
     const direction = priceDirections[selectedStock.code];
     const prevPrice = previousPriceOf(selectedStock, previousPriceMap);
@@ -1718,6 +1923,14 @@ export default function App() {
               </div>
             </div>
 
+            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${openingTone(open)}`}>
+              <div className="text-xs font-bold text-slate-400">開盤主力判斷</div>
+              <div className="mt-1 text-3xl font-black">{open}</div>
+              <div className="mt-2 text-sm font-bold text-slate-300">
+                {openingSentence(selectedStock, top50, settings)}
+              </div>
+            </div>
+
             <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${moneyTone(money)}`}>
               <div className="text-xs font-bold text-slate-400">資金判斷</div>
               <div className="mt-1 text-3xl font-black">{money}</div>
@@ -1730,11 +1943,25 @@ export default function App() {
               <div className="text-xs font-bold text-slate-400">今天該怎麼做</div>
               <div className="mt-1 text-3xl font-black">{label}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                資金分數：{moneyScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}｜
-                {priceVolumeState(selectedStock, top50, settings)}｜
-                {volumeState(selectedStock, top50)}
+                開盤分數：{openingScore(selectedStock, top50, settings)}｜
+                資金分數：{moneyScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}
               </div>
             </div>
+
+            <section className="mt-4 rounded-2xl bg-blue-950/30 p-4">
+              <div className="text-lg font-black text-blue-100">開盤價 vs 現價</div>
+              <div className="mt-2 text-sm font-bold text-blue-100">
+                昨收：{formatPrice(selectedStock.previousClose)}
+                <br />
+                開盤：{formatPrice(selectedStock.openPrice)}
+                <br />
+                現價：{formatPrice(selectedStock.price)}
+                <br />
+                開盤溢價率：{formatPercent(openingPremium(selectedStock))}
+                <br />
+                開盤後強弱：{formatPercent(openingAfterPercent(selectedStock))}
+              </div>
+            </section>
 
             <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${atrTone(selectedStock, settings, atrInfo, position)}`}>
               <div className="text-xs font-bold text-slate-400">日K狀態：{atrInfo.hasReal ? "真實ATR已完成" : klineFailMap[selectedStock.code] ? "使用簡化ATR" : "日K讀取中或等待補抓"}</div>
@@ -1827,10 +2054,10 @@ export default function App() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
+              <DetailRow label="開盤分數" value={openingScore(selectedStock, top50, settings)} />
               <DetailRow label="資金分數" value={moneyScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)} />
-              <DetailRow label="主線分數" value={mainScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)} />
-              <DetailRow label="成交量強度" value={volumeState(selectedStock, top50)} />
               <DetailRow label="量價狀態" value={priceVolumeState(selectedStock, top50, settings)} />
+              <DetailRow label="成交量強度" value={volumeState(selectedStock, top50)} />
             </div>
           </section>
 
@@ -1848,33 +2075,16 @@ export default function App() {
     );
   }
 
-  function posOf(stock: Stock) {
-    return positionMap[stock.code];
-  }
-
-  function clearKlineCache() {
-    localStorage.removeItem(KLINE_CACHE_KEY);
-    setKlineMap({});
-    setKlineFailMap({});
-    setKlineLoadedCount(0);
-    setKlineTargetCount(0);
-  }
-
-  function setAtrMode(mode: AtrMode) {
-    const multiple = mode === "短線" ? 1.5 : mode === "標準" ? 2 : 3;
-    saveSettings({ ...settings, atrMode: mode, atrMultiple: multiple });
-  }
-
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股資金流向雷達版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">資金流向雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股開盤溢價率主力資金版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">開盤主力雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                先看資金往哪裡去，再挑量價同步、ATR安全股。
+                開盤溢價率 + 資金流向，看主力資金一開盤去哪裡。
               </p>
             </div>
 
@@ -1904,30 +2114,30 @@ export default function App() {
         </section>
 
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-          <div className="text-xs font-bold text-yellow-300">資金正在去哪裡</div>
+          <div className="text-xs font-bold text-yellow-300">開盤資金方向</div>
           <div className="mt-1 text-xl font-black text-yellow-100">
             {mainIndustries.length ? mainIndustries.map((name, i) => `${i + 1}.${name}`).join("　") : "尚未形成"}
           </div>
-          <div className="mt-2 text-sm font-bold text-slate-300">{moneySentenceHome}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">{openingSentenceHome}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <DetailRow label="資金集中度" value={`${moneyConcentrationRate}%`} />
-            <DetailRow label="資金型態" value={moneyFlowStructure} />
+            <DetailRow label="開盤資金集中度" value={`${openingConcentrationRate}%`} />
+            <DetailRow label="開盤型態" value={openingFlowStructure} />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="資金流入股" value={moneyInList.length} sub="量價同步 + 主流" tone="text-emerald-300" onClick={() => goMore("moneyIn")} />
-          <MiniCard title="資金剛轉強" value={moneyTurningList.length} sub="即時上升未過熱" tone="text-cyan-300" onClick={() => goMore("moneyTurning")} />
-          <MiniCard title="資金過熱" value={moneyHotList.length} sub="有資金但不追高" tone="text-orange-300" onClick={() => goMore("moneyHot")} />
-          <MiniCard title="資金退潮" value={moneyOutList.length} sub="轉弱先避開" tone="text-red-300" onClick={() => goMore("moneyOut")} />
+          <MiniCard title="主力開盤卡位" value={openingPositionList.length} sub="開盤溢價 + 量價同步" tone="text-emerald-300" onClick={() => goMore("openingPosition")} />
+          <MiniCard title="開高走強" value={openingContinueList.length} sub="開盤強且續航" tone="text-cyan-300" onClick={() => goMore("openingContinue")} />
+          <MiniCard title="開高走弱" value={openingWeakList.length} sub="開高後轉弱" tone="text-red-300" onClick={() => goMore("openingWeak")} />
+          <MiniCard title="低調轉強" value={openingQuietTurnList.length} sub="開盤不高但轉強" tone="text-blue-300" onClick={() => goMore("openingQuietTurn")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="資金流向產業" sub="資金排名前三" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => goMore("moneyIndustry")} />
-          <ActionCard title="50強" sub="含資金分數" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
-          <ActionCard title="明日觀察" sub="含資金延續" badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
+          <ActionCard title="開盤資金產業" sub="主力開盤方向" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => goMore("openingIndustry")} />
+          <ActionCard title="50強" sub="含開盤溢價率" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
+          <ActionCard title="明日觀察" sub="含開盤資金延續" badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
           <ActionCard title="只更新股價" sub="不重抓日K" badge="快" tone="text-cyan-300" onClick={() => loadStocks({ withKline: false })} />
-          <ActionCard title="可觀察雷達" sub="資金 + 主流 + ATR" badge={watchableList.length} tone="text-emerald-300" onClick={() => goMore("watchable")} />
+          <ActionCard title="資金流入股" sub="資金 + 開盤 + 量價" badge={moneyInList.length} tone="text-emerald-300" onClick={() => goMore("moneyIn")} />
           <ActionCard title="等回測雷達" sub="主流裡等位置" badge={waitPullbackList.length} tone="text-yellow-300" onClick={() => goMore("waitPullback")} />
         </section>
 
@@ -1952,11 +2162,11 @@ export default function App() {
 
           {showFilters && (
             <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-7 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {[
+                  ["opening", "開盤"],
                   ["money", "資金"],
                   ["industry", "產業"],
-                  ["decision", "決策"],
                   ["score", "主線"],
                   ["atr", "ATR"],
                   ["change", "漲幅"],
@@ -1976,7 +2186,7 @@ export default function App() {
 
               {tab === "top50" && (
                 <div className="grid grid-cols-3 gap-2">
-                  {(["全部", "資金流入", "資金轉強", "資金過熱", "資金退潮", "主流產業", "ATR安全", "真實ATR"] as TopFilter[]).map((filter) => (
+                  {(["全部", "開盤卡位", "開高走強", "開高走弱", "低調轉強", "資金流入", "資金轉強", "資金過熱", "資金退潮", "主流產業", "ATR安全", "真實ATR"] as TopFilter[]).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => saveSettings({ ...settings, topFilter: filter })}
@@ -1998,13 +2208,13 @@ export default function App() {
             <h2 className="text-xl font-black">更多功能</h2>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="資金流向產業" sub="產業資金排名" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => setMoreView("moneyIndustry")} />
-              <ActionCard title="資金流入股" sub="量價同步" badge={moneyInList.length} tone="text-emerald-300" onClick={() => setMoreView("moneyIn")} />
-              <ActionCard title="資金剛轉強" sub="即時轉強未過熱" badge={moneyTurningList.length} tone="text-cyan-300" onClick={() => setMoreView("moneyTurning")} />
-              <ActionCard title="資金過熱股" sub="有資金但不追" badge={moneyHotList.length} tone="text-orange-300" onClick={() => setMoreView("moneyHot")} />
+              <ActionCard title="開盤資金產業" sub="產業開盤資金排名" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => setMoreView("openingIndustry")} />
+              <ActionCard title="主力開盤卡位" sub="開盤溢價 + 量強" badge={openingPositionList.length} tone="text-emerald-300" onClick={() => setMoreView("openingPosition")} />
+              <ActionCard title="開盤強後續航" sub="開高走強 + ATR安全" badge={openingContinueList.length} tone="text-cyan-300" onClick={() => setMoreView("openingContinue")} />
+              <ActionCard title="開盤強但轉弱" sub="開高走弱" badge={openingWeakList.length} tone="text-red-300" onClick={() => setMoreView("openingWeak")} />
+              <ActionCard title="開盤低調轉強" sub="不追高型轉強" badge={openingQuietTurnList.length} tone="text-blue-300" onClick={() => setMoreView("openingQuietTurn")} />
+              <ActionCard title="資金流入股" sub="資金 + 量價同步" badge={moneyInList.length} tone="text-emerald-300" onClick={() => setMoreView("moneyIn")} />
               <ActionCard title="資金退潮股" sub="轉弱先避開" badge={moneyOutList.length} tone="text-red-300" onClick={() => setMoreView("moneyOut")} />
-              <ActionCard title="真實ATR安全" sub="日K成功 + ATR安全" badge={realAtrSafeList.length} tone="text-emerald-300" onClick={() => setMoreView("realAtrSafe")} />
-              <ActionCard title="ATR資料不足" sub="使用簡化ATR" badge={atrMissingList.length} tone="text-yellow-300" onClick={() => setMoreView("atrMissing")} />
               <ActionCard title="設定" sub="快取 / 數量 / ATR" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
             </div>
           </section>
@@ -2017,14 +2227,18 @@ export default function App() {
               {tab === "top50" && "📊 今日50強"}
               {tab === "tomorrow" && "📌 明日觀察"}
               {tab === "favorite" && "⭐ 自選股"}
-              {tab === "more" && moreView === "moneyIndustry" && "💰 資金流向產業"}
+              {tab === "more" && moreView === "openingIndustry" && "💰 開盤資金產業"}
               {tab === "more" && moreView === "industryDetail" && `🏭 ${selectedIndustry}`}
-              {tab === "more" && moreView === "watchable" && "✅ 可觀察雷達"}
-              {tab === "more" && moreView === "waitPullback" && "↩️ 等回測雷達"}
+              {tab === "more" && moreView === "openingPosition" && "🟢 主力開盤卡位"}
+              {tab === "more" && moreView === "openingContinue" && "🔵 開盤強後續航"}
+              {tab === "more" && moreView === "openingWeak" && "🔴 開盤強但轉弱"}
+              {tab === "more" && moreView === "openingQuietTurn" && "🔵 開盤低調轉強"}
               {tab === "more" && moreView === "moneyIn" && "🟢 資金流入股"}
               {tab === "more" && moreView === "moneyTurning" && "🔵 資金剛轉強"}
               {tab === "more" && moreView === "moneyHot" && "🟠 資金過熱股"}
               {tab === "more" && moreView === "moneyOut" && "🔴 資金退潮股"}
+              {tab === "more" && moreView === "watchable" && "✅ 可觀察雷達"}
+              {tab === "more" && moreView === "waitPullback" && "↩️ 等回測雷達"}
               {tab === "more" && moreView === "realAtrSafe" && "🟢 真實ATR安全"}
               {tab === "more" && moreView === "atrMissing" && "🟡 ATR資料不足"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
@@ -2032,14 +2246,14 @@ export default function App() {
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              資金主流：{mainIndustries.slice(0, 3).join("、") || "--"}｜型態：{moneyFlowStructure}
+              開盤主流：{mainIndustries.slice(0, 3).join("、") || "--"}｜型態：{openingFlowStructure}
             </p>
           </div>
 
           {tab === "home" && (
             <div className="space-y-4">
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">資金流向前三產業</h3>
+                <h3 className="text-xl font-black">開盤資金前三產業</h3>
                 <div className="mt-3 space-y-3">
                   {finalIndustryRanking.slice(0, 3).map((item, index) => (
                     <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
@@ -2048,28 +2262,28 @@ export default function App() {
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">資金最強 5 檔</h3>
+                <h3 className="text-xl font-black">主力開盤卡位 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {moneyInList.slice(0, 5).length === 0 && (
+                  {openingPositionList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確資金流入股。
+                      目前沒有明確開盤卡位股。
                     </div>
                   )}
-                  {moneyInList.slice(0, 5).map((stock, index) => (
+                  {openingPositionList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} industryRank={industryRankOf(stock)} {...cardProps} />
                   ))}
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-                <h3 className="text-xl font-black">資金剛轉強 5 檔</h3>
+              <section className="rounded-3xl border border-blue-500/40 bg-blue-950/20 p-5">
+                <h3 className="text-xl font-black">低調轉強 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {moneyTurningList.slice(0, 5).length === 0 && (
+                  {openingQuietTurnList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確剛轉強股。
+                      目前沒有明確低調轉強股。
                     </div>
                   )}
-                  {moneyTurningList.slice(0, 5).map((stock, index) => (
+                  {openingQuietTurnList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} industryRank={industryRankOf(stock)} {...cardProps} />
                   ))}
                 </div>
@@ -2080,9 +2294,9 @@ export default function App() {
           {tab === "tomorrow" && (
             <div className="space-y-5">
               <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">明日觀察：資金延續</h3>
+                <h3 className="text-xl font-black">明日觀察：開盤資金延續</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  優先追蹤今天資金流入、資金剛轉強、量價同步的個股。
+                  優先追蹤今天開盤卡位、開高走強、低調轉強且ATR安全的股票。
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
@@ -2114,7 +2328,7 @@ export default function App() {
             </div>
           )}
 
-          {tab === "more" && moreView === "moneyIndustry" && (
+          {tab === "more" && moreView === "openingIndustry" && (
             <div className="space-y-3">
               {finalIndustryRanking.map((item, index) => (
                 <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
@@ -2124,13 +2338,13 @@ export default function App() {
 
           {tab === "more" && moreView === "industryDetail" && selectedIndustryItem && (
             <section className="mb-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-              <div className="text-sm font-bold text-cyan-300">產業資金詳情</div>
+              <div className="text-sm font-bold text-cyan-300">產業開盤資金詳情</div>
               <div className="mt-1 text-3xl font-black">{selectedIndustryItem.industry}</div>
               <div className={`mt-2 text-xl font-black ${industryTone(selectedIndustryItem.status)}`}>{selectedIndustryItem.status}</div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-                <div className="rounded-2xl bg-black/30 p-3 text-emerald-300">流入率<br />{selectedIndustryItem.moneyInRate.toFixed(0)}%</div>
-                <div className="rounded-2xl bg-black/30 p-3 text-orange-300">過熱率<br />{selectedIndustryItem.hotRate.toFixed(0)}%</div>
-                <div className="rounded-2xl bg-black/30 p-3 text-red-300">退潮率<br />{selectedIndustryItem.weakRate.toFixed(0)}%</div>
+                <div className="rounded-2xl bg-black/30 p-3 text-emerald-300">開盤強率<br />{selectedIndustryItem.openingStrongRate.toFixed(0)}%</div>
+                <div className="rounded-2xl bg-black/30 p-3 text-cyan-300">平均溢價<br />{formatPercent(selectedIndustryItem.avgOpenPremium)}</div>
+                <div className="rounded-2xl bg-black/30 p-3 text-red-300">走弱率<br />{selectedIndustryItem.weakRate.toFixed(0)}%</div>
               </div>
             </section>
           )}
@@ -2234,12 +2448,13 @@ export default function App() {
                 <div>資料來源：{source || "讀取中"}</div>
                 <div>日K載入進度：{klineLoading ? `${klineLoadedCount}/${klineTargetCount}` : "目前未載入中"}</div>
                 <div>真實ATR完成率：{atrCompletionRate}%</div>
-                <div>資金流入股數：{moneyInList.length}</div>
-                <div>資金轉強股數：{moneyTurningList.length}</div>
-                <div>資金退潮股數：{moneyOutList.length}</div>
-                <div>資金集中度：{moneyConcentrationRate}%</div>
-                <div>資金最強產業：{mainIndustries[0] || "--"}</div>
-                <div>資金型態：{moneyFlowStructure}</div>
+                <div>開盤卡位股數：{openingPositionList.length}</div>
+                <div>開高走強股數：{openingContinueList.length}</div>
+                <div>開高走弱股數：{openingWeakList.length}</div>
+                <div>低調轉強股數：{openingQuietTurnList.length}</div>
+                <div>開盤資金最強產業：{mainIndustries[0] || "--"}</div>
+                <div>開盤資金集中度：{openingConcentrationRate}%</div>
+                <div>開盤型態：{openingFlowStructure}</div>
                 <div>最後日K更新：{klineLastUpdatedAt || "--"}</div>
               </div>
 
@@ -2262,7 +2477,7 @@ export default function App() {
 
           {tab !== "home" &&
             tab !== "tomorrow" &&
-            !(tab === "more" && ["moneyIndustry", "settings", "data", "menu"].includes(moreView)) && (
+            !(tab === "more" && ["openingIndustry", "settings", "data", "menu"].includes(moreView)) && (
               <div className="space-y-3">
                 {currentList.length === 0 && (
                   <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
