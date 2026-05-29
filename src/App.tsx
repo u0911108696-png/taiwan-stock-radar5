@@ -100,11 +100,11 @@ const API_URL = "/api/stocks";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-mainline-decision-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-mainline-decision-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-mainline-decision-signals";
-const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-mainline-decision-industry";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-mainline-decision-locked";
+const SETTINGS_KEY = "taiwan-stock-radar-popup-mainline-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-popup-mainline-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-popup-mainline-signals";
+const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-popup-mainline-industry";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-popup-mainline-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -413,9 +413,9 @@ function mainlineDecision(
 ) {
   const attackContinue = lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes);
   const attackRecent = lastNAnyTrue(history?.moneyAttackRaw, 5);
-  const fail = lastNAllTrue(history?.failRaw, settings.breakConfirmTimes) || lastNAllTrue(history?.moneyOutRaw, settings.breakConfirmTimes);
-  const overheat = lastNAllTrue(history?.overheatRaw, settings.breakConfirmTimes) || isHot(stock, settings);
-  const pullback = lastNAllTrue(history?.pullbackRaw, settings.breakConfirmTimes);
+  const fail = lastNAllTrue(history?.failRaw, settings.confirmTimes) || lastNAllTrue(history?.moneyOutRaw, settings.confirmTimes);
+  const overheat = lastNAllTrue(history?.overheatRaw, 2) || isHot(stock, settings);
+  const pullback = lastNAllTrue(history?.pullbackRaw, 2);
 
   if (fail) return "主線失效";
   if (overheat && attackContinue) return "主線過熱不追";
@@ -499,14 +499,14 @@ function progressBar(count: number, total: number) {
   return "●".repeat(filled) + "○".repeat(empty);
 }
 
-function mainlineSentence(decision: string, stock: Stock, industryStatus: string) {
-  if (decision === "主線核心股") return `這檔屬於資金續航產業，主攻已連續確認，若不追高可列入主線核心觀察。`;
-  if (decision === "主線等回測") return `這檔仍在主線內，但距離開盤價較遠，現在不追，等回測合理位置。`;
-  if (decision === "主線剛轉強") return `主線剛轉強，先觀察下一次更新是否延續，不急著追。`;
-  if (decision === "主線過熱不追") return `主線短線過熱，成交量放大但位置偏高，不追，持有者可考慮分批停利。`;
-  if (decision === "主線失效") return `主攻失效或資金退潮，降低持有意願，先避開。`;
-  if (industryStatus === "主線分歧") return `所屬產業資金分歧，只挑最高品質，不碰爆量不漲股。`;
-  return `等待資金主線更明確，先看產業續航與主攻確認。`;
+function mainlineSentence(decision: string, industryStatus: string) {
+  if (decision === "主線核心股") return "這檔屬於資金續航產業，主攻已連續確認，若不追高可列入主線核心觀察。";
+  if (decision === "主線等回測") return "這檔仍在主線內，但距離開盤價較遠，現在不追，等回測合理位置。";
+  if (decision === "主線剛轉強") return "主線剛轉強，先觀察下一次更新是否延續，不急著追。";
+  if (decision === "主線過熱不追") return "主線短線過熱，成交量放大但位置偏高，不追，持有者可考慮分批停利。";
+  if (decision === "主線失效") return "主攻失效或資金退潮，降低持有意願，先避開。";
+  if (industryStatus === "主線分歧") return "所屬產業資金分歧，只挑最高品質，不碰爆量不漲股。";
+  return "等待資金主線更明確，先看產業續航與主攻確認。";
 }
 
 function getIndustryLineRanking(
@@ -554,7 +554,7 @@ function getIndustryLineRanking(
     if (rawMoneyAttack(stock, stocks, mainIndustries, settings)) item.attackCount += 1;
     if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) item.attackContinueCount += 1;
     if (lastNAllTrue(history?.highQualityRaw, settings.confirmTimes)) item.highQualityCount += 1;
-    if (lastNAllTrue(history?.failRaw, settings.breakConfirmTimes) || rawMoneyOut(stock, stocks) || rawVolumeNoRise(stock, stocks)) item.failCount += 1;
+    if (lastNAllTrue(history?.failRaw, 2) || rawMoneyOut(stock, stocks) || rawVolumeNoRise(stock, stocks)) item.failCount += 1;
     if (isHot(stock, settings)) item.overheatCount += 1;
 
     map.set(stock.industry, item);
@@ -798,18 +798,6 @@ function StockCard({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-          <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
-            估算成交金額
-            <br />
-            {formatAmount(estimatedAmount(stock))}
-          </div>
-          <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-            金額/量能排名
-            <br />#{amountRankIndex(stock, top50)} / #{volumeRankIndex(stock, top50)}
-          </div>
-        </div>
-
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(decision)}`}>{decision}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(holding)}`}>持股：{holding}</span>
@@ -818,12 +806,10 @@ function StockCard({
           <span className="rounded-full bg-emerald-950 px-3 py-1 text-emerald-200">分數 {score}</span>
           <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{priceVolumeState(stock, top50, settings)}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
-          {isTomorrow && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">明日觀察</span>}
-          {isFavorite && <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-yellow-300">自選</span>}
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
-          {mainlineSentence(decision, stock, industryStatus)}
+          {mainlineSentence(decision, industryStatus)}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -855,6 +841,181 @@ function StockCard({
         >
           {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
         </button>
+      </div>
+    </div>
+  );
+}
+
+function StockQuickModal({
+  stock,
+  top50,
+  mainIndustries,
+  settings,
+  signalMap,
+  industryStatus,
+  favoriteCodes,
+  tomorrowCodes,
+  priceDirections,
+  previousPriceMap,
+  lastSuccessAt,
+  onClose,
+  onAddFavorite,
+  onRemoveFavorite,
+  onAddTomorrow,
+  onRemoveTomorrow,
+}: {
+  stock: Stock;
+  top50: Stock[];
+  mainIndustries: string[];
+  settings: Settings;
+  signalMap: Record<string, SignalHistory>;
+  industryStatus: string;
+  favoriteCodes: string[];
+  tomorrowCodes: string[];
+  priceDirections: Record<string, PriceDirection>;
+  previousPriceMap: Record<string, number>;
+  lastSuccessAt: string;
+  onClose: () => void;
+  onAddFavorite: (code: string) => void;
+  onRemoveFavorite: (code: string) => void;
+  onAddTomorrow: (code: string) => void;
+  onRemoveTomorrow: (code: string) => void;
+}) {
+  const history = signalMap[stock.code];
+  const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
+  const holding = holdingDecision(stock, history, top50, mainIndustries, settings, industryStatus);
+  const cont = rawContinuation(stock, top50, mainIndustries, settings);
+  const score = rawEntryScore(stock, top50, mainIndustries, settings);
+  const zone = buyZone(stock);
+  const direction = priceDirections[stock.code];
+  const prevPrice = previousPriceMap[stock.code];
+  const isFavorite = favoriteCodes.includes(stock.code);
+  const isTomorrow = tomorrowCodes.includes(stock.code);
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
+              <div className="mt-1 text-2xl font-black text-white">{stock.name}</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+
+          <div className="mt-2 flex items-center justify-between">
+            <div className={`text-3xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
+              {formatPercent(stock.changePercent)}
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-bold text-slate-500">現價</div>
+              <div className="text-xl font-black text-white">{formatPrice(stock.price)}</div>
+            </div>
+          </div>
+        </div>
+
+        <section className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
+          <div className="text-xs font-bold text-slate-400">主線結論</div>
+          <div className="mt-1 text-3xl font-black">{decision}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">{mainlineSentence(decision, industryStatus)}</div>
+        </section>
+
+        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
+          <div className="text-xs font-bold text-slate-400">現在該怎麼做</div>
+          <div className="mt-1 text-2xl font-black">{holding}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            停損提醒：跌破開盤價或主攻失效。
+            <br />
+            停利提醒：主線過熱、量放大但不再創高。
+          </div>
+        </section>
+
+        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${flowTone(industryStatus)}`}>
+          <div className="text-xs font-bold text-slate-400">產業主線</div>
+          <div className="mt-1 text-2xl font-black">{industryStatus}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            主流產業：{mainIndustries.includes(stock.industry) ? "是" : "否"}
+          </div>
+        </section>
+
+        <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
+          <div className="text-lg font-black text-blue-100">主線買點區</div>
+          <div className="mt-2 text-sm font-bold text-blue-100">
+            理想觀察區：{zone.observe}
+            <br />
+            有效突破區：{zone.breakout}
+            <br />
+            追高風險區：{zone.chase}
+            <br />
+            目前開盤後：{formatPercent(afterOpenPercent(stock))}
+          </div>
+        </section>
+
+        <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
+          <div className="text-lg font-black text-yellow-100">資金與量能</div>
+          <div className="mt-2 text-sm font-bold text-yellow-100">
+            估算成交金額：{formatAmount(estimatedAmount(stock))}
+            <br />
+            成交金額排名：#{amountRankIndex(stock, top50)}
+            <br />
+            成交量排名：#{volumeRankIndex(stock, top50)}
+            <br />
+            主攻確認：{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}
+            <br />
+            進場確認：{signalProgress(history, settings.confirmTimes, "entryRaw")}
+          </div>
+        </section>
+
+        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(cont)}`}>
+          <div className="text-xs font-bold text-slate-400">盤中續航</div>
+          <div className="mt-1 text-2xl font-black">{cont}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            趨勢：{trendText(history)}
+            <br />
+            量價：{priceVolumeState(stock, top50, settings)}
+            <br />
+            進場分數：{score}
+          </div>
+        </section>
+
+        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${directionTone(direction)}`}>
+          <div className="text-xs font-bold text-slate-400">即時股價</div>
+          <div className="mt-1 text-xl font-black">{directionText(direction)}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
+            <br />
+            開盤：{formatPrice(stock.openPrice)}｜現價：{formatPrice(stock.price)}
+            <br />
+            更新：{stock.updatedAt || lastSuccessAt || "--"}
+          </div>
+        </section>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            onClick={() => (isTomorrow ? onRemoveTomorrow(stock.code) : onAddTomorrow(stock.code))}
+            className={`rounded-2xl py-3 text-sm font-black ${
+              isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
+            }`}
+          >
+            {isTomorrow ? "📌 移除觀察" : "📌 明日觀察"}
+          </button>
+
+          <button
+            onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
+            className={`rounded-2xl py-3 text-sm font-black ${
+              isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
+            }`}
+          >
+            {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -932,10 +1093,16 @@ export default function App() {
     return map;
   }, [industryLineRanking]);
 
+  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
+
+  function stockIndustryStatus(stock: Stock) {
+    return industryStatusMap[stock.industry] || "觀察中";
+  }
+
   const mainlineCoreList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線核心股")
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線核心股")
         .sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings)),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -943,7 +1110,7 @@ export default function App() {
   const mainlinePullbackList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線等回測")
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線等回測")
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -951,7 +1118,7 @@ export default function App() {
   const mainlineNewStrongList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線剛轉強")
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線剛轉強")
         .sort((a, b) => stableCount(signalMap[b.code]?.moneyAttackRaw) - stableCount(signalMap[a.code]?.moneyAttackRaw)),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -959,7 +1126,7 @@ export default function App() {
   const mainlineOverheatList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線過熱不追")
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線過熱不追")
         .sort((a, b) => b.changePercent - a.changePercent),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -967,7 +1134,7 @@ export default function App() {
   const mainlineFailedList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中") === "主線失效")
+        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線失效")
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -975,7 +1142,7 @@ export default function App() {
   const holdingList = useMemo(
     () =>
       top50
-        .filter((stock) => ["可續抱", "提高警覺", "分批停利", "主線失效"].includes(holdingDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, industryStatusMap[stock.industry] || "觀察中")))
+        .filter((stock) => ["可續抱", "提高警覺", "分批停利", "主線失效"].includes(holdingDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock))))
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
     [top50, signalMap, mainIndustries, settings, industryStatusMap]
   );
@@ -999,8 +1166,6 @@ export default function App() {
 
     return Array.from(map.values());
   }, [tomorrowCodes, stocks, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
-
-  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
 
   const totalEstimatedAmount = useMemo(() => top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0), [top50]);
 
@@ -1309,10 +1474,6 @@ export default function App() {
     }
   }
 
-  function stockIndustryStatus(stock: Stock) {
-    return industryStatusMap[stock.industry] || "觀察中";
-  }
-
   function filterList(list: Stock[]) {
     let arr = [...list];
 
@@ -1354,7 +1515,7 @@ export default function App() {
           volumeRankPercent(a, top50) +
           rawEntryScore(a, top50, mainIndustries, settings) -
           (isHot(a, settings) ? 30 : 0) -
-          (lastNAllTrue(ah?.failRaw, settings.breakConfirmTimes) ? 60 : 0);
+          (lastNAllTrue(ah?.failRaw, 2) ? 60 : 0);
 
         const bScore =
           bIndustry +
@@ -1363,7 +1524,7 @@ export default function App() {
           volumeRankPercent(b, top50) +
           rawEntryScore(b, top50, mainIndustries, settings) -
           (isHot(b, settings) ? 30 : 0) -
-          (lastNAllTrue(bh?.failRaw, settings.breakConfirmTimes) ? 60 : 0);
+          (lastNAllTrue(bh?.failRaw, 2) ? 60 : 0);
 
         return bScore - aScore;
       });
@@ -1445,125 +1606,8 @@ export default function App() {
   function stockCardPropsFor(stock: Stock) {
     return {
       ...cardBaseProps,
-      industryStatus: stockIndustryStatus(stock),
+      industryStatus: industryStatusMap[stock.industry] || "觀察中",
     };
-  }
-
-  if (selectedStock) {
-    const history = signalMap[selectedStock.code];
-    const industryStatus = stockIndustryStatus(selectedStock);
-    const decision = mainlineDecision(selectedStock, history, top50, mainIndustries, settings, industryStatus);
-    const holding = holdingDecision(selectedStock, history, top50, mainIndustries, settings, industryStatus);
-    const cont = rawContinuation(selectedStock, top50, mainIndustries, settings);
-    const score = rawEntryScore(selectedStock, top50, mainIndustries, settings);
-    const prevPrice = previousPriceMap[selectedStock.code];
-    const direction = priceDirections[selectedStock.code];
-    const zone = buyZone(selectedStock);
-
-    return (
-      <div className="min-h-screen bg-black text-white">
-        <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
-          <button onClick={() => setSelectedCode("")} className="mb-4 rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
-            ← 返回上一頁
-          </button>
-
-          <section className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-bold text-slate-400">{selectedStock.code}｜{selectedStock.industry}</div>
-                <h1 className="mt-1 text-3xl font-black">{selectedStock.name}</h1>
-              </div>
-
-              <div className={`text-right text-3xl font-black ${selectedStock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-                {formatPercent(selectedStock.changePercent)}
-              </div>
-            </div>
-
-            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
-              <div className="text-xs font-bold text-slate-400">主線一句話</div>
-              <div className="mt-1 text-3xl font-black">{decision}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                {mainlineSentence(decision, selectedStock, industryStatus)}
-              </div>
-            </div>
-
-            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
-              <div className="text-xs font-bold text-slate-400">現在該怎麼做 / 持股管理</div>
-              <div className="mt-1 text-2xl font-black">{holding}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                主線停損提醒：跌破開盤價或主攻失效，降低持有意願。
-                <br />
-                主線停利提醒：短線過熱、成交量放大但股價不再創高，分批停利。
-              </div>
-            </div>
-
-            <section className={`mt-4 rounded-2xl bg-black/30 p-4 ${flowTone(industryStatus)}`}>
-              <div className="text-xs font-bold text-slate-400">所屬產業主線</div>
-              <div className="mt-1 text-2xl font-black">{industryStatus}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                產業：{selectedStock.industry}
-                <br />
-                主流：{mainIndustries.includes(selectedStock.industry) ? "是" : "否"}
-              </div>
-            </section>
-
-            <section className="mt-4 rounded-2xl bg-blue-950/30 p-4">
-              <div className="text-lg font-black text-blue-100">主線買點區</div>
-              <div className="mt-2 text-sm font-bold text-blue-100">
-                理想觀察區：{zone.observe}
-                <br />
-                有效突破區：{zone.breakout}
-                <br />
-                追高風險區：{zone.chase}
-                <br />
-                目前開盤後：{formatPercent(afterOpenPercent(selectedStock))}
-              </div>
-            </section>
-
-            <section className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
-              <div className="text-lg font-black text-yellow-100">資金與主攻確認</div>
-              <div className="mt-2 text-sm font-bold text-yellow-100">
-                估算成交金額：{formatAmount(estimatedAmount(selectedStock))}
-                <br />
-                成交金額排名：#{amountRankIndex(selectedStock, top50)}
-                <br />
-                成交量排名：#{volumeRankIndex(selectedStock, top50)}
-                <br />
-                主攻確認：{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}
-                <br />
-                進場確認：{signalProgress(history, settings.confirmTimes, "entryRaw")}
-              </div>
-            </section>
-
-            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(cont)}`}>
-              <div className="text-xs font-bold text-slate-400">盤中續航</div>
-              <div className="mt-1 text-2xl font-black">{cont}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                趨勢：{trendText(history)}
-                <br />
-                量價：{priceVolumeState(selectedStock, top50, settings)}
-                <br />
-                成交量：{volumeState(selectedStock, top50)}
-              </div>
-            </div>
-
-            <section className="mt-4 rounded-2xl bg-slate-950 p-4">
-              <div className="text-lg font-black">即時股價</div>
-              <div className={`mt-2 text-xl font-black ${directionTone(direction)}`}>{directionText(direction)}</div>
-              <div className="mt-2 text-sm font-bold text-slate-300">
-                {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${selectedStock.price.toFixed(2)}` : "尚無上一筆"}
-                <br />
-                進場分數：{score}
-                <br />
-                開盤：{formatPrice(selectedStock.openPrice)}｜現價：{formatPrice(selectedStock.price)}
-                <br />
-                更新：{selectedStock.updatedAt || lastSuccessAt || "--"}
-              </div>
-            </section>
-          </section>
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -1572,10 +1616,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股資金主線進出場決策版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">主線決策雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股個股彈窗快看版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">主線快看雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                先找資金主線 → 找主攻核心股 → 判斷能不能進 → 過熱不追 → 失效避開。
+                點股票卡片直接跳出快看視窗，不用換頁、不用往下滑。
               </p>
             </div>
 
@@ -1614,7 +1658,7 @@ export default function App() {
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="最強主線" value={topLineIndustry?.industry || "--"} />
+            <DetailRow label="點擊模式" value="彈窗快看" />
           </div>
         </section>
 
@@ -1638,7 +1682,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">這版主要看資金主線進出場決策。</p>
+              <p className="text-xs font-bold text-slate-500">點股票後會直接跳出快看視窗。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -1946,6 +1990,27 @@ export default function App() {
             )}
         </section>
       </div>
+
+      {selectedStock && (
+        <StockQuickModal
+          stock={selectedStock}
+          top50={top50}
+          mainIndustries={mainIndustries}
+          settings={settings}
+          signalMap={signalMap}
+          industryStatus={stockIndustryStatus(selectedStock)}
+          favoriteCodes={favoriteCodes}
+          tomorrowCodes={tomorrowCodes}
+          priceDirections={priceDirections}
+          previousPriceMap={previousPriceMap}
+          lastSuccessAt={lastSuccessAt}
+          onClose={() => setSelectedCode("")}
+          onAddFavorite={(code) => saveFavorites([...favoriteCodes, code])}
+          onRemoveFavorite={(code) => saveFavorites(favoriteCodes.filter((item) => item !== code))}
+          onAddTomorrow={(code) => saveTomorrow([...tomorrowCodes, code])}
+          onRemoveTomorrow={(code) => saveTomorrow(tomorrowCodes.filter((item) => item !== code))}
+        />
+      )}
 
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-black/90 px-3 pb-8 pt-3 backdrop-blur">
         <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1 text-center">
