@@ -163,7 +163,59 @@ function nowText() {
 function cleanCode(value: string) {
   return value.replace(/\D/g, "").slice(0, 6);
 }
+const codeToChineseName: Record<string, string> = {
+  "2330": "台積電",
+  "2303": "聯電",
+  "2317": "鴻海",
+  "2454": "聯發科",
+  "2344": "華邦電",
+  "2408": "南亞科",
+  "2337": "旺宏",
+  "3481": "群創",
+  "2409": "友達",
+  "2382": "廣達",
+  "3231": "緯創",
+  "6669": "緯穎",
+  "2324": "仁寶",
+  "2356": "英業達",
+  "2357": "華碩",
+  "2376": "技嘉",
+  "2377": "微星",
+  "2308": "台達電",
+  "2301": "光寶科",
+  "8299": "群聯",
+  "3443": "創意",
+  "3661": "世芯-KY",
+  "3035": "智原",
+  "3034": "聯詠",
+  "2379": "瑞昱",
+  "6415": "矽力-KY",
+  "6770": "力積電",
+  "2383": "台光電",
+  "3037": "欣興",
+  "3189": "景碩",
+  "8046": "南電",
+  "2368": "金像電",
+  "3017": "奇鋐",
+  "3324": "雙鴻",
+  "3653": "健策",
+  "1519": "華城",
+  "1503": "士電",
+  "1514": "亞力",
+  "1513": "中興電",
+  "2881": "富邦金",
+  "2882": "國泰金",
+  "2884": "玉山金",
+  "2885": "元大金",
+  "2891": "中信金",
+  "2603": "長榮",
+  "2609": "陽明",
+  "2615": "萬海",
+};
 
+function stockDisplayName(stock: { code: string; name?: string }) {
+  return codeToChineseName[stock.code] || stock.name || stock.code;
+}
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toLocaleString("zh-TW");
@@ -189,7 +241,8 @@ function formatAmount(value: number) {
 
 function normalizeStock(raw: any, updateTime: string): Stock {
   const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "").replace(".TWO", "");
-  const name = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
+  const rawName = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
+const name = codeToChineseName[code] || rawName;
   const price = n(raw.price ?? raw.close ?? raw.lastPrice ?? raw.z);
   const previousClose = n(raw.previousClose ?? raw.prevClose ?? raw.yesterdayClose ?? raw.y);
   const openPrice = n(raw.openPrice ?? raw.open ?? raw.o ?? price);
@@ -758,7 +811,7 @@ function StockCard({
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-xs font-bold text-slate-500">#{rank}　{stock.code}</div>
-            <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
+            <div className="mt-1 text-lg font-black text-white">{stockDisplayName(stock)}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
               {stock.industry}
               {mainIndex >= 0 ? `｜資金主線${mainIndex + 1}` : ""}
@@ -885,7 +938,7 @@ function StockQuickModal({
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
-              <div className="mt-1 text-2xl font-black text-white">{stock.name}</div>
+              <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(stock)}</div>
             </div>
 
             <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
@@ -1149,7 +1202,7 @@ function SearchPopup({
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
-                    <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
+                    <div className="mt-1 text-lg font-black text-white">{stockDisplayName(stock)}</div>
                   </div>
                   <div className="text-right">
                     <div className={`text-lg font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
@@ -1861,7 +1914,7 @@ export default function App() {
       setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
 
       setSelectedCode(stock.code);
-      setQueryMessage(`已查到 ${stock.code} ${stock.name}`);
+      setQueryMessage(`已查到 ${stock.code} ${stockDisplayName(stock)}`);
     } catch (err: any) {
       setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
     } finally {
