@@ -15,10 +15,9 @@ type Stock = {
   updatedAt?: string;
 };
 
-type TabKey = "home" | "top50" | "tomorrow" | "favorite" | "more";
-
-type MoreView =
-  | "menu"
+type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
+type PopupKey =
+  | ""
   | "core"
   | "pullback"
   | "newStrong"
@@ -27,6 +26,7 @@ type MoreView =
   | "holding"
   | "industry"
   | "amount"
+  | "top50"
   | "settings"
   | "data";
 
@@ -99,12 +99,12 @@ type IndustryLineItem = {
 const API_URL = "/api/stocks";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
-const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
-const SETTINGS_KEY = "taiwan-stock-radar-popup-mainline-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-popup-mainline-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-popup-mainline-signals";
-const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-popup-mainline-industry";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-popup-mainline-locked";
+const WATCH_KEY = "taiwan-stock-radar-watch";
+const SETTINGS_KEY = "taiwan-stock-radar-category-popup-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-category-popup-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-category-popup-signals";
+const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-category-popup-industry";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-category-popup-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -218,10 +218,7 @@ function normalizeStock(raw: any, updateTime: string): Stock {
     openPrice,
     previousClose,
     openPremiumPercent,
-    industry:
-      raw.industry && raw.industry !== "其他"
-        ? String(raw.industry)
-        : industryMap[code] ?? "其他",
+    industry: raw.industry && raw.industry !== "其他" ? String(raw.industry) : industryMap[code] ?? "其他",
     highPrice,
     lowPrice,
     updatedAt: String(raw.updatedAt ?? raw.time ?? raw.updateTime ?? updateTime),
@@ -725,15 +722,15 @@ function StockCard({
   signalMap,
   industryStatus,
   favoriteCodes,
-  tomorrowCodes,
+  watchCodes,
   priceDirections,
   previousPriceMap,
   lastSuccessAt,
   onOpen,
   onAddFavorite,
   onRemoveFavorite,
-  onAddTomorrow,
-  onRemoveTomorrow,
+  onAddWatch,
+  onRemoveWatch,
 }: {
   stock: Stock;
   rank: number;
@@ -743,15 +740,15 @@ function StockCard({
   signalMap: Record<string, SignalHistory>;
   industryStatus: string;
   favoriteCodes: string[];
-  tomorrowCodes: string[];
+  watchCodes: string[];
   priceDirections: Record<string, PriceDirection>;
   previousPriceMap: Record<string, number>;
   lastSuccessAt: string;
   onOpen: (code: string) => void;
   onAddFavorite: (code: string) => void;
   onRemoveFavorite: (code: string) => void;
-  onAddTomorrow: (code: string) => void;
-  onRemoveTomorrow: (code: string) => void;
+  onAddWatch: (code: string) => void;
+  onRemoveWatch: (code: string) => void;
 }) {
   const history = signalMap[stock.code];
   const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
@@ -763,7 +760,7 @@ function StockCard({
   const diff = prevPrice ? stock.price - prevPrice : 0;
   const diffPct = prevPrice ? ((stock.price - prevPrice) / prevPrice) * 100 : 0;
   const isFavorite = favoriteCodes.includes(stock.code);
-  const isTomorrow = tomorrowCodes.includes(stock.code);
+  const isWatch = watchCodes.includes(stock.code);
   const mainIndex = mainIndustries.indexOf(stock.industry);
   const attackCount = stableCount(history?.moneyAttackRaw);
 
@@ -825,12 +822,12 @@ function StockCard({
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <button
-          onClick={() => (isTomorrow ? onRemoveTomorrow(stock.code) : onAddTomorrow(stock.code))}
+          onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
           className={`rounded-2xl py-2 text-sm font-black ${
-            isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
+            isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
           }`}
         >
-          {isTomorrow ? "📌 移除觀察" : "📌 明日觀察"}
+          {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
         </button>
 
         <button
@@ -854,15 +851,15 @@ function StockQuickModal({
   signalMap,
   industryStatus,
   favoriteCodes,
-  tomorrowCodes,
+  watchCodes,
   priceDirections,
   previousPriceMap,
   lastSuccessAt,
   onClose,
   onAddFavorite,
   onRemoveFavorite,
-  onAddTomorrow,
-  onRemoveTomorrow,
+  onAddWatch,
+  onRemoveWatch,
 }: {
   stock: Stock;
   top50: Stock[];
@@ -871,15 +868,15 @@ function StockQuickModal({
   signalMap: Record<string, SignalHistory>;
   industryStatus: string;
   favoriteCodes: string[];
-  tomorrowCodes: string[];
+  watchCodes: string[];
   priceDirections: Record<string, PriceDirection>;
   previousPriceMap: Record<string, number>;
   lastSuccessAt: string;
   onClose: () => void;
   onAddFavorite: (code: string) => void;
   onRemoveFavorite: (code: string) => void;
-  onAddTomorrow: (code: string) => void;
-  onRemoveTomorrow: (code: string) => void;
+  onAddWatch: (code: string) => void;
+  onRemoveWatch: (code: string) => void;
 }) {
   const history = signalMap[stock.code];
   const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
@@ -890,10 +887,10 @@ function StockQuickModal({
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
   const isFavorite = favoriteCodes.includes(stock.code);
-  const isTomorrow = tomorrowCodes.includes(stock.code);
+  const isWatch = watchCodes.includes(stock.code);
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
       <div
         className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -999,12 +996,12 @@ function StockQuickModal({
 
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button
-            onClick={() => (isTomorrow ? onRemoveTomorrow(stock.code) : onAddTomorrow(stock.code))}
+            onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
             className={`rounded-2xl py-3 text-sm font-black ${
-              isTomorrow ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
+              isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
             }`}
           >
-            {isTomorrow ? "📌 移除觀察" : "📌 明日觀察"}
+            {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
           </button>
 
           <button
@@ -1021,16 +1018,358 @@ function StockQuickModal({
   );
 }
 
+function CategoryListModal({
+  title,
+  sub,
+  stocks,
+  top50,
+  mainIndustries,
+  settings,
+  signalMap,
+  industryStatusMap,
+  favoriteCodes,
+  watchCodes,
+  priceDirections,
+  previousPriceMap,
+  lastSuccessAt,
+  onClose,
+  onOpenStock,
+  onAddFavorite,
+  onRemoveFavorite,
+  onAddWatch,
+  onRemoveWatch,
+}: {
+  title: string;
+  sub: string;
+  stocks: Stock[];
+  top50: Stock[];
+  mainIndustries: string[];
+  settings: Settings;
+  signalMap: Record<string, SignalHistory>;
+  industryStatusMap: Record<string, string>;
+  favoriteCodes: string[];
+  watchCodes: string[];
+  priceDirections: Record<string, PriceDirection>;
+  previousPriceMap: Record<string, number>;
+  lastSuccessAt: string;
+  onClose: () => void;
+  onOpenStock: (code: string) => void;
+  onAddFavorite: (code: string) => void;
+  onRemoveFavorite: (code: string) => void;
+  onAddWatch: (code: string) => void;
+  onRemoveWatch: (code: string) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">{sub}</div>
+              <div className="mt-1 text-2xl font-black text-white">{title}</div>
+              <div className="mt-1 text-sm font-bold text-cyan-300">共 {stocks.length} 檔｜點股票直接快看</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {stocks.length === 0 && (
+            <div className="rounded-2xl border border-slate-800 bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
+              目前沒有符合條件的股票。
+            </div>
+          )}
+
+          {stocks.map((stock, index) => (
+            <StockCard
+              key={`${stock.code}-${index}`}
+              stock={stock}
+              rank={index + 1}
+              top50={top50}
+              mainIndustries={mainIndustries}
+              settings={settings}
+              signalMap={signalMap}
+              industryStatus={industryStatusMap[stock.industry] || "觀察中"}
+              favoriteCodes={favoriteCodes}
+              watchCodes={watchCodes}
+              priceDirections={priceDirections}
+              previousPriceMap={previousPriceMap}
+              lastSuccessAt={lastSuccessAt}
+              onOpen={onOpenStock}
+              onAddFavorite={onAddFavorite}
+              onRemoveFavorite={onRemoveFavorite}
+              onAddWatch={onAddWatch}
+              onRemoveWatch={onRemoveWatch}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IndustryPopup({
+  items,
+  onClose,
+}: {
+  items: IndustryLineItem[];
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">產業資金主線</div>
+              <div className="mt-1 text-2xl font-black text-white">產業主線權重排行</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-3">
+          {items.map((item, index) => (
+            <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SettingsPopup({
+  settings,
+  saveSettings,
+  lockCurrentIndustries,
+  clearLockedIndustries,
+  resetSignals,
+  onClose,
+}: {
+  settings: Settings;
+  saveSettings: (next: Settings) => void;
+  lockCurrentIndustries: () => void;
+  clearLockedIndustries: () => void;
+  resetSignals: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">快看設定</div>
+              <div className="mt-1 text-2xl font-black text-white">設定</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-4">
+          <div>
+            <div className="mb-2 text-lg font-black">主攻確認次數</div>
+            <div className="grid grid-cols-3 gap-2">
+              {[2, 3, 4].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => saveSettings({ ...settings, attackConfirmTimes: num })}
+                  className={`rounded-2xl py-3 text-sm font-black ${
+                    settings.attackConfirmTimes === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                  }`}
+                >
+                  {num}次
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 text-lg font-black">降噪幅度</div>
+            <div className="grid grid-cols-3 gap-2">
+              {[0.2, 0.3, 0.5].map((num) => (
+                <button
+                  key={num}
+                  onClick={() => saveSettings({ ...settings, noisePercent: num })}
+                  className={`rounded-2xl py-3 text-sm font-black ${
+                    settings.noisePercent === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                  }`}
+                >
+                  {num}%
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button
+            onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })}
+            className={`w-full rounded-2xl py-3 text-lg font-black ${
+              settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
+            }`}
+          >
+            主流產業鎖定：{settings.stableIndustryLock ? "開啟" : "關閉"}
+          </button>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+              鎖定目前主流
+            </button>
+            <button onClick={clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
+              解除鎖定
+            </button>
+          </div>
+
+          <div>
+            <div className="mb-2 text-lg font-black">即時更新頻率</div>
+            <div className="grid grid-cols-4 gap-2">
+              {[
+                [15, "15秒"],
+                [30, "30秒"],
+                [60, "60秒"],
+                [0, "手動"],
+              ].map(([value, label]) => (
+                <button
+                  key={String(value)}
+                  onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value), dataSaver: Number(value) === 0 })}
+                  className={`rounded-2xl py-3 text-sm font-black ${
+                    settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
+            重置所有主線確認紀錄
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DataPopup({
+  stocks,
+  top50,
+  totalEstimatedAmount,
+  lastSuccessAt,
+  lastAttemptAt,
+  apiDataTime,
+  source,
+  error,
+  mainlineCoreList,
+  mainlinePullbackList,
+  mainlineNewStrongList,
+  mainlineOverheatList,
+  mainlineFailedList,
+  holdingList,
+  topLineIndustry,
+  marketStructure,
+  loadStocks,
+  resetSignals,
+  onClose,
+}: {
+  stocks: Stock[];
+  top50: Stock[];
+  totalEstimatedAmount: number;
+  lastSuccessAt: string;
+  lastAttemptAt: string;
+  apiDataTime: string;
+  source: string;
+  error: string;
+  mainlineCoreList: Stock[];
+  mainlinePullbackList: Stock[];
+  mainlineNewStrongList: Stock[];
+  mainlineOverheatList: Stock[];
+  mainlineFailedList: Stock[];
+  holdingList: Stock[];
+  topLineIndustry?: IndustryLineItem;
+  marketStructure: string;
+  loadStocks: () => void;
+  resetSignals: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">資料健康檢查</div>
+              <div className="mt-1 text-2xl font-black text-white">主線統計</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 space-y-2 text-sm font-bold text-slate-300">
+          <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
+          <div>資料筆數：{stocks.length}</div>
+          <div>50強筆數：{top50.length}</div>
+          <div>最新資料時間：{apiDataTime || "讀取中"}</div>
+          <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
+          <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
+          <div>資料來源：{source || "讀取中"}</div>
+          <div>50強總成交金額估算：{formatAmount(totalEstimatedAmount)}</div>
+          <div>主線核心股數：{mainlineCoreList.length}</div>
+          <div>主線等回測股數：{mainlinePullbackList.length}</div>
+          <div>主線剛轉強股數：{mainlineNewStrongList.length}</div>
+          <div>主線失效股數：{mainlineFailedList.length}</div>
+          <div>主線過熱股數：{mainlineOverheatList.length}</div>
+          <div>持股管理股數：{holdingList.length}</div>
+          <div>今日最強主線：{topLineIndustry?.industry || "--"}</div>
+          <div>盤中型態：{marketStructure}</div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+            立即更新
+          </button>
+          <button onClick={resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+            重置主線紀錄
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
 
   const [tab, setTab] = useState<TabKey>("home");
-  const [moreView, setMoreView] = useState<MoreView>("menu");
+  const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
 
   const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
-  const [tomorrowCodes, setTomorrowCodes] = useState<string[]>([]);
+  const [watchCodes, setWatchCodes] = useState<string[]>([]);
   const [signalMap, setSignalMap] = useState<Record<string, SignalHistory>>({});
   const [industryHistoryMap, setIndustryHistoryMap] = useState<Record<string, IndustryHistory>>({});
 
@@ -1093,11 +1432,11 @@ export default function App() {
     return map;
   }, [industryLineRanking]);
 
-  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
-
   function stockIndustryStatus(stock: Stock) {
     return industryStatusMap[stock.industry] || "觀察中";
   }
+
+  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || null, [stocks, selectedCode]);
 
   const mainlineCoreList = useMemo(
     () =>
@@ -1154,10 +1493,10 @@ export default function App() {
     [favoriteCodes, stocks]
   );
 
-  const tomorrowStocks = useMemo(() => {
+  const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
 
-    tomorrowCodes.forEach((code) => {
+    watchCodes.forEach((code) => {
       const stock = stocks.find((s) => s.code === code);
       if (stock) map.set(code, stock);
     });
@@ -1165,7 +1504,7 @@ export default function App() {
     [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
 
     return Array.from(map.values());
-  }, [tomorrowCodes, stocks, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
+  }, [watchCodes, stocks, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
 
   const totalEstimatedAmount = useMemo(() => top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0), [top50]);
 
@@ -1212,7 +1551,7 @@ export default function App() {
     setAutoSeconds(merged.refreshSeconds);
 
     setFavoriteCodes(safeParse(localStorage.getItem(FAVORITE_KEY), []));
-    setTomorrowCodes(safeParse(localStorage.getItem(TOMORROW_KEY), []));
+    setWatchCodes(safeParse(localStorage.getItem(WATCH_KEY), []));
     setSignalMap(safeParse(localStorage.getItem(SIGNAL_KEY), {}));
     setIndustryHistoryMap(safeParse(localStorage.getItem(INDUSTRY_SIGNAL_KEY), {}));
     setLockedIndustries(safeParse(localStorage.getItem(LOCKED_INDUSTRY_KEY), []));
@@ -1266,10 +1605,10 @@ export default function App() {
     localStorage.setItem(FAVORITE_KEY, JSON.stringify(clean));
   }
 
-  function saveTomorrow(next: string[]) {
+  function saveWatch(next: string[]) {
     const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 80);
-    setTomorrowCodes(clean);
-    localStorage.setItem(TOMORROW_KEY, JSON.stringify(clean));
+    setWatchCodes(clean);
+    localStorage.setItem(WATCH_KEY, JSON.stringify(clean));
   }
 
   function lockCurrentIndustries() {
@@ -1474,31 +1813,13 @@ export default function App() {
     }
   }
 
-  function filterList(list: Stock[]) {
-    let arr = [...list];
-
-    if (tab === "top50") {
-      if (settings.topFilter === "主線核心") arr = arr.filter((stock) => mainlineCoreList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "等回測") arr = arr.filter((stock) => mainlinePullbackList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "剛轉強") arr = arr.filter((stock) => mainlineNewStrongList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "過熱不追") arr = arr.filter((stock) => mainlineOverheatList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "主線失效") arr = arr.filter((stock) => mainlineFailedList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "持股管理") arr = arr.filter((stock) => holdingList.some((item) => item.code === stock.code));
-      if (settings.topFilter === "成交金額") arr = arr.sort((a, b) => estimatedAmount(b) - estimatedAmount(a));
-      if (settings.topFilter === "主流產業") arr = arr.filter((stock) => mainIndustries.includes(stock.industry));
-    }
-
+  function sortList(list: Stock[]) {
     const keyword = searchText.trim();
+    let arr = [...list];
 
     if (keyword) {
       arr = arr.filter((stock) => stock.code.includes(keyword) || stock.name.includes(keyword) || stock.industry.includes(keyword));
     }
-
-    return arr;
-  }
-
-  function sortList(list: Stock[]) {
-    const arr = filterList(list);
 
     if (sortKey === "mainline") {
       return arr.sort((a, b) => {
@@ -1546,44 +1867,40 @@ export default function App() {
     return arr;
   }
 
-  const currentList = useMemo(() => {
-    if (tab === "top50") return sortList(top50);
-    if (tab === "favorite") return sortList(favoriteStocks);
-
-    if (tab === "more") {
-      if (moreView === "core") return sortList(mainlineCoreList);
-      if (moreView === "pullback") return sortList(mainlinePullbackList);
-      if (moreView === "newStrong") return sortList(mainlineNewStrongList);
-      if (moreView === "overheat") return sortList(mainlineOverheatList);
-      if (moreView === "failed") return sortList(mainlineFailedList);
-      if (moreView === "holding") return sortList(holdingList);
-      if (moreView === "amount") return sortList(moneyAmountList);
-    }
-
+  function popupList(key: PopupKey) {
+    if (key === "core") return sortList(mainlineCoreList);
+    if (key === "pullback") return sortList(mainlinePullbackList);
+    if (key === "newStrong") return sortList(mainlineNewStrongList);
+    if (key === "overheat") return sortList(mainlineOverheatList);
+    if (key === "failed") return sortList(mainlineFailedList);
+    if (key === "holding") return sortList(holdingList);
+    if (key === "amount") return sortList(moneyAmountList);
+    if (key === "top50") return sortList(top50);
     return [];
-  }, [
-    tab,
-    moreView,
-    top50,
-    favoriteStocks,
-    mainlineCoreList,
-    mainlinePullbackList,
-    mainlineNewStrongList,
-    mainlineOverheatList,
-    mainlineFailedList,
-    holdingList,
-    moneyAmountList,
-    searchText,
-    sortKey,
-    settings,
-    signalMap,
-    mainIndustries,
-  ]);
+  }
 
-  function goMore(view: MoreView) {
-    setSelectedCode("");
-    setTab("more");
-    setMoreView(view);
+  function popupTitle(key: PopupKey) {
+    if (key === "core") return "主線核心股";
+    if (key === "pullback") return "主線等回測";
+    if (key === "newStrong") return "主線剛轉強";
+    if (key === "overheat") return "主線過熱不追";
+    if (key === "failed") return "主線失效";
+    if (key === "holding") return "持股管理";
+    if (key === "amount") return "成交金額排行";
+    if (key === "top50") return "今日50強";
+    return "";
+  }
+
+  function popupSub(key: PopupKey) {
+    if (key === "core") return "主線+主攻續航";
+    if (key === "pullback") return "不追高，等合理位置";
+    if (key === "newStrong") return "剛轉強，等下一次確認";
+    if (key === "overheat") return "過熱不追 / 可停利";
+    if (key === "failed") return "主線失效，避開";
+    if (key === "holding") return "可續抱 / 警覺 / 停利";
+    if (key === "amount") return "資金核心排名";
+    if (key === "top50") return "漲幅排行前50";
+    return "";
   }
 
   const cardBaseProps = {
@@ -1592,15 +1909,15 @@ export default function App() {
     settings,
     signalMap,
     favoriteCodes,
-    tomorrowCodes,
+    watchCodes,
     priceDirections,
     previousPriceMap,
     lastSuccessAt,
     onOpen: (code: string) => setSelectedCode(code),
     onAddFavorite: (code: string) => saveFavorites([...favoriteCodes, code]),
     onRemoveFavorite: (code: string) => saveFavorites(favoriteCodes.filter((item) => item !== code)),
-    onAddTomorrow: (code: string) => saveTomorrow([...tomorrowCodes, code]),
-    onRemoveTomorrow: (code: string) => saveTomorrow(tomorrowCodes.filter((item) => item !== code)),
+    onAddWatch: (code: string) => saveWatch([...watchCodes, code]),
+    onRemoveWatch: (code: string) => saveWatch(watchCodes.filter((item) => item !== code)),
   };
 
   function stockCardPropsFor(stock: Stock) {
@@ -1610,16 +1927,20 @@ export default function App() {
     };
   }
 
+  const defaultHomeList = useMemo(() => {
+    return [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 10);
+  }, [mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股個股彈窗快看版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">主線快看雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股分類卡片彈窗快選版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">主線快選雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                點股票卡片直接跳出快看視窗，不用換頁、不用往下滑。
+                點分類卡片直接跳出清單，不用往下滑；再點股票直接快看。
               </p>
             </div>
 
@@ -1644,7 +1965,7 @@ export default function App() {
               </div>
             </div>
 
-            <button onClick={() => goMore("data")} className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200">
+            <button onClick={() => setPopup("data")} className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200">
               主線統計
             </button>
           </div>
@@ -1658,31 +1979,31 @@ export default function App() {
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="點擊模式" value="彈窗快看" />
+            <DetailRow label="點擊模式" value="分類彈窗" />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="主線核心股" value={mainlineCoreList.length} sub="主線+主攻續航" tone="text-emerald-300" onClick={() => goMore("core")} />
-          <MiniCard title="主線等回測" value={mainlinePullbackList.length} sub="不追高" tone="text-yellow-300" onClick={() => goMore("pullback")} />
-          <MiniCard title="主線剛轉強" value={mainlineNewStrongList.length} sub="等下一次確認" tone="text-yellow-300" onClick={() => goMore("newStrong")} />
-          <MiniCard title="主線失效" value={mainlineFailedList.length} sub="避開" tone="text-red-300" onClick={() => goMore("failed")} />
+          <MiniCard title="主線核心股" value={mainlineCoreList.length} sub="主線+主攻續航" tone="text-emerald-300" onClick={() => setPopup("core")} />
+          <MiniCard title="主線等回測" value={mainlinePullbackList.length} sub="不追高" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+          <MiniCard title="主線剛轉強" value={mainlineNewStrongList.length} sub="等下一次確認" tone="text-yellow-300" onClick={() => setPopup("newStrong")} />
+          <MiniCard title="主線失效" value={mainlineFailedList.length} sub="避開" tone="text-red-300" onClick={() => setPopup("failed")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="主線過熱不追" sub="等回測 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => goMore("overheat")} />
-          <ActionCard title="持股管理" sub="續抱 / 警覺 / 停利" badge={holdingList.length} tone="text-purple-300" onClick={() => goMore("holding")} />
-          <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => goMore("industry")} />
-          <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => goMore("amount")} />
-          <ActionCard title="50強" sub="主線篩選" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
-          <ActionCard title="設定" sub="確認次數 / 主流鎖定" badge="⚙️" tone="text-purple-300" onClick={() => goMore("settings")} />
+          <ActionCard title="主線過熱不追" sub="等回測 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
+          <ActionCard title="持股管理" sub="續抱 / 警覺 / 停利" badge={holdingList.length} tone="text-purple-300" onClick={() => setPopup("holding")} />
+          <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
+          <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
+          <ActionCard title="50強" sub="主線篩選" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
+          <ActionCard title="設定" sub="確認次數 / 主流鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">點股票後會直接跳出快看視窗。</p>
+              <p className="text-xs font-bold text-slate-500">分類卡片會直接跳出清單。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -1698,82 +2019,38 @@ export default function App() {
           />
 
           {showFilters && (
-            <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  ["mainline", "主線"],
-                  ["money", "金額"],
-                  ["volume", "成交量"],
-                  ["entry", "進場"],
-                  ["industry", "產業"],
-                  ["change", "漲幅"],
-                  ["price", "低價"],
-                ].map(([key, label]) => (
-                  <button
-                    key={key}
-                    onClick={() => setSortKey(key)}
-                    className={`rounded-2xl py-3 text-xs font-black ${
-                      sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-
-              {tab === "top50" && (
-                <div className="grid grid-cols-3 gap-2">
-                  {["全部", "主線核心", "等回測", "剛轉強", "過熱不追", "主線失效", "持股管理", "成交金額", "主流產業"].map((filter) => (
-                    <button
-                      key={filter}
-                      onClick={() => saveSettings({ ...settings, topFilter: filter })}
-                      className={`rounded-2xl py-3 text-xs font-black ${
-                        settings.topFilter === filter ? "bg-cyan-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
-                </div>
-              )}
+            <div className="mt-3 grid grid-cols-4 gap-2">
+              {[
+                ["mainline", "主線"],
+                ["money", "金額"],
+                ["volume", "成交量"],
+                ["entry", "進場"],
+                ["industry", "產業"],
+                ["change", "漲幅"],
+                ["price", "低價"],
+              ].map(([key, label]) => (
+                <button
+                  key={key}
+                  onClick={() => setSortKey(key)}
+                  className={`rounded-2xl py-3 text-xs font-black ${
+                    sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
         </section>
 
-        {tab === "more" && (
-          <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-5">
-            <h2 className="text-xl font-black">主線決策雷達</h2>
-
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="主線核心股" sub="只等合理位置" badge={mainlineCoreList.length} tone="text-emerald-300" onClick={() => setMoreView("core")} />
-              <ActionCard title="主線等回測" sub="不追高" badge={mainlinePullbackList.length} tone="text-yellow-300" onClick={() => setMoreView("pullback")} />
-              <ActionCard title="主線剛轉強" sub="等確認" badge={mainlineNewStrongList.length} tone="text-yellow-300" onClick={() => setMoreView("newStrong")} />
-              <ActionCard title="主線過熱" sub="不追 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setMoreView("overheat")} />
-              <ActionCard title="主線失效" sub="避開" badge={mainlineFailedList.length} tone="text-red-300" onClick={() => setMoreView("failed")} />
-              <ActionCard title="持股管理" sub="可續抱 / 分批停利" badge={holdingList.length} tone="text-purple-300" onClick={() => setMoreView("holding")} />
-              <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="設定" sub="主攻確認 / 降噪" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
-            </div>
-          </section>
-        )}
-
         <section className="mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
-              {tab === "home" && "今日重點"}
-              {tab === "top50" && "📊 今日50強"}
-              {tab === "tomorrow" && "📌 明日觀察"}
-              {tab === "favorite" && "⭐ 自選股"}
-              {tab === "more" && moreView === "core" && "🟢 主線核心股"}
-              {tab === "more" && moreView === "pullback" && "🟡 主線等回測"}
-              {tab === "more" && moreView === "newStrong" && "🟡 主線剛轉強"}
-              {tab === "more" && moreView === "overheat" && "🟠 主線過熱不追"}
-              {tab === "more" && moreView === "failed" && "🔴 主線失效"}
-              {tab === "more" && moreView === "holding" && "🟣 持股管理"}
-              {tab === "more" && moreView === "industry" && "🏭 產業主線權重"}
-              {tab === "more" && moreView === "amount" && "💰 成交金額排行"}
-              {tab === "more" && moreView === "settings" && "⚙️ 設定"}
-              {tab === "more" && moreView === "data" && "📡 主線統計"}
+              {tab === "home" && "今日快選"}
+              {tab === "top50" && "50強快選"}
+              {tab === "watch" && "觀察清單"}
+              {tab === "favorite" && "自選股"}
+              {tab === "more" && "更多快選"}
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
@@ -1784,7 +2061,12 @@ export default function App() {
           {tab === "home" && (
             <div className="space-y-4">
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">產業主線權重排行</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-black">產業主線權重排行</h3>
+                  <button onClick={() => setPopup("industry")} className="rounded-2xl bg-yellow-500/20 px-3 py-2 text-xs font-black text-yellow-200">
+                    彈窗看全部
+                  </button>
+                </div>
                 <div className="mt-3 space-y-3">
                   {industryLineRanking.slice(0, 3).map((item, index) => (
                     <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
@@ -1793,42 +2075,20 @@ export default function App() {
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">主線核心股 5 檔</h3>
-                <div className="mt-3 space-y-3">
-                  {mainlineCoreList.slice(0, 5).length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確主線核心股。
-                    </div>
-                  )}
-                  {mainlineCoreList.slice(0, 5).map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
-                  ))}
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-black">主線快選 10 檔</h3>
+                  <button onClick={() => setPopup("core")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
+                    核心股
+                  </button>
                 </div>
-              </section>
 
-              <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <h3 className="text-xl font-black">主線等回測 / 剛轉強 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {[...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 5).length === 0 && (
+                  {defaultHomeList.length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有等回測或剛轉強股票。
+                      目前沒有主線快選股票。
                     </div>
                   )}
-                  {[...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 5).map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
-                <h3 className="text-xl font-black">主線失效 / 過熱警報</h3>
-                <div className="mt-3 space-y-3">
-                  {[...mainlineFailedList, ...mainlineOverheatList].slice(0, 5).length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯主線失效或過熱。
-                    </div>
-                  )}
-                  {[...mainlineFailedList, ...mainlineOverheatList].slice(0, 5).map((stock, index) => (
+                  {defaultHomeList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
                   ))}
                 </div>
@@ -1836,160 +2096,118 @@ export default function App() {
             </div>
           )}
 
-          {tab === "tomorrow" && (
+          {tab === "top50" && (
             <div className="space-y-3">
-              {tomorrowStocks.length === 0 && (
+              {sortList(top50).map((stock, index) => (
+                <StockCard key={`${stock.code}-${index}`} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+              ))}
+            </div>
+          )}
+
+          {tab === "watch" && (
+            <div className="space-y-3">
+              {watchStocks.length === 0 && (
                 <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
-                  目前沒有明日觀察股票。
+                  目前沒有觀察股票。
                 </div>
               )}
-              {tomorrowStocks.map((stock, index) => (
+              {watchStocks.map((stock, index) => (
                 <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
               ))}
             </div>
           )}
 
-          {tab === "more" && moreView === "industry" && (
+          {tab === "favorite" && (
             <div className="space-y-3">
-              {industryLineRanking.map((item, index) => (
-                <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
+              {favoriteStocks.length === 0 && (
+                <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                  目前沒有自選股。
+                </div>
+              )}
+              {favoriteStocks.map((stock, index) => (
+                <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
               ))}
             </div>
           )}
 
-          {tab === "more" && moreView === "settings" && (
-            <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
-              <div>
-                <div className="mb-2 text-lg font-black">主攻確認次數</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[2, 3, 4].map((num) => (
-                    <button
-                      key={num}
-                      onClick={() => saveSettings({ ...settings, attackConfirmTimes: num })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.attackConfirmTimes === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {num}次
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">降噪幅度</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[0.2, 0.3, 0.5].map((num) => (
-                    <button
-                      key={num}
-                      onClick={() => saveSettings({ ...settings, noisePercent: num })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.noisePercent === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {num}%
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button
-                onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })}
-                className={`w-full rounded-2xl py-3 text-lg font-black ${
-                  settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
-                }`}
-              >
-                主流產業鎖定：{settings.stableIndustryLock ? "開啟" : "關閉"}
-              </button>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button onClick={lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-                  鎖定目前主流
-                </button>
-                <button onClick={clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
-                  解除鎖定
-                </button>
-              </div>
-
-              <div>
-                <div className="mb-2 text-lg font-black">即時更新頻率</div>
-                <div className="grid grid-cols-4 gap-2">
-                  {[
-                    [15, "15秒"],
-                    [30, "30秒"],
-                    [60, "60秒"],
-                    [0, "手動"],
-                  ].map(([value, label]) => (
-                    <button
-                      key={String(value)}
-                      onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value), dataSaver: Number(value) === 0 })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <button onClick={resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
-                重置所有主線確認紀錄
-              </button>
+          {tab === "more" && (
+            <div className="grid grid-cols-2 gap-3">
+              <ActionCard title="主線核心股" sub="彈窗快選" badge={mainlineCoreList.length} tone="text-emerald-300" onClick={() => setPopup("core")} />
+              <ActionCard title="主線等回測" sub="彈窗快選" badge={mainlinePullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+              <ActionCard title="主線剛轉強" sub="彈窗快選" badge={mainlineNewStrongList.length} tone="text-yellow-300" onClick={() => setPopup("newStrong")} />
+              <ActionCard title="主線失效" sub="彈窗快選" badge={mainlineFailedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+              <ActionCard title="主線過熱" sub="彈窗快選" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
+              <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
             </div>
           )}
-
-          {tab === "more" && moreView === "data" && (
-            <div className="rounded-3xl border border-blue-500/50 bg-blue-950/20 p-5">
-              <div className="text-xl font-black">主線統計</div>
-
-              <div className="mt-3 space-y-2 text-sm font-bold text-slate-300">
-                <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
-                <div>資料筆數：{stocks.length}</div>
-                <div>50強筆數：{top50.length}</div>
-                <div>最新資料時間：{apiDataTime || "讀取中"}</div>
-                <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
-                <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
-                <div>資料來源：{source || "讀取中"}</div>
-                <div>50強總成交金額估算：{formatAmount(totalEstimatedAmount)}</div>
-                <div>主線核心股數：{mainlineCoreList.length}</div>
-                <div>主線等回測股數：{mainlinePullbackList.length}</div>
-                <div>主線剛轉強股數：{mainlineNewStrongList.length}</div>
-                <div>主線失效股數：{mainlineFailedList.length}</div>
-                <div>主線過熱股數：{mainlineOverheatList.length}</div>
-                <div>持股管理股數：{holdingList.length}</div>
-                <div>今日最強主線：{topLineIndustry?.industry || "--"}</div>
-                <div>盤中型態：{marketStructure}</div>
-              </div>
-
-              <div className="mt-4 grid grid-cols-2 gap-2">
-                <button onClick={() => loadStocks()} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-                  立即更新
-                </button>
-                <button onClick={resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-                  重置主線紀錄
-                </button>
-              </div>
-            </div>
-          )}
-
-          {tab !== "home" &&
-            tab !== "tomorrow" &&
-            !(tab === "more" && ["settings", "data", "industry", "menu"].includes(moreView)) && (
-              <div className="space-y-3">
-                {currentList.length === 0 && (
-                  <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
-                    目前沒有符合條件的股票。
-                  </div>
-                )}
-
-                {currentList.map((stock, index) => (
-                  <StockCard key={`${stock.code}-${index}`} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
-                ))}
-              </div>
-            )}
         </section>
       </div>
+
+      {["core", "pullback", "newStrong", "overheat", "failed", "holding", "amount", "top50"].includes(popup) && (
+        <CategoryListModal
+          title={popupTitle(popup)}
+          sub={popupSub(popup)}
+          stocks={popupList(popup)}
+          top50={top50}
+          mainIndustries={mainIndustries}
+          settings={settings}
+          signalMap={signalMap}
+          industryStatusMap={industryStatusMap}
+          favoriteCodes={favoriteCodes}
+          watchCodes={watchCodes}
+          priceDirections={priceDirections}
+          previousPriceMap={previousPriceMap}
+          lastSuccessAt={lastSuccessAt}
+          onClose={() => setPopup("")}
+          onOpenStock={(code) => setSelectedCode(code)}
+          onAddFavorite={(code) => saveFavorites([...favoriteCodes, code])}
+          onRemoveFavorite={(code) => saveFavorites(favoriteCodes.filter((item) => item !== code))}
+          onAddWatch={(code) => saveWatch([...watchCodes, code])}
+          onRemoveWatch={(code) => saveWatch(watchCodes.filter((item) => item !== code))}
+        />
+      )}
+
+      {popup === "industry" && (
+        <IndustryPopup
+          items={industryLineRanking}
+          onClose={() => setPopup("")}
+        />
+      )}
+
+      {popup === "settings" && (
+        <SettingsPopup
+          settings={settings}
+          saveSettings={saveSettings}
+          lockCurrentIndustries={lockCurrentIndustries}
+          clearLockedIndustries={clearLockedIndustries}
+          resetSignals={resetSignals}
+          onClose={() => setPopup("")}
+        />
+      )}
+
+      {popup === "data" && (
+        <DataPopup
+          stocks={stocks}
+          top50={top50}
+          totalEstimatedAmount={totalEstimatedAmount}
+          lastSuccessAt={lastSuccessAt}
+          lastAttemptAt={lastAttemptAt}
+          apiDataTime={apiDataTime}
+          source={source}
+          error={error}
+          mainlineCoreList={mainlineCoreList}
+          mainlinePullbackList={mainlinePullbackList}
+          mainlineNewStrongList={mainlineNewStrongList}
+          mainlineOverheatList={mainlineOverheatList}
+          mainlineFailedList={mainlineFailedList}
+          holdingList={holdingList}
+          topLineIndustry={topLineIndustry}
+          marketStructure={marketStructure}
+          loadStocks={loadStocks}
+          resetSignals={resetSignals}
+          onClose={() => setPopup("")}
+        />
+      )}
 
       {selectedStock && (
         <StockQuickModal
@@ -2000,15 +2218,15 @@ export default function App() {
           signalMap={signalMap}
           industryStatus={stockIndustryStatus(selectedStock)}
           favoriteCodes={favoriteCodes}
-          tomorrowCodes={tomorrowCodes}
+          watchCodes={watchCodes}
           priceDirections={priceDirections}
           previousPriceMap={previousPriceMap}
           lastSuccessAt={lastSuccessAt}
           onClose={() => setSelectedCode("")}
           onAddFavorite={(code) => saveFavorites([...favoriteCodes, code])}
           onRemoveFavorite={(code) => saveFavorites(favoriteCodes.filter((item) => item !== code))}
-          onAddTomorrow={(code) => saveTomorrow([...tomorrowCodes, code])}
-          onRemoveTomorrow={(code) => saveTomorrow(tomorrowCodes.filter((item) => item !== code))}
+          onAddWatch={(code) => saveWatch([...watchCodes, code])}
+          onRemoveWatch={(code) => saveWatch(watchCodes.filter((item) => item !== code))}
         />
       )}
 
@@ -2017,7 +2235,7 @@ export default function App() {
           {[
             ["home", "📊", "首頁"],
             ["top50", "🔥", "50強"],
-            ["tomorrow", "📌", "觀察"],
+            ["watch", "📌", "觀察"],
             ["favorite", "⭐", "自選"],
             ["more", "☰", "更多"],
           ].map(([key, icon, label]) => (
@@ -2025,6 +2243,7 @@ export default function App() {
               key={key}
               onClick={() => {
                 setSelectedCode("");
+                setPopup("");
                 setTab(key as TabKey);
               }}
               className={`rounded-2xl py-2 text-xs font-black ${
