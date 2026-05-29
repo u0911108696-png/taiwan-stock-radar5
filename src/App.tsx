@@ -74,11 +74,11 @@ const SEARCH_API_URL = "/api/search";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
-const SETTINGS_KEY = "taiwan-stock-radar-risk-v1-settings";
-const CACHE_KEY = "taiwan-stock-radar-risk-v1-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-risk-v1-signals";
+const SETTINGS_KEY = "taiwan-stock-radar-trade-plan-settings";
+const CACHE_KEY = "taiwan-stock-radar-trade-plan-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-trade-plan-signals";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-risk-v1-locked";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-trade-plan-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -224,11 +224,6 @@ function cleanCode(value: string) {
 
 function stockDisplayName(stock: { code: string; name?: string }) {
   return codeToChineseName[stock.code] || stock.name || stock.code;
-}
-
-function formatNumber(value: number | null | undefined) {
-  if (value === null || value === undefined || Number.isNaN(value)) return "--";
-  return value.toLocaleString("zh-TW");
 }
 
 function formatPrice(value: number | null | undefined) {
@@ -466,16 +461,98 @@ function riskAction(stock: Stock, list: Stock[], mainIndustries: string[], setti
   return "續抱觀察";
 }
 
+function tradePlan(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, industryStatus?: string) {
+  const atr = atrValue(stock);
+  const stopLine = atrStopLine(stock);
+  const pullback = pullbackRadar(stock, list, mainIndustries, settings);
+  const chase = chaseRisk(stock, list, settings);
+  const exit = exitAlert(stock, list, settings, industryStatus);
+  const pv = priceVolumeState(stock, list, settings);
+  const main = mainIndustries.includes(stock.industry);
+
+  const idealBuyLow = stock.openPrice;
+  const idealBuyHigh = stock.openPrice * 1.015;
+  const breakoutBuy = stock.openPrice * 1.005;
+  const noChasePrice = stock.openPrice * 1.03;
+
+  const stop1 = stock.openPrice;
+  const stop2 = stopLine;
+  const stop3 = stock.previousClose;
+
+  const takeProfit1 = stock.openPrice * 1.05;
+  const takeProfit2 = stopLine;
+  const takeProfit3 = stock.highPrice;
+
+  const addPrice = Math.max(stock.highPrice, stock.openPrice * 1.025);
+
+  let buyText = "先觀察，不急著進場";
+  if (pullback === "回測買點") buyText = "可列入低風險觀察區";
+  if (pullback === "接近買點") buyText = "接近買點，等量價確認";
+  if (pullback === "尚未回測" || chase !== "追高風險低") buyText = "不追高，等回測";
+
+  let stopText = "跌破開盤價先警覺";
+  if (stock.price < stop1) stopText = "已跌破開盤價，偏弱";
+  if (stock.price < stop2) stopText = "已跌破ATR線，減碼觀察";
+  if (stock.price < stop3) stopText = "已跌破昨收，主線失效";
+
+  let profitText = "用ATR移動停利，不猜最高點";
+  if (isOverheat(stock, settings)) profitText = "短線過熱，適合分批停利";
+  if (stock.price < stopLine) profitText = "跌破ATR線，獲利需保護";
+
+  let addText = "尚未達加倉條件";
+  const canAdd =
+    main &&
+    pv === "量價同步" &&
+    chase !== "追高風險高" &&
+    stock.price >= addPrice &&
+    amountRankPercent(stock, list) >= 70 &&
+    volumeRankPercent(stock, list) >= 65 &&
+    industryStatus !== "主線退潮";
+
+  if (canAdd) addText = "可小幅加倉，但仍要守ATR線";
+  else if (!main) addText = "非前三主線，不建議加倉";
+  else if (chase === "追高風險高") addText = "追高風險高，不加倉";
+  else if (industryStatus === "主線退潮") addText = "產業退潮，不加倉";
+  else if (pv !== "量價同步") addText = "量價未同步，不加倉";
+
+  let action = "觀察";
+  if (exit.includes("出場") || exit.includes("跌破")) action = "出場避開";
+  else if (chase === "追高風險高") action = "不追高";
+  else if (pullback === "回測買點") action = "低風險觀察";
+  else if (canAdd) action = "可小幅加倉";
+  else if (main && pv === "量價同步") action = "續抱觀察";
+
+  return {
+    atr,
+    idealBuyLow,
+    idealBuyHigh,
+    breakoutBuy,
+    noChasePrice,
+    stop1,
+    stop2,
+    stop3,
+    takeProfit1,
+    takeProfit2,
+    takeProfit3,
+    addPrice,
+    buyText,
+    stopText,
+    profitText,
+    addText,
+    action,
+  };
+}
+
 function riskTone(label: string) {
-  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低"].includes(label)) return "text-emerald-300";
-  if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察中"].includes(label)) return "text-yellow-300";
+  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉"].includes(label)) return "text-emerald-300";
+  if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察", "觀察中"].includes(label)) return "text-yellow-300";
   if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利"].includes(label)) return "text-orange-300";
   if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高")) return "text-red-300";
   return "text-slate-300";
 }
 
 function decisionTone(label: string) {
-  if (["主線核心", "可續抱", "資金主攻"].includes(label)) return "text-emerald-300";
+  if (["主線核心", "可續抱", "資金主攻", "可觀察"].includes(label)) return "text-emerald-300";
   if (["等回測", "提高警覺", "主線剛轉強", "觀察中"].includes(label)) return "text-yellow-300";
   if (["過熱不追", "分批停利", "短線過熱"].includes(label)) return "text-orange-300";
   if (["主線失效", "出場避開", "轉弱退潮", "爆量不漲", "低量假強"].includes(label)) return "text-red-300";
@@ -643,6 +720,7 @@ function getHoldingDecision(decision: string, risk: string) {
   if (risk === "出場提醒") return "出場避開";
   if (risk === "不追高") return "分批停利";
   if (risk === "低風險觀察") return "可觀察";
+  if (risk === "可小幅加倉") return "可小幅加倉";
   if (decision === "主線核心" || decision === "資金主攻") return "可續抱";
   if (decision === "等回測" || decision === "觀察中") return "提高警覺";
   if (decision === "過熱不追") return "分批停利";
@@ -657,14 +735,6 @@ function getMainlineText(decision: string) {
   if (decision === "過熱不追") return "短線漲幅或開盤溢價偏高，避免追高。";
   if (decision === "主線失效") return "量價轉弱或爆量不漲，主線失效，先避開。";
   return "主線尚未明確，先觀察產業資金是否延續。";
-}
-
-function buyZone(stock: Stock) {
-  return {
-    observe: `${formatPrice(stock.openPrice)} ～ ${formatPrice(stock.openPrice * 1.015)}`,
-    breakout: formatPrice(stock.openPrice * 1.005),
-    chase: `高於 ${formatPrice(stock.openPrice * 1.03)}`,
-  };
 }
 
 function MiniCard({
@@ -715,11 +785,11 @@ function ActionCard({
   );
 }
 
-function DetailRow({ label, value }: { label: string; value: string | number }) {
+function DetailRow({ label, value, tone = "text-white" }: { label: string; value: string | number; tone?: string }) {
   return (
     <div className="rounded-2xl bg-black/30 p-3">
       <div className="text-xs font-bold text-slate-500">{label}</div>
-      <div className="mt-1 text-sm font-black text-white">{value}</div>
+      <div className={`mt-1 text-sm font-black ${tone}`}>{value}</div>
     </div>
   );
 }
@@ -793,7 +863,8 @@ function StockCard({
   const history = signalMap[stock.code];
   const decision = getDecision(stock, top50, mainIndustries, settings, history);
   const risk = riskAction(stock, top50, mainIndustries, settings, industryStatus);
-  const holding = getHoldingDecision(decision, risk);
+  const plan = tradePlan(stock, top50, mainIndustries, settings, industryStatus);
+  const holding = getHoldingDecision(decision, plan.action);
   const pv = priceVolumeState(stock, top50, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
@@ -805,7 +876,6 @@ function StockCard({
   const pullback = pullbackRadar(stock, top50, mainIndustries, settings);
   const chase = chaseRisk(stock, top50, settings);
   const exit = exitAlert(stock, top50, settings, industryStatus);
-  const stopLine = atrStopLine(stock);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -840,21 +910,21 @@ function StockCard({
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-          <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
-            成交金額
+          <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(plan.action)}`}>
+            交易計畫
             <br />
-            {formatAmount(estimatedAmount(stock))}
+            {plan.action}
           </div>
           <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
             ATR停利線
             <br />
-            {formatPrice(stopLine)}
+            {formatPrice(plan.stop2)}
           </div>
         </div>
 
         <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
           <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(pullback)}`}>
-            回測雷達
+            買點雷達
             <br />
             {pullback}
           </div>
@@ -865,20 +935,29 @@ function StockCard({
           </div>
         </div>
 
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
+          <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
+            理想買點
+            <br />
+            {formatPrice(plan.idealBuyLow)}～{formatPrice(plan.idealBuyHigh)}
+          </div>
+          <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(exit)}`}>
+            出場提醒
+            <br />
+            {exit}
+          </div>
+        </div>
+
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(decision)}`}>{decision}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${riskTone(risk)}`}>{risk}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${riskTone(plan.action)}`}>{plan.action}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(holding)}`}>持股：{holding}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(pv)}`}>{pv}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
         </div>
 
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${riskTone(exit)}`}>
-          出場提醒：{exit}
-        </div>
-
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
-          {getMainlineText(decision)}
+          加倉：{plan.addText}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -993,9 +1072,9 @@ function StockQuickModal({
   const history = signalMap[stock.code];
   const decision = getDecision(stock, top50, mainIndustries, settings, history);
   const risk = riskAction(stock, top50, mainIndustries, settings, industryStatus);
-  const holding = getHoldingDecision(decision, risk);
+  const plan = tradePlan(stock, top50, mainIndustries, settings, industryStatus);
+  const holding = getHoldingDecision(decision, plan.action);
   const pv = priceVolumeState(stock, top50, settings);
-  const zone = buyZone(stock);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
   const isFavorite = favoriteCodes.includes(stock.code);
@@ -1004,8 +1083,6 @@ function StockQuickModal({
   const pullback = pullbackRadar(stock, top50, mainIndustries, settings);
   const chase = chaseRisk(stock, top50, settings);
   const exit = exitAlert(stock, top50, settings, industryStatus);
-  const atr = atrValue(stock);
-  const stopLine = atrStopLine(stock);
 
   return (
     <ModalShell title={stockDisplayName(stock)} sub={`${stock.code}｜${stock.industry}`} onClose={onClose} z={120}>
@@ -1019,77 +1096,91 @@ function StockQuickModal({
         </div>
       </div>
 
+      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${riskTone(plan.action)}`}>
+        <div className="text-xs font-bold text-slate-400">個股交易計畫</div>
+        <div className="mt-1 text-3xl font-black">{plan.action}</div>
+        <div className="mt-2 text-sm font-bold text-slate-300">
+          買點：{plan.buyText}
+          <br />
+          停損：{plan.stopText}
+          <br />
+          停利：{plan.profitText}
+          <br />
+          加倉：{plan.addText}
+        </div>
+      </section>
+
       <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
         <div className="text-xs font-bold text-slate-400">主線結論</div>
-        <div className="mt-1 text-3xl font-black">{decision}</div>
+        <div className="mt-1 text-2xl font-black">{decision}</div>
         <div className="mt-2 text-sm font-bold text-slate-300">{getMainlineText(decision)}</div>
       </section>
 
-      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${riskTone(risk)}`}>
-        <div className="text-xs font-bold text-slate-400">進出場風控結論</div>
-        <div className="mt-1 text-2xl font-black">{risk}</div>
+      <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
+        <div className="text-lg font-black text-blue-100">我的買點在哪</div>
+        <div className={`mt-2 text-2xl font-black ${riskTone(pullback)}`}>{pullback}</div>
+        <div className="mt-2 text-sm font-bold text-blue-100">
+          理想回測買點：{formatPrice(plan.idealBuyLow)} ～ {formatPrice(plan.idealBuyHigh)}
+          <br />
+          突破確認買點：{formatPrice(plan.breakoutBuy)}
+          <br />
+          追高禁止區：高於 {formatPrice(plan.noChasePrice)}
+          <br />
+          目前開盤後：{formatPercent(afterOpenPercent(stock))}
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl bg-red-950/30 p-4">
+        <div className="text-lg font-black text-red-100">停損在哪</div>
+        <div className={`mt-2 text-xl font-black ${riskTone(exit)}`}>{exit}</div>
+        <div className="mt-2 text-sm font-bold text-red-100">
+          第一停損：跌破開盤價 {formatPrice(plan.stop1)}
+          <br />
+          第二停損：跌破ATR線 {formatPrice(plan.stop2)}
+          <br />
+          最終停損：跌破昨收 {formatPrice(plan.stop3)}
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
+        <div className="text-lg font-black text-yellow-100">停利在哪</div>
+        <div className="mt-2 text-sm font-bold text-yellow-100">
+          第一停利觀察：漲幅接近 +5% 區 {formatPrice(plan.takeProfit1)}
+          <br />
+          移動停利線：{formatPrice(plan.takeProfit2)}
+          <br />
+          今日高點參考：{formatPrice(plan.takeProfit3)}
+          <br />
+          目前ATR：{formatPrice(plan.atr)}
+          <br />
+          {stock.price < plan.stop2 ? "已跌破ATR線，獲利要保護。" : "尚未跌破ATR線，續抱觀察。"}
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl bg-purple-950/30 p-4">
+        <div className="text-lg font-black text-purple-100">什麼時候可以加倉</div>
+        <div className={`mt-2 text-xl font-black ${riskTone(plan.action)}`}>{plan.addText}</div>
+        <div className="mt-2 text-sm font-bold text-purple-100">
+          加倉確認價：{formatPrice(plan.addPrice)}
+          <br />
+          條件：主線前三、量價同步、資金排名前段、沒有追高風險高、沒有跌破ATR線。
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl bg-black/30 p-4">
+        <div className="text-lg font-black text-white">風險摘要</div>
         <div className="mt-2 text-sm font-bold text-slate-300">
           回測雷達：{pullback}
           <br />
           追高風險：{chase}
           <br />
           出場提醒：{exit}
-        </div>
-      </section>
-
-      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
-        <div className="text-xs font-bold text-slate-400">現在該怎麼做</div>
-        <div className="mt-1 text-2xl font-black">{holding}</div>
-        <div className="mt-2 text-sm font-bold text-slate-300">
-          不追求最低最高，只做低風險區觀察、過熱不追、跌破風控線提醒。
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
-        <div className="text-lg font-black text-blue-100">回測買點雷達</div>
-        <div className={`mt-2 text-2xl font-black ${riskTone(pullback)}`}>{pullback}</div>
-        <div className="mt-2 text-sm font-bold text-blue-100">
-          理想觀察區：{zone.observe}
           <br />
-          有效突破區：{zone.breakout}
-          <br />
-          追高風險區：{zone.chase}
-          <br />
-          開盤後：{formatPercent(afterOpenPercent(stock))}
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
-        <div className="text-lg font-black text-yellow-100">ATR 移動停利</div>
-        <div className="mt-2 text-sm font-bold text-yellow-100">
-          估算 ATR：{formatPrice(atr)}
-          <br />
-          ATR停利線：{formatPrice(stopLine)}
-          <br />
-          目前現價：{formatPrice(stock.price)}
-          <br />
-          跌破提醒：{stock.price < stopLine ? "已跌破，減碼 / 出場觀察" : "尚未跌破，續抱觀察"}
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-red-950/30 p-4">
-        <div className="text-lg font-black text-red-100">主線失效出場提醒</div>
-        <div className={`mt-2 text-xl font-black ${riskTone(exit)}`}>{exit}</div>
-        <div className="mt-2 text-sm font-bold text-red-100">
-          風控條件：跌破開盤價、跌破ATR線、跌破昨收、爆量不漲、產業退潮。
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-purple-950/30 p-4">
-        <div className="text-lg font-black text-purple-100">資金與量能</div>
-        <div className="mt-2 text-sm font-bold text-purple-100">
-          成交金額：{formatAmount(estimatedAmount(stock))}
+          量價狀態：{pv}
           <br />
           成交金額排名：#{amountRankIndex(stock, top50)}
           <br />
           成交量排名：#{volumeRankIndex(stock, top50)}
-          <br />
-          量價狀態：{pv}
         </div>
       </section>
 
@@ -1125,6 +1216,10 @@ function StockQuickModal({
         >
           {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
         </button>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-black/40 p-3 text-xs font-bold text-slate-400">
+        提醒：這是盤中輔助風控，不保證獲利，也不是最低點買最高點賣。
       </div>
     </ModalShell>
   );
@@ -1240,7 +1335,6 @@ export default function App() {
   );
 
   const amountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
-
   const volumeList = useMemo(() => [...top50].sort((a, b) => b.volume - a.volume), [top50]);
 
   const watchStocks = useMemo(() => {
@@ -1272,9 +1366,17 @@ export default function App() {
   const riskSummary = useMemo(() => {
     const buyCount = top50.filter((stock) => pullbackRadar(stock, top50, mainIndustries, settings) === "回測買點").length;
     const chaseHighCount = top50.filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高").length;
-    const exitCount = top50.filter((stock) => exitAlert(stock, top50, settings, stockIndustryStatus(stock)).includes("出場") || exitAlert(stock, top50, settings, stockIndustryStatus(stock)).includes("跌破")).length;
+    const exitCount = top50.filter((stock) => {
+      const exit = exitAlert(stock, top50, settings, stockIndustryStatus(stock));
+      return exit.includes("出場") || exit.includes("跌破");
+    }).length;
 
-    return { buyCount, chaseHighCount, exitCount };
+    const addCount = top50.filter((stock) => {
+      const plan = tradePlan(stock, top50, mainIndustries, settings, stockIndustryStatus(stock));
+      return plan.action === "可小幅加倉";
+    }).length;
+
+    return { buyCount, chaseHighCount, exitCount, addCount };
   }, [top50, mainIndustries, settings, industryRanking]);
 
   const marketStructure = useMemo(() => {
@@ -1282,6 +1384,7 @@ export default function App() {
     if (riskSummary.exitCount >= 8 || failedList.length >= 8) return "主線退潮，先避開";
     if (riskSummary.chaseHighCount >= 8 || overheatList.length >= 8) return "短線過熱，不追高";
     if (riskSummary.buyCount >= 3) return "出現回測買點，等確認";
+    if (riskSummary.addCount >= 2) return "主線強攻，可觀察加倉";
     if (topIndustry.amountShare >= 25 && topIndustry.coreCount >= 2) return "資金集中，主線明確";
     if (industryRanking.slice(0, 3).filter((i) => i.status === "資金分歧").length >= 2) return "資金分歧，只挑核心";
     if (coreList.length >= 3) return "主線續航，看核心股";
@@ -1291,6 +1394,9 @@ export default function App() {
   const homeSentence = useMemo(() => {
     if (!topIndustry) return "目前尚未取得資料。";
 
+    if (marketStructure === "主線強攻，可觀察加倉") {
+      return `主線強攻中，有 ${riskSummary.addCount} 檔符合加倉觀察，但仍要守停損與ATR線。`;
+    }
     if (marketStructure === "出現回測買點，等確認") {
       return `目前有 ${riskSummary.buyCount} 檔接近回測買點，優先看主線內、量價沒轉弱的股票。`;
     }
@@ -1561,8 +1667,8 @@ export default function App() {
       const ad = getDecision(a, top50, mainIndustries, settings, signalMap[a.code]);
       const bd = getDecision(b, top50, mainIndustries, settings, signalMap[b.code]);
 
-      const ar = riskAction(a, top50, mainIndustries, settings, stockIndustryStatus(a));
-      const br = riskAction(b, top50, mainIndustries, settings, stockIndustryStatus(b));
+      const ar = tradePlan(a, top50, mainIndustries, settings, stockIndustryStatus(a)).action;
+      const br = tradePlan(b, top50, mainIndustries, settings, stockIndustryStatus(b)).action;
 
       const weight = (d: string, r: string) => {
         let score = 0;
@@ -1572,6 +1678,7 @@ export default function App() {
         if (d === "觀察中") score += 300;
         if (d === "過熱不追") score += 100;
         if (r === "低風險觀察") score += 350;
+        if (r === "可小幅加倉") score += 300;
         if (r === "等確認") score += 150;
         if (r === "不追高") score -= 300;
         if (r === "出場提醒") score -= 600;
@@ -1595,9 +1702,9 @@ export default function App() {
 
   function popupTitle(key: PopupKey) {
     if (key === "core") return "主線核心股";
-    if (key === "pullback") return "回測買點雷達";
+    if (key === "pullback") return "買點與回測雷達";
     if (key === "overheat") return "追高風險警報";
-    if (key === "failed") return "主線失效出場";
+    if (key === "failed") return "停損與出場提醒";
     if (key === "amount") return "成交金額排行";
     if (key === "volume") return "成交量排行";
     if (key === "top50") return "今日50強";
@@ -1636,10 +1743,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">主線進出場風控強化版</div>
+              <div className="text-sm font-bold text-slate-400">個股交易計畫版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                回測買點、追高風險、ATR停利、主線失效提醒。
+                買點、停損、停利、加倉條件一次看。
               </p>
             </div>
 
@@ -1653,7 +1760,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-lg font-black text-cyan-100">全個股查詢</div>
-              <div className="mt-1 text-xs font-bold text-slate-400">查詢後也會顯示回測、追高、ATR、出場提醒。</div>
+              <div className="mt-1 text-xs font-bold text-slate-400">查詢後會顯示個股交易計畫。</div>
             </div>
             <button onClick={() => setPopup("search")} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
               查詢
@@ -1726,16 +1833,18 @@ export default function App() {
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
             <DetailRow label="資金集中度" value={topIndustry ? `${topIndustry.amountShare.toFixed(1)}%` : "--"} />
-            <DetailRow label="回測買點" value={`${riskSummary.buyCount} 檔`} />
-            <DetailRow label="出場提醒" value={`${riskSummary.exitCount} 檔`} />
+            <DetailRow label="回測買點" value={`${riskSummary.buyCount} 檔`} tone="text-yellow-300" />
+            <DetailRow label="可加倉觀察" value={`${riskSummary.addCount} 檔`} tone="text-emerald-300" />
+            <DetailRow label="追高風險" value={`${riskSummary.chaseHighCount} 檔`} tone="text-orange-300" />
+            <DetailRow label="出場提醒" value={`${riskSummary.exitCount} 檔`} tone="text-red-300" />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
           <MiniCard title="主線核心股" value={coreList.length} sub="資金+量價同步" tone="text-emerald-300" onClick={() => setPopup("core")} />
-          <MiniCard title="回測買點" value={pullbackList.length} sub="低風險觀察" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+          <MiniCard title="買點雷達" value={pullbackList.length} sub="回測 / 接近買點" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
           <MiniCard title="追高風險" value={overheatList.length} sub="過熱不追" tone="text-orange-300" onClick={() => setPopup("overheat")} />
-          <MiniCard title="出場提醒" value={failedList.length} sub="主線失效" tone="text-red-300" onClick={() => setPopup("failed")} />
+          <MiniCard title="停損出場" value={failedList.length} sub="主線失效" tone="text-red-300" onClick={() => setPopup("failed")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
@@ -1750,21 +1859,21 @@ export default function App() {
             <div>
               <h2 className="text-base font-black text-white">主線快篩</h2>
               <p className="mt-1 text-[11px] font-bold text-slate-500">
-                點一下直接跳出清單，不用往下滑。
+                點一下直接跳出清單。
               </p>
             </div>
 
             <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-yellow-300">
-              風控版
+              交易計畫
             </div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
             {[
               ["core", "💎", "核心"],
-              ["pullback", "🎯", "回測"],
+              ["pullback", "🎯", "買點"],
               ["overheat", "🔥", "追高"],
-              ["failed", "⚠️", "出場"],
+              ["failed", "⚠️", "停損"],
               ["amount", "💰", "資金"],
               ["volume", "📊", "成交量"],
               ["industry", "🏭", "產業"],
@@ -1784,7 +1893,7 @@ export default function App() {
         <section className="mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
-              {tab === "home" && "主線進出場快選"}
+              {tab === "home" && "個股交易計畫快選"}
               {tab === "top50" && "今日50強"}
               {tab === "watch" && "觀察清單"}
               {tab === "favorite" && "自選股"}
@@ -1815,9 +1924,9 @@ export default function App() {
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">主線進出場快選</h3>
+                  <h3 className="text-xl font-black">交易計畫快選</h3>
                   <button onClick={() => setPopup("pullback")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
-                    回測買點
+                    買點
                   </button>
                 </div>
 
@@ -1872,9 +1981,9 @@ export default function App() {
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
               <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
-              <ActionCard title="回測買點" sub="低風險觀察" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+              <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
               <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-              <ActionCard title="出場提醒" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+              <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
               <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
               <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
@@ -1883,7 +1992,7 @@ export default function App() {
       </div>
 
       {["core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
-        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票快看`} onClose={() => setPopup("")}>
+        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看交易計畫`} onClose={() => setPopup("")}>
           <div className="space-y-3">
             {popupList(popup).length === 0 && (
               <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
@@ -1898,7 +2007,7 @@ export default function App() {
       )}
 
       {popup === "industry" && (
-        <ModalShell title="產業資金排行" sub="點產業看該產業主攻股" onClose={() => setPopup("")}>
+        <ModalShell title="產業資金排行" sub="點產業看該產業股票" onClose={() => setPopup("")}>
           <div className="space-y-3">
             {industryRanking.map((item, index) => (
               <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
@@ -2040,9 +2149,10 @@ export default function App() {
             <div>第二主線：{secondIndustry?.industry || "--"}</div>
             <div>第三主線：{thirdIndustry?.industry || "--"}</div>
             <div>主線核心股數：{coreList.length}</div>
-            <div>回測買點股數：{pullbackList.length}</div>
+            <div>買點雷達股數：{pullbackList.length}</div>
             <div>追高風險股數：{overheatList.length}</div>
-            <div>出場提醒股數：{failedList.length}</div>
+            <div>停損出場股數：{failedList.length}</div>
+            <div>可加倉觀察股數：{riskSummary.addCount}</div>
             <div>盤中型態：{marketStructure}</div>
           </div>
 
