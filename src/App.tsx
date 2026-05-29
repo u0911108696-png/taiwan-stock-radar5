@@ -18,65 +18,36 @@ type Stock = {
 type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
 type PopupKey =
   | ""
+  | "industry"
   | "core"
   | "pullback"
-  | "newStrong"
   | "overheat"
   | "failed"
-  | "holding"
-  | "industry"
   | "amount"
   | "top50"
-  | "settings"
+  | "search"
   | "data"
-  | "search";
-
-type PriceDirection = "up" | "down" | "same" | "new";
-
-type Settings = {
-  refreshSeconds: number;
-  dataSaver: boolean;
-  maxPrice: number;
-  hotPercent: number;
-  confirmTimes: number;
-  attackConfirmTimes: number;
-  noisePercent: number;
-  stableIndustryLock: boolean;
-};
-
-type ApiResponse = {
-  stocks?: any[];
-  data?: any[];
-  rankedStocks?: any[];
-  updatedAt?: string;
-  updatedAtTaiwan?: string;
-  source?: string;
-};
+  | "settings";
 
 type SignalHistory = {
   code: string;
   prices: number[];
+  attackRaw: boolean[];
   entryRaw: boolean[];
-  moneyAttackRaw: boolean[];
-  highQualityRaw: boolean[];
   failRaw: boolean[];
   overheatRaw: boolean[];
   pullbackRaw: boolean[];
-  validBreakoutRaw: boolean[];
-  moneyOutRaw: boolean[];
-  volumeNoRiseRaw: boolean[];
-  lowVolumeFakeRaw: boolean[];
-  changedAt?: string;
 };
 
-type IndustryHistory = {
-  industry: string;
-  topMoneyRaw: boolean[];
-  continuationRaw: boolean[];
-  outRaw: boolean[];
+type Settings = {
+  refreshSeconds: number;
+  confirmTimes: number;
+  noisePercent: number;
+  hotPercent: number;
+  stableIndustryLock: boolean;
 };
 
-type IndustryLineItem = {
+type IndustryItem = {
   industry: string;
   count: number;
   totalAmount: number;
@@ -84,85 +55,37 @@ type IndustryLineItem = {
   avgChange: number;
   amountShare: number;
   volumeShare: number;
-  lineWeight: number;
-  retentionRate: number;
   attackCount: number;
-  attackContinueCount: number;
-  highQualityCount: number;
+  coreCount: number;
   failCount: number;
   overheatCount: number;
-  status: "主線續航" | "主線剛轉入" | "主線分歧" | "主線退潮" | "主線過熱" | "觀察中";
+  score: number;
+  status: "主線續航" | "主線剛轉強" | "資金分歧" | "主線退潮" | "短線過熱" | "觀察中";
   light: "綠燈" | "黃燈" | "紅燈" | "灰燈";
   stocks: Stock[];
 };
+
+type PriceDirection = "up" | "down" | "same" | "new";
 
 const API_URL = "/api/stocks";
 const SEARCH_API_URL = "/api/search";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
-const SETTINGS_KEY = "taiwan-stock-radar-all-search-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-all-search-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-all-search-signals";
-const INDUSTRY_SIGNAL_KEY = "taiwan-stock-radar-all-search-industry";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-all-search-locked";
-const SEARCH_HISTORY_KEY = "taiwan-stock-radar-all-search-history";
+const SETTINGS_KEY = "taiwan-stock-radar-main-money-core-settings";
+const CACHE_KEY = "taiwan-stock-radar-main-money-core-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-main-money-core-signals";
+const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-main-money-core-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
-  dataSaver: false,
-  maxPrice: 200,
-  hotPercent: 8,
   confirmTimes: 3,
-  attackConfirmTimes: 3,
   noisePercent: 0.3,
+  hotPercent: 8,
   stableIndustryLock: true,
 };
 
-const industryMap: Record<string, string> = {
-  "1101": "水泥", "1102": "水泥",
-  "1216": "食品", "1227": "食品",
-  "1301": "塑化", "1303": "塑化", "6505": "塑化",
-  "2002": "鋼鐵", "2014": "鋼鐵", "2027": "鋼鐵",
-  "2201": "汽車", "2207": "汽車",
-  "2301": "電子", "2303": "半導體", "2308": "電源能源",
-  "2313": "電子零組件", "2317": "電子代工", "2324": "電腦週邊",
-  "2330": "半導體", "2337": "記憶體", "2344": "記憶體",
-  "2354": "電子", "2356": "電腦週邊", "2357": "電腦週邊",
-  "2367": "電子零組件", "2379": "半導體", "2382": "電子代工",
-  "2408": "記憶體", "2409": "面板", "2454": "半導體",
-  "2603": "航運", "2609": "航運", "2615": "航運", "2618": "航運",
-  "2881": "金融", "2882": "金融", "2884": "金融", "2886": "金融",
-  "2891": "金融", "2892": "金融",
-  "3008": "光學", "3017": "電子零組件",
-  "3034": "半導體", "3035": "半導體", "3037": "電子零組件",
-  "3042": "光電", "3231": "電子代工", "3406": "光學",
-  "3443": "半導體", "3481": "面板",
-  "3711": "半導體", "3714": "半導體",
-  "4966": "半導體", "6415": "半導體", "6669": "電子代工",
-};
-
-function n(value: unknown, fallback = 0) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : fallback;
-}
-
-function safeParse<T>(text: string | null, fallback: T): T {
-  try {
-    if (!text) return fallback;
-    return JSON.parse(text);
-  } catch {
-    return fallback;
-  }
-}
-
-function nowText() {
-  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
-}
-
-function cleanCode(value: string) {
-  return value.replace(/\D/g, "").slice(0, 6);
-}
 const codeToChineseName: Record<string, string> = {
   "2330": "台積電",
   "2303": "聯電",
@@ -191,6 +114,7 @@ const codeToChineseName: Record<string, string> = {
   "2379": "瑞昱",
   "6415": "矽力-KY",
   "6770": "力積電",
+  "3711": "日月光投控",
   "2383": "台光電",
   "3037": "欣興",
   "3189": "景碩",
@@ -213,9 +137,93 @@ const codeToChineseName: Record<string, string> = {
   "2615": "萬海",
 };
 
+const industryMap: Record<string, string> = {
+  "2330": "半導體",
+  "2303": "半導體",
+  "2454": "半導體",
+  "3034": "半導體",
+  "8299": "半導體",
+  "3443": "半導體",
+  "3661": "半導體",
+  "3035": "半導體",
+  "2379": "半導體",
+  "6415": "半導體",
+  "6770": "半導體",
+  "3711": "半導體",
+
+  "2344": "記憶體",
+  "2408": "記憶體",
+  "2337": "記憶體",
+
+  "2317": "電子代工",
+  "2382": "AI伺服器",
+  "3231": "AI伺服器",
+  "6669": "AI伺服器",
+  "2324": "電子代工",
+  "2356": "電子代工",
+  "2357": "電腦週邊",
+  "2376": "AI伺服器",
+  "2377": "電腦週邊",
+
+  "2383": "PCB",
+  "3037": "PCB",
+  "3189": "PCB",
+  "8046": "PCB",
+  "2368": "PCB",
+  "2313": "PCB",
+  "2367": "PCB",
+
+  "3017": "散熱",
+  "3324": "散熱",
+  "3653": "散熱",
+  "2308": "電源能源",
+  "2301": "電源能源",
+
+  "3481": "面板",
+  "2409": "面板",
+
+  "1519": "重電",
+  "1503": "重電",
+  "1514": "重電",
+  "1513": "重電",
+
+  "2881": "金融",
+  "2882": "金融",
+  "2884": "金融",
+  "2885": "金融",
+  "2891": "金融",
+
+  "2603": "航運",
+  "2609": "航運",
+  "2615": "航運",
+};
+
+function n(value: unknown, fallback = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function safeParse<T>(text: string | null, fallback: T): T {
+  try {
+    if (!text) return fallback;
+    return JSON.parse(text);
+  } catch {
+    return fallback;
+  }
+}
+
+function nowText() {
+  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+}
+
+function cleanCode(value: string) {
+  return String(value || "").replace(/\D/g, "").slice(0, 6);
+}
+
 function stockDisplayName(stock: { code: string; name?: string }) {
   return codeToChineseName[stock.code] || stock.name || stock.code;
 }
+
 function formatNumber(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toLocaleString("zh-TW");
@@ -240,9 +248,15 @@ function formatAmount(value: number) {
 }
 
 function normalizeStock(raw: any, updateTime: string): Stock {
-  const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "").replace(".TW", "").replace(".TWO", "");
+  const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "")
+    .replace(".TW", "")
+    .replace(".TWO", "")
+    .replace(/\D/g, "")
+    .slice(0, 6);
+
   const rawName = String(raw.name ?? raw.stockName ?? raw.stockNameZh ?? code);
-const name = codeToChineseName[code] || rawName;
+  const name = codeToChineseName[code] || rawName;
+
   const price = n(raw.price ?? raw.close ?? raw.lastPrice ?? raw.z);
   const previousClose = n(raw.previousClose ?? raw.prevClose ?? raw.yesterdayClose ?? raw.y);
   const openPrice = n(raw.openPrice ?? raw.open ?? raw.o ?? price);
@@ -293,14 +307,6 @@ function estimatedAmount(stock: Stock) {
   return Math.max(0, stock.price * stock.volume);
 }
 
-function isHot(stock: Stock, settings: Settings) {
-  return stock.changePercent >= settings.hotPercent || afterOpenPercent(stock) >= 4 || openingPremium(stock) >= 6;
-}
-
-function isWeak(stock: Stock) {
-  return stock.price < stock.openPrice || stock.price < stock.previousClose || stock.changePercent < 2;
-}
-
 function amountRankIndex(stock: Stock, list: Stock[]) {
   const sorted = [...list].sort((a, b) => estimatedAmount(b) - estimatedAmount(a));
   const index = sorted.findIndex((s) => s.code === stock.code);
@@ -326,6 +332,16 @@ function volumeRankPercent(stock: Stock, list: Stock[]) {
   return rankPercent(volumeRankIndex(stock, list), list.length);
 }
 
+function priceMovePercent(stock: Stock, prevPrice?: number) {
+  if (!prevPrice || prevPrice <= 0) return 0;
+  return ((stock.price - prevPrice) / prevPrice) * 100;
+}
+
+function isMeaningfulMove(stock: Stock, prevPrice: number | undefined, settings: Settings) {
+  if (!prevPrice) return true;
+  return Math.abs(priceMovePercent(stock, prevPrice)) >= settings.noisePercent;
+}
+
 function volumeState(stock: Stock, list: Stock[]) {
   const rank = volumeRankPercent(stock, list);
   if (rank >= 80) return "量能強";
@@ -335,81 +351,43 @@ function volumeState(stock: Stock, list: Stock[]) {
 
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
+
   if (stock.price < stock.openPrice || stock.price < stock.previousClose) return "轉弱退潮";
   if (stock.changePercent >= 3 && vol === "量能強") return "量價同步";
-  if (stock.changePercent >= settings.hotPercent && vol !== "量能強") return "量價背離";
-  if (vol === "量能不足") return "量縮觀望";
-  return "量價同步";
+  if (stock.changePercent >= settings.hotPercent && vol !== "量能強") return "低量假強";
+  if (amountRankPercent(stock, list) >= 70 && stock.changePercent < 2.5) return "爆量不漲";
+  return "觀察中";
 }
 
-function priceMovePercent(stock: Stock, prevPrice?: number) {
-  if (!prevPrice || prevPrice <= 0) return 0;
-  return ((stock.price - prevPrice) / prevPrice) * 100;
+function isOverheat(stock: Stock, settings: Settings) {
+  return stock.changePercent >= settings.hotPercent || openingPremium(stock) >= 6 || afterOpenPercent(stock) >= 4;
 }
 
-function isMeaningfulMove(stock: Stock, prevPrice: number | undefined, settings: Settings) {
-  return Math.abs(priceMovePercent(stock, prevPrice)) >= settings.noisePercent;
-}
-
-function rawValidBreakout(stock: Stock, list: Stock[], settings: Settings) {
-  return stock.price >= stock.openPrice * 1.005 && priceVolumeState(stock, list, settings) === "量價同步";
-}
-
-function rawInvalidBreakout(stock: Stock, list: Stock[], settings: Settings) {
-  const nearOpen = Math.abs(afterOpenPercent(stock)) <= 0.5;
-  return stock.price >= stock.openPrice && (volumeState(stock, list) === "量能不足" || nearOpen);
-}
-
-function rawContinuation(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
-  const premium = openingPremium(stock);
-  const afterOpen = afterOpenPercent(stock);
+function isFail(stock: Stock, list: Stock[], settings: Settings) {
   const pv = priceVolumeState(stock, list, settings);
-  const isMain = mainIndustries.includes(stock.industry);
-
-  if (premium >= 2 && afterOpen < 0) return "開盤強轉弱";
-  if (premium >= 2 && pv === "量價背離") return "假強警報";
-  if (premium >= 2 && afterOpen > 0.5 && pv === "量價同步") return "開盤強續航";
-  if (premium >= 0 && premium < 2 && afterOpen > 0.8 && pv === "量價同步") return "低調續航";
-  if (afterOpen > 0.5 && isMain && pv === "量價同步") return "續航中";
-  if (stock.price < stock.openPrice) return "轉弱中";
-  return "等確認";
+  return pv === "轉弱退潮" || pv === "爆量不漲" || stock.price < stock.openPrice || stock.changePercent < 0;
 }
 
-function rawMoneyAttack(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
+function isMoneyAttack(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
   return (
-    amountRankPercent(stock, list) >= 75 &&
-    volumeRankPercent(stock, list) >= 70 &&
+    mainIndustries.includes(stock.industry) &&
+    amountRankPercent(stock, list) >= 70 &&
+    volumeRankPercent(stock, list) >= 65 &&
     stock.price >= stock.openPrice &&
     priceVolumeState(stock, list, settings) === "量價同步" &&
-    rawContinuation(stock, list, mainIndustries, settings).includes("續航") &&
-    !isHot(stock, settings)
+    !isOverheat(stock, settings)
   );
 }
 
-function rawVolumeNoRise(stock: Stock, list: Stock[]) {
+function isPullback(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
   return (
-    volumeRankPercent(stock, list) >= 75 &&
-    amountRankPercent(stock, list) >= 70 &&
-    (stock.price < stock.openPrice || stock.changePercent < 2.5)
+    mainIndustries.includes(stock.industry) &&
+    amountRankPercent(stock, list) >= 60 &&
+    stock.price >= stock.openPrice &&
+    afterOpenPercent(stock) >= 1.5 &&
+    afterOpenPercent(stock) <= 3.5 &&
+    !isFail(stock, list, settings)
   );
-}
-
-function rawLowVolumeFake(stock: Stock, list: Stock[], settings: Settings) {
-  return stock.changePercent >= 5 && volumeRankPercent(stock, list) <= 35 && priceVolumeState(stock, list, settings) !== "量價同步";
-}
-
-function rawMoneyOut(stock: Stock, list: Stock[]) {
-  return volumeRankPercent(stock, list) >= 65 && stock.price < stock.openPrice && stock.changePercent < 2;
-}
-
-function lastNAllTrue(values: boolean[] | undefined, count: number) {
-  if (!values || values.length < count) return false;
-  return values.slice(-count).every(Boolean);
-}
-
-function lastNAnyTrue(values: boolean[] | undefined, count: number) {
-  if (!values || values.length < count) return false;
-  return values.slice(-count).some(Boolean);
 }
 
 function stableCount(values: boolean[] | undefined) {
@@ -422,99 +400,23 @@ function stableCount(values: boolean[] | undefined) {
   return count;
 }
 
-function signalProgress(history: SignalHistory | undefined, total: number, field: keyof SignalHistory) {
-  const values = history?.[field];
-  const count = Array.isArray(values) ? stableCount(values as boolean[]) : 0;
-  return `${Math.min(count, total)}/${total}`;
-}
-
-function rawEntryScore(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
-  let score = 0;
-  const cont = rawContinuation(stock, list, mainIndustries, settings);
-  const pv = priceVolumeState(stock, list, settings);
-
-  if (mainIndustries.includes(stock.industry)) score += 18;
-  if (cont.includes("續航")) score += 20;
-  if (stock.price >= stock.openPrice) score += 10;
-  if (pv === "量價同步") score += 12;
-  if (volumeState(stock, list) === "量能強") score += 10;
-  if (amountRankPercent(stock, list) >= 75) score += 10;
-  if (stock.price <= settings.maxPrice) score += 6;
-  if (!isHot(stock, settings)) score += 8;
-  if (rawValidBreakout(stock, list, settings)) score += 10;
-  if (rawMoneyAttack(stock, list, mainIndustries, settings)) score += 12;
-
-  if (rawInvalidBreakout(stock, list, settings)) score -= 10;
-  if (isHot(stock, settings)) score -= 24;
-  if (isWeak(stock)) score -= 25;
-  if (cont === "假強警報" || cont === "開盤強轉弱" || cont === "轉弱中") score -= 30;
-  if (rawVolumeNoRise(stock, list)) score -= 12;
-  if (rawMoneyOut(stock, list)) score -= 18;
-  if (rawLowVolumeFake(stock, list, settings)) score -= 15;
-
-  return Math.max(0, Math.min(100, Math.round(score)));
-}
-
-function mainlineDecision(
-  stock: Stock,
-  history: SignalHistory | undefined,
-  list: Stock[],
-  mainIndustries: string[],
-  settings: Settings,
-  industryStatus: string
-) {
-  const attackContinue = lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes);
-  const attackRecent = lastNAnyTrue(history?.moneyAttackRaw, 5);
-  const fail = lastNAllTrue(history?.failRaw, settings.confirmTimes) || lastNAllTrue(history?.moneyOutRaw, settings.confirmTimes);
-  const overheat = lastNAllTrue(history?.overheatRaw, 2) || isHot(stock, settings);
-  const pullback = lastNAllTrue(history?.pullbackRaw, 2);
-
-  if (fail) return "主線失效";
-  if (overheat && attackContinue) return "主線過熱不追";
-  if (pullback) return "主線等回測";
-  if (industryStatus === "主線續航" && attackContinue && rawEntryScore(stock, list, mainIndustries, settings) >= 72) return "主線核心股";
-  if (industryStatus === "主線剛轉入" || attackRecent) return "主線剛轉強";
-  if (mainIndustries.includes(stock.industry) && rawMoneyAttack(stock, list, mainIndustries, settings)) return "主線可觀察";
-  return "等待主線";
-}
-
-function holdingDecision(
-  stock: Stock,
-  history: SignalHistory | undefined,
-  list: Stock[],
-  mainIndustries: string[],
-  settings: Settings,
-  industryStatus: string
-) {
-  const decision = mainlineDecision(stock, history, list, mainIndustries, settings, industryStatus);
-
-  if (decision === "主線核心股" || decision === "主線可觀察") return "可續抱";
-  if (decision === "主線剛轉強" || decision === "主線等回測") return "提高警覺";
-  if (decision === "主線過熱不追") return "分批停利";
-  if (decision === "主線失效") return "主線失效";
-  return "等待確認";
-}
-
-function buyZone(stock: Stock) {
-  return {
-    observe: `${formatPrice(stock.openPrice)} ～ ${formatPrice(stock.openPrice * 1.015)}`,
-    breakout: formatPrice(stock.openPrice * 1.005),
-    chase: `高於 ${formatPrice(stock.openPrice * 1.03)}`,
-  };
+function lastNAllTrue(values: boolean[] | undefined, count: number) {
+  if (!values || values.length < count) return false;
+  return values.slice(-count).every(Boolean);
 }
 
 function decisionTone(label: string) {
-  if (["主線核心股", "主線可觀察", "可續抱"].includes(label)) return "text-emerald-300";
-  if (["主線等回測", "主線剛轉強", "等待主線", "提高警覺", "等待確認"].includes(label)) return "text-yellow-300";
-  if (["主線過熱不追", "分批停利"].includes(label)) return "text-orange-300";
-  if (["主線失效"].includes(label)) return "text-red-300";
+  if (["主線核心", "可續抱", "資金主攻"].includes(label)) return "text-emerald-300";
+  if (["等回測", "提高警覺", "主線剛轉強", "觀察中"].includes(label)) return "text-yellow-300";
+  if (["過熱不追", "分批停利", "短線過熱"].includes(label)) return "text-orange-300";
+  if (["主線失效", "出場避開", "轉弱退潮", "爆量不漲", "低量假強"].includes(label)) return "text-red-300";
   return "text-slate-300";
 }
 
 function flowTone(label: string) {
   if (label === "主線續航" || label === "綠燈") return "text-emerald-300";
-  if (label === "主線剛轉入" || label === "主線分歧" || label === "黃燈") return "text-yellow-300";
-  if (label === "主線過熱") return "text-orange-300";
+  if (label === "主線剛轉強" || label === "資金分歧" || label === "黃燈") return "text-yellow-300";
+  if (label === "短線過熱") return "text-orange-300";
   if (label === "主線退潮" || label === "紅燈") return "text-red-300";
   return "text-slate-300";
 }
@@ -534,49 +436,21 @@ function directionText(direction?: PriceDirection) {
   return "--";
 }
 
-function trendText(history?: SignalHistory) {
-  if (!history || history.prices.length < 2) return "新資料";
-  const recent = history.prices.slice(-3);
-  const first = recent[0];
-  const last = recent[recent.length - 1];
-  if (last > first) return "短線上升";
-  if (last < first) return "短線下降";
-  return "短線持平";
-}
-
-function progressBar(count: number, total: number) {
-  const safeTotal = Math.max(1, total);
-  const filled = Math.min(count, safeTotal);
-  const empty = Math.max(0, safeTotal - filled);
-  return "●".repeat(filled) + "○".repeat(empty);
-}
-
-function mainlineSentence(decision: string, industryStatus: string) {
-  if (decision === "主線核心股") return "這檔屬於資金續航產業，主攻已連續確認，若不追高可列入主線核心觀察。";
-  if (decision === "主線等回測") return "這檔仍在主線內，但距離開盤價較遠，現在不追，等回測合理位置。";
-  if (decision === "主線剛轉強") return "主線剛轉強，先觀察下一次更新是否延續，不急著追。";
-  if (decision === "主線過熱不追") return "主線短線過熱，成交量放大但位置偏高，不追，持有者可考慮分批停利。";
-  if (decision === "主線失效") return "主攻失效或資金退潮，降低持有意願，先避開。";
-  if (industryStatus === "主線分歧") return "所屬產業資金分歧，只挑最高品質，不碰爆量不漲股。";
-  return "等待資金主線更明確，先看產業續航與主攻確認。";
-}
-
-function getIndustryLineRanking(
-  stocks: Stock[],
-  mainIndustries: string[],
+function getIndustryRanking(
+  list: Stock[],
   settings: Settings,
   signalMap: Record<string, SignalHistory>,
-  industryHistoryMap: Record<string, IndustryHistory>
-): IndustryLineItem[] {
-  const totalVolume = stocks.reduce((sum, stock) => sum + Math.max(0, stock.volume), 0);
-  const totalAmount = stocks.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
-  const map = new Map<string, IndustryLineItem>();
+  lockedIndustries: string[]
+): IndustryItem[] {
+  const totalAmount = list.reduce((sum, s) => sum + estimatedAmount(s), 0);
+  const totalVolume = list.reduce((sum, s) => sum + s.volume, 0);
+  const rawMain = lockedIndustries.length ? lockedIndustries : [];
 
-  stocks.forEach((stock) => {
-    const history = signalMap[stock.code];
+  const map = new Map<string, IndustryItem>();
 
+  list.forEach((stock) => {
     const item =
-      map.get(stock.industry) ??
+      map.get(stock.industry) ||
       {
         industry: stock.industry,
         count: 0,
@@ -585,13 +459,11 @@ function getIndustryLineRanking(
         avgChange: 0,
         amountShare: 0,
         volumeShare: 0,
-        lineWeight: 0,
-        retentionRate: 0,
         attackCount: 0,
-        attackContinueCount: 0,
-        highQualityCount: 0,
+        coreCount: 0,
         failCount: 0,
         overheatCount: 0,
+        score: 0,
         status: "觀察中",
         light: "灰燈",
         stocks: [],
@@ -599,76 +471,128 @@ function getIndustryLineRanking(
 
     item.count += 1;
     item.totalAmount += estimatedAmount(stock);
-    item.totalVolume += Math.max(0, stock.volume);
+    item.totalVolume += stock.volume;
     item.avgChange += stock.changePercent;
     item.stocks.push(stock);
-
-    if (rawMoneyAttack(stock, stocks, mainIndustries, settings)) item.attackCount += 1;
-    if (lastNAllTrue(history?.moneyAttackRaw, settings.attackConfirmTimes)) item.attackContinueCount += 1;
-    if (lastNAllTrue(history?.highQualityRaw, settings.confirmTimes)) item.highQualityCount += 1;
-    if (lastNAllTrue(history?.failRaw, 2) || rawMoneyOut(stock, stocks) || rawVolumeNoRise(stock, stocks)) item.failCount += 1;
-    if (isHot(stock, settings)) item.overheatCount += 1;
 
     map.set(stock.industry, item);
   });
 
-  return Array.from(map.values())
+  const temp = Array.from(map.values()).map((item) => {
+    const avgChange = item.avgChange / Math.max(1, item.count);
+    const amountShare = totalAmount > 0 ? (item.totalAmount / totalAmount) * 100 : 0;
+    const volumeShare = totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0;
+
+    return { ...item, avgChange, amountShare, volumeShare };
+  });
+
+  const mainIndustries =
+    rawMain.length > 0
+      ? rawMain
+      : temp
+          .sort((a, b) => b.totalAmount + b.totalVolume * 10 - (a.totalAmount + a.totalVolume * 10))
+          .slice(0, 3)
+          .map((i) => i.industry);
+
+  return temp
     .map((item) => {
-      const avgChange = item.avgChange / Math.max(item.count, 1);
-      const amountShare = totalAmount > 0 ? (item.totalAmount / totalAmount) * 100 : 0;
-      const volumeShare = totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0;
-      const h = industryHistoryMap[item.industry];
+      let attackCount = 0;
+      let coreCount = 0;
+      let failCount = 0;
+      let overheatCount = 0;
 
-      const retentionRate = h?.continuationRaw?.length
-        ? (h.continuationRaw.filter(Boolean).length / h.continuationRaw.length) * 100
-        : 0;
+      item.stocks.forEach((stock) => {
+        const history = signalMap[stock.code];
+        const attack = isMoneyAttack(stock, list, mainIndustries, settings);
+        const fail = isFail(stock, list, settings);
+        const overheat = isOverheat(stock, settings);
 
-      const overheatRisk = avgChange >= 7 || item.overheatCount >= Math.max(2, item.count * 0.35);
-      const divergence = item.attackCount > 0 && item.failCount >= Math.max(1, item.count * 0.25);
+        if (attack) attackCount += 1;
+        if (attack && stableCount(history?.attackRaw) >= Math.max(1, settings.confirmTimes - 1)) coreCount += 1;
+        if (fail) failCount += 1;
+        if (overheat) overheatCount += 1;
+      });
 
-      const lineWeight =
-        amountShare * 2.4 +
-        volumeShare * 1.7 +
-        Math.max(0, avgChange) * 4 +
-        item.attackCount * 10 +
-        item.attackContinueCount * 18 +
-        item.highQualityCount * 14 +
-        retentionRate * 0.5 -
-        item.failCount * 14 -
-        item.overheatCount * 7;
+      const score =
+        item.amountShare * 2.5 +
+        item.volumeShare * 1.6 +
+        Math.max(0, item.avgChange) * 5 +
+        attackCount * 16 +
+        coreCount * 22 -
+        failCount * 18 -
+        overheatCount * 8;
 
-      let status: IndustryLineItem["status"] = "觀察中";
-      let light: IndustryLineItem["light"] = "灰燈";
+      let status: IndustryItem["status"] = "觀察中";
+      let light: IndustryItem["light"] = "灰燈";
 
-      if (item.failCount >= Math.max(2, item.count * 0.35)) {
+      if (failCount >= Math.max(2, item.count * 0.35)) {
         status = "主線退潮";
         light = "紅燈";
-      } else if (overheatRisk && item.attackContinueCount > 0) {
-        status = "主線過熱";
+      } else if (overheatCount >= Math.max(2, item.count * 0.35)) {
+        status = "短線過熱";
         light = "紅燈";
-      } else if (divergence) {
-        status = "主線分歧";
+      } else if (attackCount > 0 && failCount > 0) {
+        status = "資金分歧";
         light = "黃燈";
-      } else if (retentionRate >= 55 && item.attackContinueCount >= 1 && item.highQualityCount >= 1) {
+      } else if (coreCount >= 1 && item.amountShare >= 10) {
         status = "主線續航";
         light = "綠燈";
-      } else if (amountShare >= 10 || volumeShare >= 10 || item.attackCount >= 1) {
-        status = "主線剛轉入";
+      } else if (attackCount >= 1 || item.amountShare >= 10) {
+        status = "主線剛轉強";
         light = "黃燈";
       }
 
       return {
         ...item,
-        avgChange,
-        amountShare,
-        volumeShare,
-        lineWeight,
-        retentionRate,
+        attackCount,
+        coreCount,
+        failCount,
+        overheatCount,
+        score,
         status,
         light,
       };
     })
-    .sort((a, b) => b.lineWeight - a.lineWeight);
+    .sort((a, b) => b.score - a.score);
+}
+
+function getDecision(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, history?: SignalHistory) {
+  const attackStable = stableCount(history?.attackRaw) >= settings.confirmTimes;
+  const failStable = stableCount(history?.failRaw) >= 2;
+  const overheatStable = stableCount(history?.overheatRaw) >= 2;
+  const pullbackStable = stableCount(history?.pullbackRaw) >= 2;
+
+  if (failStable || isFail(stock, list, settings)) return "主線失效";
+  if (overheatStable || isOverheat(stock, settings)) return "過熱不追";
+  if (attackStable) return "主線核心";
+  if (pullbackStable || isPullback(stock, list, mainIndustries, settings)) return "等回測";
+  if (isMoneyAttack(stock, list, mainIndustries, settings)) return "資金主攻";
+  return "觀察中";
+}
+
+function getHoldingDecision(decision: string) {
+  if (decision === "主線核心" || decision === "資金主攻") return "可續抱";
+  if (decision === "等回測" || decision === "觀察中") return "提高警覺";
+  if (decision === "過熱不追") return "分批停利";
+  if (decision === "主線失效") return "出場避開";
+  return "提高警覺";
+}
+
+function getMainlineText(decision: string) {
+  if (decision === "主線核心") return "資金、量能、價格同步，屬於主線核心股，只等合理位置。";
+  if (decision === "資金主攻") return "資金正在攻擊，但還需要連續確認，先列入觀察。";
+  if (decision === "等回測") return "位置偏高但主線仍在，不追高，等回測合理區。";
+  if (decision === "過熱不追") return "短線漲幅或開盤溢價偏高，避免追高。";
+  if (decision === "主線失效") return "量價轉弱或爆量不漲，主線失效，先避開。";
+  return "主線尚未明確，先觀察產業資金是否延續。";
+}
+
+function buyZone(stock: Stock) {
+  return {
+    observe: `${formatPrice(stock.openPrice)} ～ ${formatPrice(stock.openPrice * 1.015)}`,
+    breakout: formatPrice(stock.openPrice * 1.005),
+    chase: `高於 ${formatPrice(stock.openPrice * 1.03)}`,
+  };
 }
 
 function MiniCard({
@@ -687,7 +611,7 @@ function MiniCard({
   return (
     <button onClick={onClick} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-left active:scale-95">
       <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className={`mt-1 text-xl font-black ${tone}`}>{value}</div>
+      <div className={`mt-1 text-2xl font-black ${tone}`}>{value}</div>
       <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
     </button>
   );
@@ -728,12 +652,12 @@ function DetailRow({ label, value }: { label: string; value: string | number }) 
   );
 }
 
-function IndustryLineCard({ item, rank }: { item: IndustryLineItem; rank: number }) {
+function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: number; onClick?: () => void }) {
   return (
-    <div className="rounded-3xl border border-slate-800 bg-slate-950 p-4">
+    <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">#{rank} 產業主線權重</div>
+          <div className="text-xs font-bold text-slate-500">#{rank} 資金主線</div>
           <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
           <div className={`mt-1 text-sm font-black ${flowTone(item.status)}`}>
             {item.light}｜{item.status}
@@ -742,17 +666,18 @@ function IndustryLineCard({ item, rank }: { item: IndustryLineItem; rank: number
 
         <div className="text-right">
           <div className="text-xl font-black text-yellow-300">{formatAmount(item.totalAmount)}</div>
-          <div className="text-sm font-black text-emerald-300">權重 {item.lineWeight.toFixed(0)}</div>
-          <div className="text-xs font-black text-slate-400">留存 {item.retentionRate.toFixed(0)}%</div>
+          <div className="text-xs font-black text-slate-400">資金占比 {item.amountShare.toFixed(1)}%</div>
+          <div className="text-xs font-black text-slate-400">分數 {item.score.toFixed(0)}</div>
         </div>
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">主攻續航<br />{item.attackContinueCount}</div>
-        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">高品質<br />{item.highQualityCount}</div>
+      <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-black">
+        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">主攻<br />{item.attackCount}</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">核心<br />{item.coreCount}</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-orange-300">過熱<br />{item.overheatCount}</div>
         <div className="rounded-2xl bg-black/30 p-2 text-red-300">失效<br />{item.failCount}</div>
       </div>
-    </div>
+    </button>
   );
 }
 
@@ -763,7 +688,6 @@ function StockCard({
   mainIndustries,
   settings,
   signalMap,
-  industryStatus,
   favoriteCodes,
   watchCodes,
   priceDirections,
@@ -781,7 +705,6 @@ function StockCard({
   mainIndustries: string[];
   settings: Settings;
   signalMap: Record<string, SignalHistory>;
-  industryStatus: string;
   favoriteCodes: string[];
   watchCodes: string[];
   priceDirections: Record<string, PriceDirection>;
@@ -794,16 +717,15 @@ function StockCard({
   onRemoveWatch: (code: string) => void;
 }) {
   const history = signalMap[stock.code];
-  const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
-  const holding = holdingDecision(stock, history, top50, mainIndustries, settings, industryStatus);
-  const cont = rawContinuation(stock, top50, mainIndustries, settings);
-  const score = rawEntryScore(stock, top50, mainIndustries, settings);
+  const decision = getDecision(stock, top50, mainIndustries, settings, history);
+  const holding = getHoldingDecision(decision);
+  const pv = priceVolumeState(stock, top50, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
   const isFavorite = favoriteCodes.includes(stock.code);
   const isWatch = watchCodes.includes(stock.code);
+  const attackCount = stableCount(history?.attackRaw);
   const mainIndex = mainIndustries.indexOf(stock.industry);
-  const attackCount = stableCount(history?.moneyAttackRaw);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -814,7 +736,7 @@ function StockCard({
             <div className="mt-1 text-lg font-black text-white">{stockDisplayName(stock)}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
               {stock.industry}
-              {mainIndex >= 0 ? `｜資金主線${mainIndex + 1}` : ""}
+              {mainIndex >= 0 ? `｜第${mainIndex + 1}主線` : ""}
             </div>
           </div>
 
@@ -822,36 +744,46 @@ function StockCard({
             <div className={`text-xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
               {formatPercent(stock.changePercent)}
             </div>
-            <div className="mt-1 text-sm font-black text-white">{formatNumber(stock.price)}</div>
+            <div className="mt-1 text-sm font-black text-white">{formatPrice(stock.price)}</div>
           </div>
         </div>
 
         <div className="mt-3 rounded-2xl bg-black/30 p-2">
           <div className="flex items-center justify-between text-xs font-black text-slate-300">
             <span>主攻確認</span>
-            <span>{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}</span>
+            <span>{Math.min(attackCount, settings.confirmTimes)}/{settings.confirmTimes}</span>
           </div>
           <div className="mt-1 text-lg tracking-widest text-emerald-300">
-            {progressBar(attackCount, settings.attackConfirmTimes)}
+            {"●".repeat(Math.min(attackCount, settings.confirmTimes))}
+            {"○".repeat(Math.max(0, settings.confirmTimes - Math.min(attackCount, settings.confirmTimes)))}
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
+          <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
+            成交金額
+            <br />
+            {formatAmount(estimatedAmount(stock))}
+          </div>
+          <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
+            金額/量排名
+            <br />#{amountRankIndex(stock, top50)} / #{volumeRankIndex(stock, top50)}
           </div>
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(decision)}`}>{decision}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(holding)}`}>持股：{holding}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${flowTone(industryStatus)}`}>{industryStatus}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(cont)}`}>{cont}</span>
-          <span className="rounded-full bg-emerald-950 px-3 py-1 text-emerald-200">分數 {score}</span>
-          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{priceVolumeState(stock, top50, settings)}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(pv)}`}>{pv}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
-          {mainlineSentence(decision, industryStatus)}
+          {getMainlineText(decision)}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
-          即時：{directionText(direction)}｜{trendText(history)}
+          即時：{directionText(direction)}
           <br />
           {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
           <br />
@@ -882,13 +814,54 @@ function StockCard({
   );
 }
 
+function ModalShell({
+  title,
+  sub,
+  children,
+  onClose,
+  z = 90,
+}: {
+  title: string;
+  sub?: string;
+  children: React.ReactNode;
+  onClose: () => void;
+  z?: number;
+}) {
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm"
+      style={{ zIndex: z }}
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              {sub && <div className="text-xs font-bold text-slate-500">{sub}</div>}
+              <div className="mt-1 text-2xl font-black text-white">{title}</div>
+            </div>
+
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
+              ×
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function StockQuickModal({
   stock,
   top50,
   mainIndustries,
   settings,
   signalMap,
-  industryStatus,
   favoriteCodes,
   watchCodes,
   priceDirections,
@@ -905,7 +878,6 @@ function StockQuickModal({
   mainIndustries: string[];
   settings: Settings;
   signalMap: Record<string, SignalHistory>;
-  industryStatus: string;
   favoriteCodes: string[];
   watchCodes: string[];
   priceDirections: Record<string, PriceDirection>;
@@ -918,10 +890,9 @@ function StockQuickModal({
   onRemoveWatch: (code: string) => void;
 }) {
   const history = signalMap[stock.code];
-  const decision = mainlineDecision(stock, history, top50, mainIndustries, settings, industryStatus);
-  const holding = holdingDecision(stock, history, top50, mainIndustries, settings, industryStatus);
-  const cont = rawContinuation(stock, top50, mainIndustries, settings);
-  const score = rawEntryScore(stock, top50, mainIndustries, settings);
+  const decision = getDecision(stock, top50, mainIndustries, settings, history);
+  const holding = getHoldingDecision(decision);
+  const pv = priceVolumeState(stock, top50, settings);
   const zone = buyZone(stock);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
@@ -929,491 +900,93 @@ function StockQuickModal({
   const isWatch = watchCodes.includes(stock.code);
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
-              <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(stock)}</div>
-            </div>
-
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">
-              ×
-            </button>
-          </div>
-
-          <div className="mt-2 flex items-center justify-between">
-            <div className={`text-3xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-              {formatPercent(stock.changePercent)}
-            </div>
-            <div className="text-right">
-              <div className="text-xs font-bold text-slate-500">現價</div>
-              <div className="text-xl font-black text-white">{formatPrice(stock.price)}</div>
-            </div>
-          </div>
+    <ModalShell title={stockDisplayName(stock)} sub={`${stock.code}｜${stock.industry}`} onClose={onClose} z={120}>
+      <div className="flex items-center justify-between rounded-2xl bg-black/30 p-4">
+        <div className={`text-3xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
+          {formatPercent(stock.changePercent)}
         </div>
-
-        <section className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
-          <div className="text-xs font-bold text-slate-400">主線結論</div>
-          <div className="mt-1 text-3xl font-black">{decision}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">{mainlineSentence(decision, industryStatus)}</div>
-        </section>
-
-        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
-          <div className="text-xs font-bold text-slate-400">現在該怎麼做</div>
-          <div className="mt-1 text-2xl font-black">{holding}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            停損提醒：跌破開盤價或主攻失效。
-            <br />
-            停利提醒：主線過熱、量放大但不再創高。
-          </div>
-        </section>
-
-        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${flowTone(industryStatus)}`}>
-          <div className="text-xs font-bold text-slate-400">產業主線</div>
-          <div className="mt-1 text-2xl font-black">{industryStatus}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            主流產業：{mainIndustries.includes(stock.industry) ? "是" : "否"}
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
-          <div className="text-lg font-black text-blue-100">主線買點區</div>
-          <div className="mt-2 text-sm font-bold text-blue-100">
-            理想觀察區：{zone.observe}
-            <br />
-            有效突破區：{zone.breakout}
-            <br />
-            追高風險區：{zone.chase}
-            <br />
-            目前開盤後：{formatPercent(afterOpenPercent(stock))}
-          </div>
-        </section>
-
-        <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
-          <div className="text-lg font-black text-yellow-100">資金與量能</div>
-          <div className="mt-2 text-sm font-bold text-yellow-100">
-            估算成交金額：{formatAmount(estimatedAmount(stock))}
-            <br />
-            成交金額排名：#{amountRankIndex(stock, top50)}
-            <br />
-            成交量排名：#{volumeRankIndex(stock, top50)}
-            <br />
-            主攻確認：{signalProgress(history, settings.attackConfirmTimes, "moneyAttackRaw")}
-            <br />
-            進場確認：{signalProgress(history, settings.confirmTimes, "entryRaw")}
-          </div>
-        </section>
-
-        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(cont)}`}>
-          <div className="text-xs font-bold text-slate-400">盤中續航</div>
-          <div className="mt-1 text-2xl font-black">{cont}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            趨勢：{trendText(history)}
-            <br />
-            量價：{priceVolumeState(stock, top50, settings)}
-            <br />
-            進場分數：{score}
-          </div>
-        </section>
-
-        <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${directionTone(direction)}`}>
-          <div className="text-xs font-bold text-slate-400">即時股價</div>
-          <div className="mt-1 text-xl font-black">{directionText(direction)}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
-            <br />
-            開盤：{formatPrice(stock.openPrice)}｜昨收：{formatPrice(stock.previousClose)}
-            <br />
-            最高：{formatPrice(stock.highPrice)}｜最低：{formatPrice(stock.lowPrice)}
-            <br />
-            更新：{stock.updatedAt || lastSuccessAt || "--"}
-          </div>
-        </section>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button
-            onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
-            className={`rounded-2xl py-3 text-sm font-black ${
-              isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
-            }`}
-          >
-            {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
-          </button>
-
-          <button
-            onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
-            className={`rounded-2xl py-3 text-sm font-black ${
-              isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
-            }`}
-          >
-            {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
-          </button>
+        <div className="text-right">
+          <div className="text-xs font-bold text-slate-500">現價</div>
+          <div className="text-xl font-black text-white">{formatPrice(stock.price)}</div>
         </div>
       </div>
-    </div>
-  );
-}
 
-function CategoryListModal(props: {
-  title: string;
-  sub: string;
-  stocks: Stock[];
-  top50: Stock[];
-  mainIndustries: string[];
-  settings: Settings;
-  signalMap: Record<string, SignalHistory>;
-  industryStatusMap: Record<string, string>;
-  favoriteCodes: string[];
-  watchCodes: string[];
-  priceDirections: Record<string, PriceDirection>;
-  previousPriceMap: Record<string, number>;
-  lastSuccessAt: string;
-  onClose: () => void;
-  onOpenStock: (code: string) => void;
-  onAddFavorite: (code: string) => void;
-  onRemoveFavorite: (code: string) => void;
-  onAddWatch: (code: string) => void;
-  onRemoveWatch: (code: string) => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">{props.sub}</div>
-              <div className="mt-1 text-2xl font-black text-white">{props.title}</div>
-              <div className="mt-1 text-sm font-bold text-cyan-300">共 {props.stocks.length} 檔｜點股票直接快看</div>
-            </div>
+      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
+        <div className="text-xs font-bold text-slate-400">主線結論</div>
+        <div className="mt-1 text-3xl font-black">{decision}</div>
+        <div className="mt-2 text-sm font-bold text-slate-300">{getMainlineText(decision)}</div>
+      </section>
 
-            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
+      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(holding)}`}>
+        <div className="text-xs font-bold text-slate-400">現在該怎麼做</div>
+        <div className="mt-1 text-2xl font-black">{holding}</div>
+        <div className="mt-2 text-sm font-bold text-slate-300">
+          停損：跌破開盤價、爆量不漲、主線失效。
+          <br />
+          停利：短線過熱、量放大但不再創高。
         </div>
+      </section>
 
-        <div className="mt-4 space-y-3">
-          {props.stocks.length === 0 && (
-            <div className="rounded-2xl border border-slate-800 bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
-              目前沒有符合條件的股票。
-            </div>
-          )}
-
-          {props.stocks.map((stock, index) => (
-            <StockCard
-              key={`${stock.code}-${index}`}
-              stock={stock}
-              rank={index + 1}
-              top50={props.top50}
-              mainIndustries={props.mainIndustries}
-              settings={props.settings}
-              signalMap={props.signalMap}
-              industryStatus={props.industryStatusMap[stock.industry] || "觀察中"}
-              favoriteCodes={props.favoriteCodes}
-              watchCodes={props.watchCodes}
-              priceDirections={props.priceDirections}
-              previousPriceMap={props.previousPriceMap}
-              lastSuccessAt={props.lastSuccessAt}
-              onOpen={props.onOpenStock}
-              onAddFavorite={props.onAddFavorite}
-              onRemoveFavorite={props.onRemoveFavorite}
-              onAddWatch={props.onAddWatch}
-              onRemoveWatch={props.onRemoveWatch}
-            />
-          ))}
+      <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
+        <div className="text-lg font-black text-blue-100">買點區</div>
+        <div className="mt-2 text-sm font-bold text-blue-100">
+          理想觀察區：{zone.observe}
+          <br />
+          有效突破區：{zone.breakout}
+          <br />
+          追高風險區：{zone.chase}
+          <br />
+          開盤後：{formatPercent(afterOpenPercent(stock))}
         </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
+        <div className="text-lg font-black text-yellow-100">資金與量能</div>
+        <div className="mt-2 text-sm font-bold text-yellow-100">
+          成交金額：{formatAmount(estimatedAmount(stock))}
+          <br />
+          成交金額排名：#{amountRankIndex(stock, top50)}
+          <br />
+          成交量排名：#{volumeRankIndex(stock, top50)}
+          <br />
+          量價狀態：{pv}
+        </div>
+      </section>
+
+      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${directionTone(direction)}`}>
+        <div className="text-xs font-bold text-slate-400">即時股價</div>
+        <div className="mt-1 text-xl font-black">{directionText(direction)}</div>
+        <div className="mt-2 text-sm font-bold text-slate-300">
+          {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
+          <br />
+          開盤：{formatPrice(stock.openPrice)}｜昨收：{formatPrice(stock.previousClose)}
+          <br />
+          最高：{formatPrice(stock.highPrice)}｜最低：{formatPrice(stock.lowPrice)}
+          <br />
+          更新：{stock.updatedAt || lastSuccessAt || "--"}
+        </div>
+      </section>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
+          className={`rounded-2xl py-3 text-sm font-black ${
+            isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"
+          }`}
+        >
+          {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
+        </button>
+
+        <button
+          onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
+          className={`rounded-2xl py-3 text-sm font-black ${
+            isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"
+          }`}
+        >
+          {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
+        </button>
       </div>
-    </div>
-  );
-}
-
-function SearchPopup({
-  query,
-  setQuery,
-  loading,
-  message,
-  history,
-  onSearch,
-  onPick,
-  onClose,
-}: {
-  query: string;
-  setQuery: (value: string) => void;
-  loading: boolean;
-  message: string;
-  history: Stock[];
-  onSearch: () => void;
-  onPick: (stock: Stock) => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">不限50強</div>
-              <div className="mt-1 text-2xl font-black text-white">全個股查詢</div>
-            </div>
-
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-          <div className="text-sm font-black text-cyan-200">輸入股票代號或常見名稱</div>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onSearch();
-              }}
-              placeholder="例如 2330、2344、華邦電"
-              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-            />
-            <button onClick={onSearch} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
-              {loading ? "查詢中" : "查詢"}
-            </button>
-          </div>
-
-          {message && <div className="mt-3 text-sm font-bold text-yellow-200">{message}</div>}
-        </div>
-
-        <div className="mt-4">
-          <div className="text-lg font-black text-white">最近查詢</div>
-          <div className="mt-3 space-y-2">
-            {history.length === 0 && (
-              <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                尚無查詢紀錄。
-              </div>
-            )}
-
-            {history.map((stock) => (
-              <button
-                key={stock.code}
-                onClick={() => onPick(stock)}
-                className="w-full rounded-2xl border border-slate-800 bg-black/30 p-3 text-left active:scale-95"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
-                    <div className="mt-1 text-lg font-black text-white">{stockDisplayName(stock)}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-lg font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-                      {formatPercent(stock.changePercent)}
-                    </div>
-                    <div className="text-sm font-black text-white">{formatPrice(stock.price)}</div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function IndustryPopup({ items, onClose }: { items: IndustryLineItem[]; onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">產業資金主線</div>
-              <div className="mt-1 text-2xl font-black text-white">產業主線權重排行</div>
-            </div>
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {items.map((item, index) => (
-            <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingsPopup(props: {
-  settings: Settings;
-  saveSettings: (next: Settings) => void;
-  lockCurrentIndustries: () => void;
-  clearLockedIndustries: () => void;
-  resetSignals: () => void;
-  onClose: () => void;
-}) {
-  const { settings, saveSettings } = props;
-
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">快看設定</div>
-              <div className="mt-1 text-2xl font-black text-white">設定</div>
-            </div>
-            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-4">
-          <div>
-            <div className="mb-2 text-lg font-black">主攻確認次數</div>
-            <div className="grid grid-cols-3 gap-2">
-              {[2, 3, 4].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => saveSettings({ ...settings, attackConfirmTimes: num })}
-                  className={`rounded-2xl py-3 text-sm font-black ${
-                    settings.attackConfirmTimes === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                  }`}
-                >
-                  {num}次
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 text-lg font-black">降噪幅度</div>
-            <div className="grid grid-cols-3 gap-2">
-              {[0.2, 0.3, 0.5].map((num) => (
-                <button
-                  key={num}
-                  onClick={() => saveSettings({ ...settings, noisePercent: num })}
-                  className={`rounded-2xl py-3 text-sm font-black ${
-                    settings.noisePercent === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                  }`}
-                >
-                  {num}%
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button
-            onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })}
-            className={`w-full rounded-2xl py-3 text-lg font-black ${
-              settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
-            }`}
-          >
-            主流產業鎖定：{settings.stableIndustryLock ? "開啟" : "關閉"}
-          </button>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button onClick={props.lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-              鎖定目前主流
-            </button>
-            <button onClick={props.clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
-              解除鎖定
-            </button>
-          </div>
-
-          <div>
-            <div className="mb-2 text-lg font-black">即時更新頻率</div>
-            <div className="grid grid-cols-4 gap-2">
-              {[
-                [15, "15秒"],
-                [30, "30秒"],
-                [60, "60秒"],
-                [0, "手動"],
-              ].map(([value, label]) => (
-                <button
-                  key={String(value)}
-                  onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value), dataSaver: Number(value) === 0 })}
-                  className={`rounded-2xl py-3 text-sm font-black ${
-                    settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button onClick={props.resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
-            重置所有主線確認紀錄
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DataPopup(props: {
-  stocks: Stock[];
-  top50: Stock[];
-  totalEstimatedAmount: number;
-  lastSuccessAt: string;
-  lastAttemptAt: string;
-  apiDataTime: string;
-  source: string;
-  error: string;
-  mainlineCoreList: Stock[];
-  mainlinePullbackList: Stock[];
-  mainlineNewStrongList: Stock[];
-  mainlineOverheatList: Stock[];
-  mainlineFailedList: Stock[];
-  holdingList: Stock[];
-  topLineIndustry?: IndustryLineItem;
-  marketStructure: string;
-  loadStocks: () => void;
-  resetSignals: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" onClick={props.onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">資料健康檢查</div>
-              <div className="mt-1 text-2xl font-black text-white">主線統計</div>
-            </div>
-            <button onClick={props.onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-2 text-sm font-bold text-slate-300">
-          <div>API是否成功：{props.error ? "失敗" : props.lastSuccessAt ? "成功" : "尚未成功"}</div>
-          <div>資料筆數：{props.stocks.length}</div>
-          <div>50強筆數：{props.top50.length}</div>
-          <div>最新資料時間：{props.apiDataTime || "讀取中"}</div>
-          <div>最後嘗試更新：{props.lastAttemptAt || "--"}</div>
-          <div>最後成功更新：{props.lastSuccessAt || "尚未成功"}</div>
-          <div>資料來源：{props.source || "讀取中"}</div>
-          <div>50強總成交金額估算：{formatAmount(props.totalEstimatedAmount)}</div>
-          <div>主線核心股數：{props.mainlineCoreList.length}</div>
-          <div>主線等回測股數：{props.mainlinePullbackList.length}</div>
-          <div>主線剛轉強股數：{props.mainlineNewStrongList.length}</div>
-          <div>主線失效股數：{props.mainlineFailedList.length}</div>
-          <div>主線過熱股數：{props.mainlineOverheatList.length}</div>
-          <div>持股管理股數：{props.holdingList.length}</div>
-          <div>今日最強主線：{props.topLineIndustry?.industry || "--"}</div>
-          <div>盤中型態：{props.marketStructure}</div>
-        </div>
-
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button onClick={props.loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-            立即更新
-          </button>
-          <button onClick={props.resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-            重置主線紀錄
-          </button>
-        </div>
-      </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -1425,11 +998,11 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
+  const [industryPopup, setIndustryPopup] = useState("");
 
   const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
   const [watchCodes, setWatchCodes] = useState<string[]>([]);
   const [signalMap, setSignalMap] = useState<Record<string, SignalHistory>>({});
-  const [industryHistoryMap, setIndustryHistoryMap] = useState<Record<string, IndustryHistory>>({});
 
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState("mainline");
@@ -1458,107 +1031,69 @@ export default function App() {
 
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
-  const rawIndustryRanking = useMemo(() => {
-    const map = new Map<string, { industry: string; amount: number; volume: number; score: number }>();
+  const floatingMainIndustries = useMemo(() => {
+    const map = new Map<string, { industry: string; amount: number; volume: number }>();
 
     top50.forEach((stock) => {
-      const item = map.get(stock.industry) || { industry: stock.industry, amount: 0, volume: 0, score: 0 };
+      const item = map.get(stock.industry) || { industry: stock.industry, amount: 0, volume: 0 };
       item.amount += estimatedAmount(stock);
-      item.volume += Math.max(0, stock.volume);
-      item.score += stock.changePercent + Math.max(0, openingPremium(stock)) + estimatedAmount(stock) / 10000000;
+      item.volume += stock.volume;
       map.set(stock.industry, item);
     });
 
-    return Array.from(map.values()).sort(
-      (a, b) => b.amount + b.volume * 10 + b.score * 1000000 - (a.amount + a.volume * 10 + a.score * 1000000)
-    );
+    return Array.from(map.values())
+      .sort((a, b) => b.amount + b.volume * 10 - (a.amount + a.volume * 10))
+      .slice(0, 3)
+      .map((item) => item.industry);
   }, [top50]);
-
-  const floatingIndustries = useMemo(() => rawIndustryRanking.slice(0, 3).map((item) => item.industry), [rawIndustryRanking]);
 
   const mainIndustries = useMemo(() => {
     if (settings.stableIndustryLock && lockedIndustries.length > 0) return lockedIndustries;
-    return floatingIndustries;
-  }, [floatingIndustries, lockedIndustries, settings.stableIndustryLock]);
+    return floatingMainIndustries;
+  }, [settings.stableIndustryLock, lockedIndustries, floatingMainIndustries]);
 
-  const industryLineRanking = useMemo(
-    () => getIndustryLineRanking(top50, mainIndustries, settings, signalMap, industryHistoryMap),
-    [top50, mainIndustries, settings, signalMap, industryHistoryMap]
+  const industryRanking = useMemo(
+    () => getIndustryRanking(top50, settings, signalMap, settings.stableIndustryLock ? lockedIndustries : []),
+    [top50, settings, signalMap, lockedIndustries]
   );
-
-  const industryStatusMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    industryLineRanking.forEach((item) => {
-      map[item.industry] = item.status;
-    });
-    return map;
-  }, [industryLineRanking]);
-
-  function stockIndustryStatus(stock: Stock) {
-    return industryStatusMap[stock.industry] || "觀察中";
-  }
 
   const selectedStock = useMemo(() => {
     return stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null;
   }, [stocks, searchHistory, selectedCode]);
 
-  const mainlineCoreList = useMemo(
+  const coreList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線核心股")
-        .sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings)),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
-  );
-
-  const mainlinePullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線等回測")
+        .filter((stock) => getDecision(stock, top50, mainIndustries, settings, signalMap[stock.code]) === "主線核心")
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+    [top50, mainIndustries, settings, signalMap]
   );
 
-  const mainlineNewStrongList = useMemo(
+  const pullbackList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線剛轉強")
-        .sort((a, b) => stableCount(signalMap[b.code]?.moneyAttackRaw) - stableCount(signalMap[a.code]?.moneyAttackRaw)),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+        .filter((stock) => getDecision(stock, top50, mainIndustries, settings, signalMap[stock.code]) === "等回測")
+        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
+    [top50, mainIndustries, settings, signalMap]
   );
 
-  const mainlineOverheatList = useMemo(
+  const overheatList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線過熱不追")
+        .filter((stock) => getDecision(stock, top50, mainIndustries, settings, signalMap[stock.code]) === "過熱不追")
         .sort((a, b) => b.changePercent - a.changePercent),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+    [top50, mainIndustries, settings, signalMap]
   );
 
-  const mainlineFailedList = useMemo(
+  const failedList = useMemo(
     () =>
       top50
-        .filter((stock) => mainlineDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock)) === "主線失效")
+        .filter((stock) => getDecision(stock, top50, mainIndustries, settings, signalMap[stock.code]) === "主線失效")
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
+    [top50, mainIndustries, settings, signalMap]
   );
 
-  const holdingList = useMemo(
-    () =>
-      top50
-        .filter((stock) => ["可續抱", "提高警覺", "分批停利", "主線失效"].includes(holdingDecision(stock, signalMap[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock))))
-        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, signalMap, mainIndustries, settings, industryStatusMap]
-  );
-
-  const moneyAmountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
-
-  const favoriteStocks = useMemo(
-    () =>
-      favoriteCodes
-        .map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code))
-        .filter(Boolean) as Stock[],
-    [favoriteCodes, stocks, searchHistory]
-  );
+  const amountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
 
   const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
@@ -1568,45 +1103,55 @@ export default function App() {
       if (stock) map.set(code, stock);
     });
 
-    [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
+    [...coreList, ...pullbackList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
 
     return Array.from(map.values());
-  }, [watchCodes, stocks, searchHistory, mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
+  }, [watchCodes, stocks, searchHistory, coreList, pullbackList]);
 
-  const totalEstimatedAmount = useMemo(() => top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0), [top50]);
+  const favoriteStocks = useMemo(
+    () =>
+      favoriteCodes
+        .map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code))
+        .filter(Boolean) as Stock[],
+    [favoriteCodes, stocks, searchHistory]
+  );
 
-  const topLineIndustry = industryLineRanking[0];
+  const topIndustry = industryRanking[0];
+  const secondIndustry = industryRanking[1];
+  const thirdIndustry = industryRanking[2];
+  const totalAmount = top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
 
   const marketStructure = useMemo(() => {
-    if (mainlineFailedList.length >= 6) return "主線失效偏多，避開";
-    if (mainlineOverheatList.length >= 6) return "主線過熱，不追";
-    if (industryLineRanking.some((item) => item.status === "主線分歧")) return "資金分歧，只挑核心";
-    if (mainlineCoreList.length >= 3) return "主線明確，看核心股";
-    if (mainlineNewStrongList.length >= 5) return "主線剛轉強，等確認";
-    return "等待主線確認";
-  }, [mainlineFailedList, mainlineOverheatList, industryLineRanking, mainlineCoreList, mainlineNewStrongList]);
+    if (!topIndustry) return "等待資料";
+    if (failedList.length >= 8) return "主線退潮，先避開";
+    if (overheatList.length >= 8) return "短線過熱，不追高";
+    if (topIndustry.amountShare >= 25 && topIndustry.coreCount >= 2) return "資金集中，主線明確";
+    if (industryRanking.slice(0, 3).filter((i) => i.status === "資金分歧").length >= 2) return "資金分歧，只挑核心";
+    if (coreList.length >= 3) return "主線續航，看核心股";
+    return "資金尚未集中";
+  }, [topIndustry, failedList, overheatList, industryRanking, coreList]);
 
   const homeSentence = useMemo(() => {
-    if (!topLineIndustry) return "目前資金主線尚未形成，先等資料。";
+    if (!topIndustry) return "目前尚未取得資料。";
 
-    if (marketStructure === "主線明確，看核心股") {
-      return `今日主線策略：資金集中在 ${topLineIndustry.industry}，主攻續航股優先，爆量不漲股避開。`;
+    if (marketStructure === "資金集中，主線明確") {
+      return `資金集中在 ${topIndustry.industry}，優先看主線核心股，過熱股不追。`;
     }
-    if (marketStructure === "主線剛轉強，等確認") {
-      return `${topLineIndustry.industry} 主線剛轉強，先等下一次確認，不急追。`;
+    if (marketStructure === "主線續航，看核心股") {
+      return `${topIndustry.industry} 續航中，找量價同步、成交金額靠前的個股。`;
     }
     if (marketStructure === "資金分歧，只挑核心") {
-      return `資金分歧，只挑主線核心股，避開爆量不漲與低量假強。`;
+      return `資金分歧，避開爆量不漲，只挑核心主攻股。`;
     }
-    if (marketStructure === "主線過熱，不追") {
-      return `主線過熱，不追高；有持股者留意分批停利。`;
+    if (marketStructure === "短線過熱，不追高") {
+      return `主線短線過熱，先等回測，不追高。`;
     }
-    if (marketStructure === "主線失效偏多，避開") {
-      return `主線失效訊號偏多，先避開，等資金重新集中。`;
+    if (marketStructure === "主線退潮，先避開") {
+      return `主線失效股偏多，降低出手，等資金重新集中。`;
     }
 
-    return `目前最強主線是 ${topLineIndustry.industry}，但還需要更多主攻確認。`;
-  }, [topLineIndustry, marketStructure]);
+    return `目前第一主線是 ${topIndustry.industry}，但資金集中度還要再確認。`;
+  }, [topIndustry, marketStructure]);
 
   useEffect(() => {
     if (initedRef.current) return;
@@ -1621,11 +1166,9 @@ export default function App() {
     setWatchCodes(safeParse(localStorage.getItem(WATCH_KEY), []));
     setSearchHistory(safeParse(localStorage.getItem(SEARCH_HISTORY_KEY), []));
     setSignalMap(safeParse(localStorage.getItem(SIGNAL_KEY), {}));
-    setIndustryHistoryMap(safeParse(localStorage.getItem(INDUSTRY_SIGNAL_KEY), {}));
     setLockedIndustries(safeParse(localStorage.getItem(LOCKED_INDUSTRY_KEY), []));
 
-    const cached = safeParse<any>(localStorage.getItem(LAST_SUCCESS_KEY), null);
-
+    const cached = safeParse<any>(localStorage.getItem(CACHE_KEY), null);
     if (cached && Array.isArray(cached.stocks)) {
       setStocks(cached.stocks);
       setUsingCache(true);
@@ -1634,7 +1177,6 @@ export default function App() {
       cached.stocks.forEach((stock: Stock) => {
         prices[stock.code] = stock.price;
       });
-
       setLastPriceMap(prices);
 
       if (cached.lastSuccessAt) setLastSuccessAt(cached.lastSuccessAt);
@@ -1646,7 +1188,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (settings.refreshSeconds <= 0 || settings.dataSaver) return;
+    if (settings.refreshSeconds <= 0) return;
 
     const timer = window.setInterval(() => {
       setAutoSeconds((sec) => {
@@ -1659,7 +1201,7 @@ export default function App() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [settings.refreshSeconds, settings.dataSaver, lastPriceMap, mainIndustries, signalMap]);
+  }, [settings.refreshSeconds, lastPriceMap, mainIndustries, signalMap]);
 
   function saveSettings(next: Settings) {
     setSettings(next);
@@ -1674,19 +1216,19 @@ export default function App() {
   }
 
   function saveWatch(next: string[]) {
-    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 80);
+    const clean = Array.from(new Set(next.map(cleanCode).filter(Boolean))).slice(0, 100);
     setWatchCodes(clean);
     localStorage.setItem(WATCH_KEY, JSON.stringify(clean));
   }
 
   function saveSearchHistory(next: Stock[]) {
-    const unique = Array.from(new Map(next.map((stock) => [stock.code, stock])).values()).slice(0, 20);
+    const unique = Array.from(new Map(next.map((stock) => [stock.code, { ...stock, name: stockDisplayName(stock) }])).values()).slice(0, 20);
     setSearchHistory(unique);
     localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(unique));
   }
 
   function lockCurrentIndustries() {
-    const list = floatingIndustries.slice(0, 3);
+    const list = industryRanking.slice(0, 3).map((item) => item.industry);
     setLockedIndustries(list);
     localStorage.setItem(LOCKED_INDUSTRY_KEY, JSON.stringify(list));
   }
@@ -1698,110 +1240,44 @@ export default function App() {
 
   function resetSignals() {
     setSignalMap({});
-    setIndustryHistoryMap({});
     localStorage.removeItem(SIGNAL_KEY);
-    localStorage.removeItem(INDUSTRY_SIGNAL_KEY);
   }
 
-  function updateIndustryHistory(list: Stock[]) {
-    const topIndustries = [...list]
-      .slice(0, 50)
-      .reduce((map, stock) => {
-        const item = map.get(stock.industry) || { industry: stock.industry, amount: 0, volume: 0 };
-        item.amount += estimatedAmount(stock);
-        item.volume += stock.volume;
-        map.set(stock.industry, item);
-        return map;
-      }, new Map<string, { industry: string; amount: number; volume: number }>());
-
-    const ranked = Array.from(topIndustries.values())
-      .sort((a, b) => b.amount + b.volume * 10 - (a.amount + a.volume * 10))
-      .slice(0, 3)
-      .map((item) => item.industry);
-
-    setIndustryHistoryMap((old) => {
-      const next = { ...old };
-
-      Array.from(new Set([...Object.keys(next), ...ranked])).forEach((industry) => {
-        const oldItem = next[industry] || {
-          industry,
-          topMoneyRaw: [],
-          continuationRaw: [],
-          outRaw: [],
-        };
-
-        const industryStocks = list.slice(0, 50).filter((stock) => stock.industry === industry);
-        const attackCount = industryStocks.filter((stock) => rawMoneyAttack(stock, list.slice(0, 50), ranked, settings)).length;
-        const outCount = industryStocks.filter((stock) => rawMoneyOut(stock, list.slice(0, 50)) || rawVolumeNoRise(stock, list.slice(0, 50))).length;
-        const continuation = ranked.includes(industry) && attackCount > 0 && outCount === 0;
-
-        next[industry] = {
-          ...oldItem,
-          topMoneyRaw: [...oldItem.topMoneyRaw, ranked.includes(industry)].slice(-8),
-          continuationRaw: [...oldItem.continuationRaw, continuation].slice(-8),
-          outRaw: [...oldItem.outRaw, outCount > 0].slice(-8),
-        };
-      });
-
-      localStorage.setItem(INDUSTRY_SIGNAL_KEY, JSON.stringify(next));
-      return next;
-    });
-  }
-
-  function updateSignalHistory(list: Stock[], oldPrices: Record<string, number>) {
-    const activeMain =
-      settings.stableIndustryLock && lockedIndustries.length > 0
-        ? lockedIndustries
-        : floatingIndustries.slice(0, 3);
+  function updateSignals(list: Stock[], oldPrices: Record<string, number>) {
+    const topList = list.slice(0, 50);
+    const activeMain = settings.stableIndustryLock && lockedIndustries.length ? lockedIndustries : floatingMainIndustries;
 
     setSignalMap((old) => {
       const next = { ...old };
-      const topList = list.slice(0, 50);
 
-      list.slice(0, 80).forEach((stock) => {
-        const prevPrice = oldPrices[stock.code];
-        const oldItem: SignalHistory =
-          next[stock.code] || {
+      topList.forEach((stock) => {
+        const history =
+          next[stock.code] ||
+          ({
             code: stock.code,
             prices: [],
+            attackRaw: [],
             entryRaw: [],
-            moneyAttackRaw: [],
-            highQualityRaw: [],
             failRaw: [],
             overheatRaw: [],
             pullbackRaw: [],
-            validBreakoutRaw: [],
-            moneyOutRaw: [],
-            volumeNoRiseRaw: [],
-            lowVolumeFakeRaw: [],
-          };
+          } as SignalHistory);
 
-        const meaningful = isMeaningfulMove(stock, prevPrice, settings);
-        const moneyAttackOk = meaningful && rawMoneyAttack(stock, topList, activeMain, settings);
-        const validBreakoutOk = rawValidBreakout(stock, topList, settings);
-        const moneyOutOk = rawMoneyOut(stock, topList);
-        const volumeNoRiseOk = rawVolumeNoRise(stock, topList);
-        const lowVolumeFakeOk = rawLowVolumeFake(stock, topList, settings);
-        const failOk = moneyOutOk || volumeNoRiseOk || lowVolumeFakeOk || rawInvalidBreakout(stock, topList, settings);
-        const overheatOk = isHot(stock, settings) && (moneyAttackOk || lastNAnyTrue(oldItem.moneyAttackRaw, 5));
-        const pullbackOk = moneyAttackOk && afterOpenPercent(stock) > 2.5 && !overheatOk;
-        const entryOk = moneyAttackOk && validBreakoutOk && !failOk && !overheatOk;
-        const highQualityOk = entryOk && activeMain.includes(stock.industry) && priceVolumeState(stock, topList, settings) === "量價同步";
+        const meaningful = isMeaningfulMove(stock, oldPrices[stock.code], settings);
+        const attack = meaningful && isMoneyAttack(stock, topList, activeMain, settings);
+        const fail = isFail(stock, topList, settings);
+        const overheat = isOverheat(stock, settings);
+        const pullback = isPullback(stock, topList, activeMain, settings);
+        const entry = attack && !fail && !overheat;
 
         next[stock.code] = {
-          ...oldItem,
-          prices: [...oldItem.prices, stock.price].slice(-8),
-          entryRaw: [...oldItem.entryRaw, entryOk].slice(-8),
-          moneyAttackRaw: [...oldItem.moneyAttackRaw, moneyAttackOk].slice(-8),
-          highQualityRaw: [...oldItem.highQualityRaw, highQualityOk].slice(-8),
-          failRaw: [...oldItem.failRaw, failOk].slice(-8),
-          overheatRaw: [...oldItem.overheatRaw, overheatOk].slice(-8),
-          pullbackRaw: [...oldItem.pullbackRaw, pullbackOk].slice(-8),
-          validBreakoutRaw: [...oldItem.validBreakoutRaw, validBreakoutOk].slice(-8),
-          moneyOutRaw: [...oldItem.moneyOutRaw, moneyOutOk].slice(-8),
-          volumeNoRiseRaw: [...oldItem.volumeNoRiseRaw, volumeNoRiseOk].slice(-8),
-          lowVolumeFakeRaw: [...oldItem.lowVolumeFakeRaw, lowVolumeFakeOk].slice(-8),
-          changedAt: nowText(),
+          ...history,
+          prices: [...history.prices, stock.price].slice(-10),
+          attackRaw: [...history.attackRaw, attack].slice(-10),
+          entryRaw: [...history.entryRaw, entry].slice(-10),
+          failRaw: [...history.failRaw, fail].slice(-10),
+          overheatRaw: [...history.overheatRaw, overheat].slice(-10),
+          pullbackRaw: [...history.pullbackRaw, pullback].slice(-10),
         };
       });
 
@@ -1819,8 +1295,7 @@ export default function App() {
       const response = await fetch(`${API_URL}?t=${Date.now()}`, { cache: "no-store" });
       if (!response.ok) throw new Error(`API錯誤：${response.status}`);
 
-      const json: ApiResponse = await response.json();
-
+      const json = await response.json();
       const list = Array.isArray(json.rankedStocks)
         ? json.rankedStocks
         : Array.isArray(json.stocks)
@@ -1834,9 +1309,9 @@ export default function App() {
         (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
 
       const normalized = list
-        .map((raw) => normalizeStock(raw, dataTime))
-        .filter((stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
-        .sort((a, b) => b.changePercent - a.changePercent);
+        .map((raw: any) => normalizeStock(raw, dataTime))
+        .filter((stock: Stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
+        .sort((a: Stock, b: Stock) => b.changePercent - a.changePercent);
 
       if (normalized.length === 0) throw new Error("API回傳空資料");
 
@@ -1844,7 +1319,7 @@ export default function App() {
       const nextPriceMap: Record<string, number> = {};
       const nextDirections: Record<string, PriceDirection> = {};
 
-      normalized.forEach((stock) => {
+      normalized.forEach((stock: Stock) => {
         const oldPrice = oldPriceMap[stock.code];
         nextPriceMap[stock.code] = stock.price;
 
@@ -1855,7 +1330,7 @@ export default function App() {
       });
 
       const successTime = nowText();
-      const dataSource = json.source || "TWSE MIS + Yahoo fallback";
+      const dataSource = json.source || "TWSE / Yahoo fallback";
 
       setStocks(normalized);
       setPreviousPriceMap(oldPriceMap);
@@ -1866,11 +1341,10 @@ export default function App() {
       setSource(dataSource);
       setUsingCache(false);
 
-      updateIndustryHistory(normalized);
-      updateSignalHistory(normalized, oldPriceMap);
+      updateSignals(normalized, oldPriceMap);
 
       localStorage.setItem(
-        LAST_SUCCESS_KEY,
+        CACHE_KEY,
         JSON.stringify({
           stocks: normalized,
           lastSuccessAt: successTime,
@@ -1902,7 +1376,7 @@ export default function App() {
       const json = await response.json();
 
       if (!json.ok || !json.stock) {
-        setQueryMessage(json.message || "查無資料，請確認代號。");
+        setQueryMessage(json.message || "查無資料，請確認代號或名稱。");
         return;
       }
 
@@ -1927,118 +1401,78 @@ export default function App() {
     let arr = [...list];
 
     if (keyword) {
-      arr = arr.filter((stock) => stock.code.includes(keyword) || stock.name.includes(keyword) || stock.industry.includes(keyword));
-    }
-
-    if (sortKey === "mainline") {
-      return arr.sort((a, b) => {
-        const ah = signalMap[a.code];
-        const bh = signalMap[b.code];
-
-        const aIndustry = industryLineRanking.find((item) => item.industry === a.industry)?.lineWeight || 0;
-        const bIndustry = industryLineRanking.find((item) => item.industry === b.industry)?.lineWeight || 0;
-
-        const aScore =
-          aIndustry +
-          stableCount(ah?.moneyAttackRaw) * 30 +
-          amountRankPercent(a, top50) +
-          volumeRankPercent(a, top50) +
-          rawEntryScore(a, top50, mainIndustries, settings) -
-          (isHot(a, settings) ? 30 : 0) -
-          (lastNAllTrue(ah?.failRaw, 2) ? 60 : 0);
-
-        const bScore =
-          bIndustry +
-          stableCount(bh?.moneyAttackRaw) * 30 +
-          amountRankPercent(b, top50) +
-          volumeRankPercent(b, top50) +
-          rawEntryScore(b, top50, mainIndustries, settings) -
-          (isHot(b, settings) ? 30 : 0) -
-          (lastNAllTrue(bh?.failRaw, 2) ? 60 : 0);
-
-        return bScore - aScore;
-      });
+      arr = arr.filter((stock) => stock.code.includes(keyword) || stockDisplayName(stock).includes(keyword) || stock.industry.includes(keyword));
     }
 
     if (sortKey === "money") return arr.sort((a, b) => estimatedAmount(b) - estimatedAmount(a));
     if (sortKey === "volume") return arr.sort((a, b) => b.volume - a.volume);
-    if (sortKey === "entry") return arr.sort((a, b) => rawEntryScore(b, top50, mainIndustries, settings) - rawEntryScore(a, top50, mainIndustries, settings));
-    if (sortKey === "industry") {
-      return arr.sort((a, b) => {
-        const ia = industryLineRanking.findIndex((item) => item.industry === a.industry);
-        const ib = industryLineRanking.findIndex((item) => item.industry === b.industry);
-        return ia - ib;
-      });
-    }
     if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
-    if (sortKey === "price") return arr.sort((a, b) => a.price - b.price);
+    if (sortKey === "industry") {
+      return arr.sort((a, b) => mainIndustries.indexOf(a.industry) - mainIndustries.indexOf(b.industry));
+    }
 
-    return arr;
+    return arr.sort((a, b) => {
+      const ad = getDecision(a, top50, mainIndustries, settings, signalMap[a.code]);
+      const bd = getDecision(b, top50, mainIndustries, settings, signalMap[b.code]);
+
+      const weight = (d: string) => {
+        if (d === "主線核心") return 1000;
+        if (d === "資金主攻") return 800;
+        if (d === "等回測") return 600;
+        if (d === "觀察中") return 300;
+        if (d === "過熱不追") return 100;
+        return 0;
+      };
+
+      return weight(bd) + estimatedAmount(b) / 10000000 - (weight(ad) + estimatedAmount(a) / 10000000);
+    });
   }
 
   function popupList(key: PopupKey) {
-    if (key === "core") return sortList(mainlineCoreList);
-    if (key === "pullback") return sortList(mainlinePullbackList);
-    if (key === "newStrong") return sortList(mainlineNewStrongList);
-    if (key === "overheat") return sortList(mainlineOverheatList);
-    if (key === "failed") return sortList(mainlineFailedList);
-    if (key === "holding") return sortList(holdingList);
-    if (key === "amount") return sortList(moneyAmountList);
+    if (key === "core") return sortList(coreList);
+    if (key === "pullback") return sortList(pullbackList);
+    if (key === "overheat") return sortList(overheatList);
+    if (key === "failed") return sortList(failedList);
+    if (key === "amount") return sortList(amountList);
     if (key === "top50") return sortList(top50);
     return [];
   }
 
   function popupTitle(key: PopupKey) {
     if (key === "core") return "主線核心股";
-    if (key === "pullback") return "主線等回測";
-    if (key === "newStrong") return "主線剛轉強";
-    if (key === "overheat") return "主線過熱不追";
+    if (key === "pullback") return "等回測股";
+    if (key === "overheat") return "過熱不追";
     if (key === "failed") return "主線失效";
-    if (key === "holding") return "持股管理";
     if (key === "amount") return "成交金額排行";
     if (key === "top50") return "今日50強";
     return "";
   }
 
-  function popupSub(key: PopupKey) {
-    if (key === "core") return "主線+主攻續航";
-    if (key === "pullback") return "不追高，等合理位置";
-    if (key === "newStrong") return "剛轉強，等下一次確認";
-    if (key === "overheat") return "過熱不追 / 可停利";
-    if (key === "failed") return "主線失效，避開";
-    if (key === "holding") return "可續抱 / 警覺 / 停利";
-    if (key === "amount") return "資金核心排名";
-    if (key === "top50") return "漲幅排行前50";
-    return "";
-  }
-
-  const cardBaseProps = {
-    top50,
-    mainIndustries,
-    settings,
-    signalMap,
-    favoriteCodes,
-    watchCodes,
-    priceDirections,
-    previousPriceMap,
-    lastSuccessAt,
-    onOpen: (code: string) => setSelectedCode(code),
-    onAddFavorite: (code: string) => saveFavorites([...favoriteCodes, code]),
-    onRemoveFavorite: (code: string) => saveFavorites(favoriteCodes.filter((item) => item !== code)),
-    onAddWatch: (code: string) => saveWatch([...watchCodes, code]),
-    onRemoveWatch: (code: string) => saveWatch(watchCodes.filter((item) => item !== code)),
-  };
-
-  function stockCardPropsFor(stock: Stock) {
+  function cardProps() {
     return {
-      ...cardBaseProps,
-      industryStatus: industryStatusMap[stock.industry] || "觀察中",
+      top50,
+      mainIndustries,
+      settings,
+      signalMap,
+      favoriteCodes,
+      watchCodes,
+      priceDirections,
+      previousPriceMap,
+      lastSuccessAt,
+      onOpen: (code: string) => setSelectedCode(code),
+      onAddFavorite: (code: string) => saveFavorites([...favoriteCodes, code]),
+      onRemoveFavorite: (code: string) => saveFavorites(favoriteCodes.filter((item) => item !== code)),
+      onAddWatch: (code: string) => saveWatch([...watchCodes, code]),
+      onRemoveWatch: (code: string) => saveWatch(watchCodes.filter((item) => item !== code)),
     };
   }
 
-  const defaultHomeList = useMemo(() => {
-    return [...mainlineCoreList, ...mainlinePullbackList, ...mainlineNewStrongList].slice(0, 10);
-  }, [mainlineCoreList, mainlinePullbackList, mainlineNewStrongList]);
+  const industrySelectedList = useMemo(() => {
+    if (!industryPopup) return [];
+    return sortList(top50.filter((stock) => stock.industry === industryPopup));
+  }, [industryPopup, top50, searchText, sortKey, signalMap, mainIndustries]);
+
+  const homeCoreList = useMemo(() => [...coreList, ...pullbackList].slice(0, 8), [coreList, pullbackList]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -2046,10 +1480,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股全個股查詢搜尋版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">主線快選雷達</h1>
+              <div className="text-sm font-bold text-slate-400">20項主線資金核心強化版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                50強主線雷達 + 全個股查詢，不限漲幅排行。
+                看資金集中在哪個產業，再找主攻核心股，過熱不追，失效避開。
               </p>
             </div>
 
@@ -2063,7 +1497,7 @@ export default function App() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-lg font-black text-cyan-100">全個股查詢</div>
-              <div className="mt-1 text-xs font-bold text-slate-400">輸入代號，例如 2330、2344、2408；常見名稱也可查。</div>
+              <div className="mt-1 text-xs font-bold text-slate-400">保留查詢功能，但主畫面回到資金主線。</div>
             </div>
             <button onClick={() => setPopup("search")} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
               查詢
@@ -2095,11 +1529,10 @@ export default function App() {
                 即時股價狀態：{updating ? "更新中" : error ? "API錯誤" : usingCache ? "使用快取" : "即時正常"}
               </div>
               <div className="mt-1 text-xs font-bold text-slate-400">
-                最後成功：{lastSuccessAt || "尚未成功"}｜下一次：
-                {settings.dataSaver || settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
+                最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
               </div>
               <div className="mt-1 text-xs font-bold text-cyan-300">
-                50強估算總成交金額：{formatAmount(totalEstimatedAmount)}
+                50強估算成交金額：{formatAmount(totalAmount)}
               </div>
             </div>
 
@@ -2112,36 +1545,53 @@ export default function App() {
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
           <div className="text-xs font-bold text-yellow-300">今日主線策略</div>
           <div className="mt-1 text-xl font-black text-yellow-100">
-            {topLineIndustry ? `${topLineIndustry.light}｜${topLineIndustry.industry}｜${topLineIndustry.status}` : "尚未形成"}
+            {topIndustry ? `${topIndustry.light}｜${topIndustry.industry}｜${topIndustry.status}` : "尚未形成"}
           </div>
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
+
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
+            <button onClick={() => topIndustry && setIndustryPopup(topIndustry.industry)} className="rounded-2xl bg-black/30 p-2 text-yellow-200">
+              第一主線
+              <br />
+              {topIndustry?.industry || "--"}
+            </button>
+            <button onClick={() => secondIndustry && setIndustryPopup(secondIndustry.industry)} className="rounded-2xl bg-black/30 p-2 text-cyan-200">
+              第二主線
+              <br />
+              {secondIndustry?.industry || "--"}
+            </button>
+            <button onClick={() => thirdIndustry && setIndustryPopup(thirdIndustry.industry)} className="rounded-2xl bg-black/30 p-2 text-purple-200">
+              第三主線
+              <br />
+              {thirdIndustry?.industry || "--"}
+            </button>
+          </div>
+
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="新增功能" value="全個股查詢" />
+            <DetailRow label="資金集中度" value={topIndustry ? `${topIndustry.amountShare.toFixed(1)}%` : "--"} />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="主線核心股" value={mainlineCoreList.length} sub="主線+主攻續航" tone="text-emerald-300" onClick={() => setPopup("core")} />
-          <MiniCard title="主線等回測" value={mainlinePullbackList.length} sub="不追高" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
-          <MiniCard title="主線剛轉強" value={mainlineNewStrongList.length} sub="等下一次確認" tone="text-yellow-300" onClick={() => setPopup("newStrong")} />
-          <MiniCard title="主線失效" value={mainlineFailedList.length} sub="避開" tone="text-red-300" onClick={() => setPopup("failed")} />
+          <MiniCard title="主線核心股" value={coreList.length} sub="資金+量價同步" tone="text-emerald-300" onClick={() => setPopup("core")} />
+          <MiniCard title="等回測股" value={pullbackList.length} sub="主線內不追高" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+          <MiniCard title="過熱不追" value={overheatList.length} sub="短線偏熱" tone="text-orange-300" onClick={() => setPopup("overheat")} />
+          <MiniCard title="主線失效" value={failedList.length} sub="避開" tone="text-red-300" onClick={() => setPopup("failed")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
-          <ActionCard title="主線過熱不追" sub="等回測 / 停利" badge={mainlineOverheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-          <ActionCard title="持股管理" sub="續抱 / 警覺 / 停利" badge={holdingList.length} tone="text-purple-300" onClick={() => setPopup("holding")} />
-          <ActionCard title="產業主線權重" sub="主線排行" badge={industryLineRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
-          <ActionCard title="成交金額排行" sub="資金核心排名" badge={moneyAmountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
-          <ActionCard title="50強" sub="主線篩選" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
+          <ActionCard title="產業資金排行" sub="看錢往哪裡去" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
+          <ActionCard title="成交金額排行" sub="主力資金核心" badge={amountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
+          <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
+          <ActionCard title="設定" sub="確認次數 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">這個搜尋是篩選目前清單；上方「全個股查詢」可查全部代號。</p>
+              <p className="text-xs font-bold text-slate-500">這裡篩選目前清單；全個股查詢在上方。</p>
             </div>
 
             <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
@@ -2162,10 +1612,8 @@ export default function App() {
                 ["mainline", "主線"],
                 ["money", "金額"],
                 ["volume", "成交量"],
-                ["entry", "進場"],
                 ["industry", "產業"],
                 ["change", "漲幅"],
-                ["price", "低價"],
               ].map(([key, label]) => (
                 <button
                   key={key}
@@ -2184,15 +1632,15 @@ export default function App() {
         <section className="mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
-              {tab === "home" && "今日快選"}
-              {tab === "top50" && "50強快選"}
+              {tab === "home" && "主線核心快選"}
+              {tab === "top50" && "今日50強"}
               {tab === "watch" && "觀察清單"}
               {tab === "favorite" && "自選股"}
-              {tab === "more" && "更多快選"}
+              {tab === "more" && "更多功能"}
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              資金主線：{industryLineRanking.slice(0, 3).map((item) => item.industry).join("、") || "--"}｜型態：{marketStructure}
+              主線：{industryRanking.slice(0, 3).map((item) => item.industry).join("、") || "--"}
             </p>
           </div>
 
@@ -2200,60 +1648,45 @@ export default function App() {
             <div className="space-y-4">
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">產業主線權重排行</h3>
+                  <h3 className="text-xl font-black">產業資金前三名</h3>
                   <button onClick={() => setPopup("industry")} className="rounded-2xl bg-yellow-500/20 px-3 py-2 text-xs font-black text-yellow-200">
-                    彈窗看全部
+                    看全部
                   </button>
                 </div>
+
                 <div className="mt-3 space-y-3">
-                  {industryLineRanking.slice(0, 3).map((item, index) => (
-                    <IndustryLineCard key={item.industry} item={item} rank={index + 1} />
+                  {industryRanking.slice(0, 3).map((item, index) => (
+                    <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
                   ))}
                 </div>
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">主線快選 10 檔</h3>
+                  <h3 className="text-xl font-black">最值得看的主線股</h3>
                   <button onClick={() => setPopup("core")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
                     核心股
                   </button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {defaultHomeList.length === 0 && (
+                  {homeCoreList.length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有主線快選股票。
+                      目前主線核心尚未明確。
                     </div>
                   )}
-                  {defaultHomeList.map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+                  {homeCoreList.map((stock, index) => (
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
                   ))}
                 </div>
               </section>
-
-              {searchHistory.length > 0 && (
-                <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="text-xl font-black">最近查詢</h3>
-                    <button onClick={() => setPopup("search")} className="rounded-2xl bg-cyan-500/20 px-3 py-2 text-xs font-black text-cyan-200">
-                      查更多
-                    </button>
-                  </div>
-                  <div className="mt-3 space-y-3">
-                    {searchHistory.slice(0, 5).map((stock, index) => (
-                      <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
-                    ))}
-                  </div>
-                </section>
-              )}
             </div>
           )}
 
           {tab === "top50" && (
             <div className="space-y-3">
               {sortList(top50).map((stock, index) => (
-                <StockCard key={`${stock.code}-${index}`} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+                <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
               ))}
             </div>
           )}
@@ -2266,7 +1699,7 @@ export default function App() {
                 </div>
               )}
               {watchStocks.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+                <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
               ))}
             </div>
           )}
@@ -2279,7 +1712,7 @@ export default function App() {
                 </div>
               )}
               {favoriteStocks.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} {...stockCardPropsFor(stock)} />
+                <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
               ))}
             </div>
           )}
@@ -2287,88 +1720,189 @@ export default function App() {
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
               <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
-              <ActionCard title="主線核心股" sub="彈窗快選" badge={mainlineCoreList.length} tone="text-emerald-300" onClick={() => setPopup("core")} />
-              <ActionCard title="主線等回測" sub="彈窗快選" badge={mainlinePullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
-              <ActionCard title="主線剛轉強" sub="彈窗快選" badge={mainlineNewStrongList.length} tone="text-yellow-300" onClick={() => setPopup("newStrong")} />
-              <ActionCard title="主線失效" sub="彈窗快選" badge={mainlineFailedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+              <ActionCard title="主線核心股" sub="資金+量價同步" badge={coreList.length} tone="text-emerald-300" onClick={() => setPopup("core")} />
+              <ActionCard title="等回測股" sub="主線內不追高" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+              <ActionCard title="主線失效" sub="避開" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+              <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
               <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
           )}
         </section>
       </div>
 
-      {["core", "pullback", "newStrong", "overheat", "failed", "holding", "amount", "top50"].includes(popup) && (
-        <CategoryListModal
-          title={popupTitle(popup)}
-          sub={popupSub(popup)}
-          stocks={popupList(popup)}
-          top50={top50}
-          mainIndustries={mainIndustries}
-          settings={settings}
-          signalMap={signalMap}
-          industryStatusMap={industryStatusMap}
-          favoriteCodes={favoriteCodes}
-          watchCodes={watchCodes}
-          priceDirections={priceDirections}
-          previousPriceMap={previousPriceMap}
-          lastSuccessAt={lastSuccessAt}
-          onClose={() => setPopup("")}
-          onOpenStock={(code) => setSelectedCode(code)}
-          onAddFavorite={(code) => saveFavorites([...favoriteCodes, code])}
-          onRemoveFavorite={(code) => saveFavorites(favoriteCodes.filter((item) => item !== code))}
-          onAddWatch={(code) => saveWatch([...watchCodes, code])}
-          onRemoveWatch={(code) => saveWatch(watchCodes.filter((item) => item !== code))}
-        />
+      {["core", "pullback", "overheat", "failed", "amount", "top50"].includes(popup) && (
+        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票快看`} onClose={() => setPopup("")}>
+          <div className="space-y-3">
+            {popupList(popup).length === 0 && (
+              <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
+                目前沒有符合條件的股票。
+              </div>
+            )}
+            {popupList(popup).map((stock, index) => (
+              <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
+            ))}
+          </div>
+        </ModalShell>
+      )}
+
+      {popup === "industry" && (
+        <ModalShell title="產業資金排行" sub="點產業看該產業主攻股" onClose={() => setPopup("")}>
+          <div className="space-y-3">
+            {industryRanking.map((item, index) => (
+              <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
+            ))}
+          </div>
+        </ModalShell>
+      )}
+
+      {industryPopup && (
+        <ModalShell title={`${industryPopup} 主攻股`} sub="該產業內資金排序" onClose={() => setIndustryPopup("")} z={110}>
+          <div className="space-y-3">
+            {industrySelectedList.length === 0 && (
+              <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
+                目前沒有該產業股票。
+              </div>
+            )}
+            {industrySelectedList.map((stock, index) => (
+              <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
+            ))}
+          </div>
+        </ModalShell>
       )}
 
       {popup === "search" && (
-        <SearchPopup
-          query={queryText}
-          setQuery={setQueryText}
-          loading={queryLoading}
-          message={queryMessage}
-          history={searchHistory}
-          onSearch={searchAnyStock}
-          onPick={(stock) => setSelectedCode(stock.code)}
-          onClose={() => setPopup("")}
-        />
+        <ModalShell title="全個股查詢" sub="輸入代號或中文名稱" onClose={() => setPopup("")}>
+          <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+            <div className="flex gap-2">
+              <input
+                value={queryText}
+                onChange={(e) => setQueryText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") searchAnyStock();
+                }}
+                placeholder="例如 華邦電、群創、2330"
+                className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
+              />
+              <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
+                {queryLoading ? "查詢中" : "查詢"}
+              </button>
+            </div>
+            {queryMessage && <div className="mt-3 text-sm font-bold text-yellow-200">{queryMessage}</div>}
+          </div>
+
+          <div className="mt-4">
+            <div className="text-lg font-black">最近查詢</div>
+            <div className="mt-3 space-y-3">
+              {searchHistory.length === 0 && (
+                <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                  尚無查詢紀錄。
+                </div>
+              )}
+              {searchHistory.map((stock, index) => (
+                <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
+              ))}
+            </div>
+          </div>
+        </ModalShell>
       )}
 
-      {popup === "industry" && <IndustryPopup items={industryLineRanking} onClose={() => setPopup("")} />}
-
       {popup === "settings" && (
-        <SettingsPopup
-          settings={settings}
-          saveSettings={saveSettings}
-          lockCurrentIndustries={lockCurrentIndustries}
-          clearLockedIndustries={clearLockedIndustries}
-          resetSignals={resetSignals}
-          onClose={() => setPopup("")}
-        />
+        <ModalShell title="設定" sub="主線確認與更新頻率" onClose={() => setPopup("")}>
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 text-lg font-black">主攻確認次數</div>
+              <div className="grid grid-cols-3 gap-2">
+                {[2, 3, 4].map((num) => (
+                  <button
+                    key={num}
+                    onClick={() => saveSettings({ ...settings, confirmTimes: num })}
+                    className={`rounded-2xl py-3 text-sm font-black ${
+                      settings.confirmTimes === num ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                    }`}
+                  >
+                    {num}次
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-2 text-lg font-black">即時更新頻率</div>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  [15, "15秒"],
+                  [30, "30秒"],
+                  [60, "60秒"],
+                  [0, "手動"],
+                ].map(([value, label]) => (
+                  <button
+                    key={String(value)}
+                    onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })}
+                    className={`rounded-2xl py-3 text-sm font-black ${
+                      settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })}
+              className={`w-full rounded-2xl py-3 text-lg font-black ${
+                settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"
+              }`}
+            >
+              主流產業鎖定：{settings.stableIndustryLock ? "開啟" : "關閉"}
+            </button>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={lockCurrentIndustries} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+                鎖定目前前三主線
+              </button>
+              <button onClick={clearLockedIndustries} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
+                解除鎖定
+              </button>
+            </div>
+
+            <button onClick={resetSignals} className="w-full rounded-2xl bg-red-500/20 py-3 text-lg font-black text-red-200">
+              重置主線確認紀錄
+            </button>
+          </div>
+        </ModalShell>
       )}
 
       {popup === "data" && (
-        <DataPopup
-          stocks={stocks}
-          top50={top50}
-          totalEstimatedAmount={totalEstimatedAmount}
-          lastSuccessAt={lastSuccessAt}
-          lastAttemptAt={lastAttemptAt}
-          apiDataTime={apiDataTime}
-          source={source}
-          error={error}
-          mainlineCoreList={mainlineCoreList}
-          mainlinePullbackList={mainlinePullbackList}
-          mainlineNewStrongList={mainlineNewStrongList}
-          mainlineOverheatList={mainlineOverheatList}
-          mainlineFailedList={mainlineFailedList}
-          holdingList={holdingList}
-          topLineIndustry={topLineIndustry}
-          marketStructure={marketStructure}
-          loadStocks={loadStocks}
-          resetSignals={resetSignals}
-          onClose={() => setPopup("")}
-        />
+        <ModalShell title="主線統計" sub="資料健康檢查" onClose={() => setPopup("")}>
+          <div className="space-y-2 text-sm font-bold text-slate-300">
+            <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
+            <div>資料筆數：{stocks.length}</div>
+            <div>50強筆數：{top50.length}</div>
+            <div>最新資料時間：{apiDataTime || "讀取中"}</div>
+            <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
+            <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
+            <div>資料來源：{source || "讀取中"}</div>
+            <div>50強成交金額估算：{formatAmount(totalAmount)}</div>
+            <div>第一主線：{topIndustry?.industry || "--"}</div>
+            <div>第二主線：{secondIndustry?.industry || "--"}</div>
+            <div>第三主線：{thirdIndustry?.industry || "--"}</div>
+            <div>主線核心股數：{coreList.length}</div>
+            <div>等回測股數：{pullbackList.length}</div>
+            <div>過熱不追股數：{overheatList.length}</div>
+            <div>主線失效股數：{failedList.length}</div>
+            <div>盤中型態：{marketStructure}</div>
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+              立即更新
+            </button>
+            <button onClick={resetSignals} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+              重置紀錄
+            </button>
+          </div>
+        </ModalShell>
       )}
 
       {selectedStock && (
@@ -2378,7 +1912,6 @@ export default function App() {
           mainIndustries={mainIndustries}
           settings={settings}
           signalMap={signalMap}
-          industryStatus={stockIndustryStatus(selectedStock)}
           favoriteCodes={favoriteCodes}
           watchCodes={watchCodes}
           priceDirections={priceDirections}
@@ -2406,6 +1939,7 @@ export default function App() {
               onClick={() => {
                 setSelectedCode("");
                 setPopup("");
+                setIndustryPopup("");
                 setTab(key as TabKey);
               }}
               className={`rounded-2xl py-2 text-xs font-black ${
