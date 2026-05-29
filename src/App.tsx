@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 type Stock = {
   code: string;
@@ -16,14 +16,7 @@ type Stock = {
 };
 
 type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
-type QuickFilterKey =
-  | "core"
-  | "money"
-  | "volume"
-  | "industry"
-  | "pullback"
-  | "overheat"
-  | "failed";
+
 type PopupKey =
   | ""
   | "industry"
@@ -32,6 +25,7 @@ type PopupKey =
   | "overheat"
   | "failed"
   | "amount"
+  | "volume"
   | "top50"
   | "search"
   | "data"
@@ -80,11 +74,11 @@ const SEARCH_API_URL = "/api/search";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
-const SETTINGS_KEY = "taiwan-stock-radar-main-money-core-settings";
-const CACHE_KEY = "taiwan-stock-radar-main-money-core-cache";
-const SIGNAL_KEY = "taiwan-stock-radar-main-money-core-signals";
+const SETTINGS_KEY = "taiwan-stock-radar-mini-popup-settings";
+const CACHE_KEY = "taiwan-stock-radar-mini-popup-cache";
+const SIGNAL_KEY = "taiwan-stock-radar-mini-popup-signals";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-main-money-core-locked";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-mini-popup-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -406,11 +400,6 @@ function stableCount(values: boolean[] | undefined) {
     else break;
   }
   return count;
-}
-
-function lastNAllTrue(values: boolean[] | undefined, count: number) {
-  if (!values || values.length < count) return false;
-  return values.slice(-count).every(Boolean);
 }
 
 function decisionTone(label: string) {
@@ -831,7 +820,7 @@ function ModalShell({
 }: {
   title: string;
   sub?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   onClose: () => void;
   z?: number;
 }) {
@@ -1012,11 +1001,6 @@ export default function App() {
   const [watchCodes, setWatchCodes] = useState<string[]>([]);
   const [signalMap, setSignalMap] = useState<Record<string, SignalHistory>>({});
 
-  const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState("mainline");
-  const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("money");
-  const [showFilters, setShowFilters] = useState(false);
-
   const [queryText, setQueryText] = useState("");
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryMessage, setQueryMessage] = useState("");
@@ -1103,6 +1087,8 @@ export default function App() {
   );
 
   const amountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
+
+  const volumeList = useMemo(() => [...top50].sort((a, b) => b.volume - a.volume), [top50]);
 
   const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
@@ -1406,21 +1392,7 @@ export default function App() {
   }
 
   function sortList(list: Stock[]) {
-    const keyword = searchText.trim();
-    let arr = [...list];
-
-    if (keyword) {
-      arr = arr.filter((stock) => stock.code.includes(keyword) || stockDisplayName(stock).includes(keyword) || stock.industry.includes(keyword));
-    }
-
-    if (sortKey === "money") return arr.sort((a, b) => estimatedAmount(b) - estimatedAmount(a));
-    if (sortKey === "volume") return arr.sort((a, b) => b.volume - a.volume);
-    if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
-    if (sortKey === "industry") {
-      return arr.sort((a, b) => mainIndustries.indexOf(a.industry) - mainIndustries.indexOf(b.industry));
-    }
-
-    return arr.sort((a, b) => {
+    return [...list].sort((a, b) => {
       const ad = getDecision(a, top50, mainIndustries, settings, signalMap[a.code]);
       const bd = getDecision(b, top50, mainIndustries, settings, signalMap[b.code]);
 
@@ -1442,7 +1414,8 @@ export default function App() {
     if (key === "pullback") return sortList(pullbackList);
     if (key === "overheat") return sortList(overheatList);
     if (key === "failed") return sortList(failedList);
-    if (key === "amount") return sortList(amountList);
+    if (key === "amount") return amountList;
+    if (key === "volume") return volumeList;
     if (key === "top50") return sortList(top50);
     return [];
   }
@@ -1453,6 +1426,7 @@ export default function App() {
     if (key === "overheat") return "過熱不追";
     if (key === "failed") return "主線失效";
     if (key === "amount") return "成交金額排行";
+    if (key === "volume") return "成交量排行";
     if (key === "top50") return "今日50強";
     return "";
   }
@@ -1479,55 +1453,9 @@ export default function App() {
   const industrySelectedList = useMemo(() => {
     if (!industryPopup) return [];
     return sortList(top50.filter((stock) => stock.industry === industryPopup));
-  }, [industryPopup, top50, searchText, sortKey, signalMap, mainIndustries]);
+  }, [industryPopup, top50, signalMap, mainIndustries]);
 
-  function quickFilterTitle(key: QuickFilterKey) {
-  if (key === "core") return "主線核心";
-  if (key === "money") return "資金排行";
-  if (key === "volume") return "成交量排行";
-  if (key === "industry") return "產業主線";
-  if (key === "pullback") return "等回測";
-  if (key === "overheat") return "過熱不追";
-  if (key === "failed") return "主線失效";
-  return "資金排行";
-}
-
-function quickFilterSub(key: QuickFilterKey) {
-  if (key === "core") return "資金、量能、價格同步";
-  if (key === "money") return "主力資金最集中的個股";
-  if (key === "volume") return "成交量最活躍的個股";
-  if (key === "industry") return "前三主線產業內個股";
-  if (key === "pullback") return "主線內，不追高，等合理位置";
-  if (key === "overheat") return "短線漲太快，避免追高";
-  if (key === "failed") return "爆量不漲或轉弱，先避開";
-  return "";
-}
-
-const quickFilterList = useMemo(() => {
-  if (quickFilter === "core") return sortList(coreList).slice(0, 30);
-  if (quickFilter === "money") return [...amountList].slice(0, 50);
-  if (quickFilter === "volume") return [...top50].sort((a, b) => b.volume - a.volume).slice(0, 50);
-  if (quickFilter === "industry") {
-    const mainSet = new Set(industryRanking.slice(0, 3).map((item) => item.industry));
-    return sortList(top50.filter((stock) => mainSet.has(stock.industry))).slice(0, 50);
-  }
-  if (quickFilter === "pullback") return sortList(pullbackList).slice(0, 30);
-  if (quickFilter === "overheat") return sortList(overheatList).slice(0, 30);
-  if (quickFilter === "failed") return sortList(failedList).slice(0, 30);
-  return [...amountList].slice(0, 50);
-}, [
-  quickFilter,
-  coreList,
-  amountList,
-  top50,
-  industryRanking,
-  pullbackList,
-  overheatList,
-  failedList,
-  signalMap,
-  mainIndustries,
-  settings,
-]);
+  const homeCoreList = useMemo(() => [...coreList, ...pullbackList].slice(0, 8), [coreList, pullbackList]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -1535,10 +1463,10 @@ const quickFilterList = useMemo(() => {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項主線資金核心強化版</div>
+              <div className="text-sm font-bold text-slate-400">主線快篩迷你彈窗版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                看資金集中在哪個產業，再找主攻核心股，過熱不追，失效避開。
+                點快篩直接跳出清單，不用往下滑。
               </p>
             </div>
 
@@ -1642,50 +1570,41 @@ const quickFilterList = useMemo(() => {
           <ActionCard title="設定" sub="確認次數 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
-       <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <h2 className="text-lg font-black">主線快篩</h2>
-      <p className="mt-1 text-xs font-bold text-slate-500">
-        不用打字，盤中直接切換要看的清單。
-      </p>
-    </div>
+        <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950/90 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-black text-white">主線快篩</h2>
+              <p className="mt-1 text-[11px] font-bold text-slate-500">
+                點一下直接跳出清單，不用往下滑。
+              </p>
+            </div>
 
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-bold text-slate-500">目前顯示</div>
-      <div className="text-sm font-black text-yellow-300">{quickFilterTitle(quickFilter)}</div>
-    </div>
-  </div>
+            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-yellow-300">
+              迷你彈窗
+            </div>
+          </div>
 
-  <div className="mt-4 grid grid-cols-3 gap-2">
-    {[
-      ["core", "主線核心", "💎"],
-      ["money", "資金排行", "💰"],
-      ["volume", "成交量", "📊"],
-      ["industry", "產業主線", "🏭"],
-      ["pullback", "等回測", "🎯"],
-      ["overheat", "過熱不追", "🔥"],
-      ["failed", "主線失效", "⚠️"],
-    ].map(([key, label, icon]) => (
-      <button
-        key={key}
-        onClick={() => setQuickFilter(key as QuickFilterKey)}
-        className={`rounded-2xl py-3 text-xs font-black active:scale-95 ${
-          quickFilter === key
-            ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
-            : "bg-black/30 text-slate-300"
-        }`}
-      >
-        <div className="text-lg">{icon}</div>
-        {label}
-      </button>
-    ))}
-  </div>
-
-  <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-300">
-    {quickFilterSub(quickFilter)}
-  </div>
-</section>
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {[
+              ["core", "💎", "核心"],
+              ["amount", "💰", "資金"],
+              ["volume", "📊", "成交量"],
+              ["industry", "🏭", "產業"],
+              ["pullback", "🎯", "回測"],
+              ["overheat", "🔥", "過熱"],
+              ["failed", "⚠️", "失效"],
+            ].map(([key, icon, label]) => (
+              <button
+                key={key}
+                onClick={() => setPopup(key as PopupKey)}
+                className="shrink-0 rounded-2xl bg-black/40 px-4 py-3 text-xs font-black text-slate-200 active:scale-95"
+              >
+                <div className="text-lg">{icon}</div>
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section className="mt-4">
           <div className="mb-3">
@@ -1721,19 +1640,19 @@ const quickFilterList = useMemo(() => {
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">{quickFilterTitle(quickFilter)}</h3>
+                  <h3 className="text-xl font-black">主線核心快選</h3>
                   <button onClick={() => setPopup("core")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
                     核心股
                   </button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {quickFilterList.length === 0 && (
+                  {homeCoreList.length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
                       目前主線核心尚未明確。
                     </div>
                   )}
-                  {quickFilterList.map((stock, index) => (
+                  {homeCoreList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
                   ))}
                 </div>
@@ -1788,7 +1707,7 @@ const quickFilterList = useMemo(() => {
         </section>
       </div>
 
-      {["core", "pullback", "overheat", "failed", "amount", "top50"].includes(popup) && (
+      {["core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
         <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票快看`} onClose={() => setPopup("")}>
           <div className="space-y-3">
             {popupList(popup).length === 0 && (
