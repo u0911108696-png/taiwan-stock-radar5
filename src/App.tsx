@@ -30,38 +30,35 @@ type MoreView =
   | "menu"
   | "industry"
   | "industryDetail"
-  | "industryWatchable"
-  | "industryHot"
-  | "strongIndustry"
-  | "weakIndustry"
-  | "hotIndustry"
   | "watchable"
   | "waitPullback"
-  | "atrSafe"
+  | "moneyIn"
+  | "moneyTurning"
+  | "moneyHot"
+  | "moneyOut"
+  | "moneyIndustry"
   | "realAtrSafe"
-  | "atrNear"
-  | "atrBroken"
   | "atrMissing"
-  | "holdingRisk"
   | "settings"
   | "data";
 
 type PriceDirection = "up" | "down" | "same" | "new";
 type DecisionMode = "保守" | "標準" | "積極";
 type AtrMode = "短線" | "標準" | "寬鬆";
-type ProfitAnchor = "今日高點" | "近N日高點" | "持有後最高價";
 type HoldingStatus = "未進場" | "已進場";
-type SortKey = "decision" | "score" | "atr" | "change" | "price" | "industry";
+type ProfitAnchor = "今日高點" | "近N日高點" | "持有後最高價";
+
+type SortKey = "money" | "industry" | "decision" | "score" | "atr" | "change" | "price";
+
 type TopFilter =
   | "全部"
-  | "可觀察"
-  | "等回測"
-  | "不追高"
-  | "ATR安全"
-  | "真實ATR"
+  | "資金流入"
+  | "資金轉強"
+  | "資金過熱"
+  | "資金退潮"
   | "主流產業"
-  | "ATR風險"
-  | "跌破ATR";
+  | "ATR安全"
+  | "真實ATR";
 
 type PositionInfo = {
   entryPrice?: number;
@@ -112,6 +109,10 @@ type AtrInfo = {
   rangePercent: number;
 };
 
+type MoneyState = "資金流入" | "資金剛轉強" | "資金過熱" | "資金退潮" | "資金觀望";
+type VolumeState = "量能強" | "量能普通" | "量能不足";
+type PriceVolumeState = "量價同步" | "量價背離" | "量縮觀望" | "轉弱退潮";
+
 type IndustryItem = {
   industry: string;
   count: number;
@@ -121,13 +122,18 @@ type IndustryItem = {
   hotCount: number;
   atrSafeCount: number;
   realAtrCount: number;
-  watchableCount: number;
+  moneyInCount: number;
+  moneyTurningCount: number;
+  moneyOutCount: number;
+  moneyHotCount: number;
   score: number;
+  moneyScore: number;
   safetyRate: number;
   hotRate: number;
   weakRate: number;
+  moneyInRate: number;
   concentrationRate: number;
-  status: "延續中" | "轉弱中" | "過熱中" | "觀察中";
+  status: "資金流入" | "資金擴散" | "過熱中" | "資金退潮" | "觀察中";
   stocks: Stock[];
 };
 
@@ -137,9 +143,9 @@ const KLINE_API_URL = "/api/kline";
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const TOMORROW_KEY = "taiwan-stock-radar-tomorrow";
 const POSITION_KEY = "taiwan-stock-radar-position-info";
-const SETTINGS_KEY = "taiwan-stock-radar-main-industry-settings";
-const LAST_SUCCESS_KEY = "taiwan-stock-radar-main-industry-cache";
-const KLINE_CACHE_KEY = "taiwan-stock-radar-kline-cache-v3";
+const SETTINGS_KEY = "taiwan-stock-radar-money-flow-settings";
+const LAST_SUCCESS_KEY = "taiwan-stock-radar-money-flow-cache";
+const KLINE_CACHE_KEY = "taiwan-stock-radar-kline-cache-money";
 
 const defaultSettings: Settings = {
   maxPrice: 200,
@@ -194,12 +200,12 @@ function safeParse<T>(text: string | null, fallback: T): T {
   }
 }
 
-function nowText() {
-  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
-}
-
 function cleanCode(value: string) {
   return value.replace(/\D/g, "").slice(0, 6);
+}
+
+function nowText() {
+  return new Date().toLocaleTimeString("zh-TW", { hour12: false });
 }
 
 function formatNumber(value: number | null | undefined) {
@@ -385,6 +391,28 @@ function isAtrNear(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?
   return d >= 0 && d <= 2.5;
 }
 
+function isHot(stock: Stock, settings: Settings) {
+  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
+}
+
+function isWeak(stock: Stock) {
+  return stock.price < stock.openPrice || stock.price < stock.previousClose || stock.changePercent < 2;
+}
+
+function isBreakout(stock: Stock) {
+  return stock.changePercent >= 3 && stock.price >= stock.openPrice;
+}
+
+function isNearOpen(stock: Stock) {
+  if (stock.openPrice <= 0) return false;
+  return Math.abs(stock.price - stock.openPrice) / stock.openPrice <= 0.015;
+}
+
+function distanceFromOpen(stock: Stock) {
+  if (stock.openPrice <= 0) return 999;
+  return ((stock.price - stock.openPrice) / stock.openPrice) * 100;
+}
+
 function atrStatus(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
   if (isHot(stock, settings)) return "過熱";
   if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破停利";
@@ -408,75 +436,198 @@ function atrRiskScore(stock: Stock, settings: Settings, atrInfo: AtrInfo, positi
   return Math.round(100 - d * 9);
 }
 
-function atrSentence(stock: Stock, settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  const d = atrDistancePercent(stock, settings, atrInfo, position);
-  const status = atrStatus(stock, settings, atrInfo, position);
-
-  if (status === "跌破停利") return "已跌破ATR停利線，風控優先。";
-  if (status === "接近停利") return `距離停利線約 ${d.toFixed(2)}%，小心轉弱。`;
-  if (status === "觀察偏近") return `未進場觀察股，距離ATR觀察線約 ${d.toFixed(2)}%，不要追高。`;
-  if (d < 4) return `距離ATR線約 ${d.toFixed(2)}%，偏近。`;
-  return `距離ATR線約 ${d.toFixed(2)}%，目前安全。`;
-}
-
-function isHot(stock: Stock, settings: Settings) {
-  return stock.changePercent >= settings.hotPercent || (stock.openPremiumPercent ?? 0) >= 5;
-}
-
-function isWeak(stock: Stock) {
-  return stock.price < stock.openPrice || stock.price < stock.previousClose || stock.changePercent < 2;
-}
-
-function isBreakout(stock: Stock) {
-  return stock.changePercent >= 3 && stock.price >= stock.openPrice;
-}
-
-function isNearOpen(stock: Stock) {
-  if (stock.openPrice <= 0) return false;
-  return Math.abs(stock.price - stock.openPrice) / stock.openPrice <= 0.015;
-}
-
-function distanceFromOpen(stock: Stock) {
-  if (stock.openPrice <= 0) return 999;
-  return ((stock.price - stock.openPrice) / stock.openPrice) * 100;
-}
-
 function isMain(stock: Stock, mainIndustries: string[]) {
   return mainIndustries.includes(stock.industry);
 }
 
-function isWaitPullback(stock: Stock, mainIndustries: string[], settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
-  return (
-    isMain(stock, mainIndustries) &&
-    isNearOpen(stock) &&
-    stock.price >= stock.previousClose &&
-    !isHot(stock, settings) &&
-    !isAtrBroken(stock, settings, atrInfo, position)
-  );
+function volumeRankPercent(stock: Stock, list: Stock[]) {
+  if (!stock.volume || stock.volume <= 0) return 0;
+
+  const sorted = [...list].sort((a, b) => b.volume - a.volume);
+  const index = sorted.findIndex((item) => item.code === stock.code);
+
+  if (index < 0 || sorted.length <= 1) return 0;
+
+  return Math.round(((sorted.length - index) / sorted.length) * 100);
 }
 
-function mainScore(stock: Stock, mainIndustries: string[], settings: Settings, atrInfo: AtrInfo, position?: PositionInfo) {
+function volumeState(stock: Stock, list: Stock[]): VolumeState {
+  const rank = volumeRankPercent(stock, list);
+
+  if (rank >= 75) return "量能強";
+  if (rank >= 40) return "量能普通";
+  return "量能不足";
+}
+
+function priceVolumeState(stock: Stock, list: Stock[], settings: Settings): PriceVolumeState {
+  const vol = volumeState(stock, list);
+
+  if (stock.price < stock.openPrice || stock.price < stock.previousClose) return "轉弱退潮";
+  if (stock.changePercent >= 3 && vol === "量能強") return "量價同步";
+  if (stock.changePercent >= settings.hotPercent && vol !== "量能強") return "量價背離";
+  if (vol === "量能不足") return "量縮觀望";
+
+  return "量價同步";
+}
+
+function moneyScore(
+  stock: Stock,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  atrInfo: AtrInfo,
+  position?: PositionInfo
+) {
   let score = 0;
 
-  if (isMain(stock, mainIndustries)) score += 32;
-  if (stock.price > 0 && stock.price <= settings.maxPrice) score += 22;
-  if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 18;
+  const volRank = volumeRankPercent(stock, list);
+  const pv = priceVolumeState(stock, list, settings);
+  const atr = atrStatus(stock, settings, atrInfo, position);
+
+  score += Math.min(35, volRank * 0.35);
+
+  if (stock.changePercent >= 2 && stock.changePercent <= 7.5) score += 18;
+  if (stock.changePercent > 7.5) score += 8;
   if (stock.price >= stock.openPrice) score += 12;
-  if (isBreakout(stock)) score += 10;
-  if (isNearOpen(stock)) score += 8;
-  if (atrStatus(stock, settings, atrInfo, position) === "安全") score += 10;
-  if (atrInfo.hasReal) score += 5;
+  if (stock.price >= stock.previousClose) score += 8;
+  if (priceDirections[stock.code] === "up") score += 12;
+  if (isMain(stock, mainIndustries)) score += 15;
+  if (pv === "量價同步") score += 15;
+  if (atr === "安全") score += 10;
+  if (atrInfo.hasReal) score += 4;
 
-  if (isHot(stock, settings)) score -= 35;
-  if (isWeak(stock)) score -= 30;
-  if (isAtrBroken(stock, settings, atrInfo, position)) score -= 35;
-  if (isAtrNear(stock, settings, atrInfo, position)) score -= 8;
-
-  if (settings.decisionMode === "保守" && !isMain(stock, mainIndustries)) score -= 30;
-  if (settings.decisionMode === "保守" && stock.price > settings.maxPrice) score -= 25;
-  if (settings.decisionMode === "積極" && stock.changePercent >= 5) score += 10;
+  if (isHot(stock, settings)) score -= 20;
+  if (pv === "量價背離") score -= 15;
+  if (pv === "轉弱退潮") score -= 25;
+  if (priceDirections[stock.code] === "down") score -= 15;
+  if (isWeak(stock)) score -= 25;
 
   return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function moneyState(
+  stock: Stock,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  atrInfo: AtrInfo,
+  position?: PositionInfo
+): MoneyState {
+  const score = moneyScore(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+  const pv = priceVolumeState(stock, list, settings);
+
+  if (isWeak(stock) || pv === "轉弱退潮" || priceDirections[stock.code] === "down") return "資金退潮";
+  if (isHot(stock, settings) && score >= 55) return "資金過熱";
+  if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice && stock.changePercent < settings.hotPercent) return "資金剛轉強";
+  if (score >= 70 && pv === "量價同步") return "資金流入";
+
+  return "資金觀望";
+}
+
+function moneyTone(state: MoneyState) {
+  if (state === "資金流入") return "text-emerald-300";
+  if (state === "資金剛轉強") return "text-cyan-300";
+  if (state === "資金過熱") return "text-orange-300";
+  if (state === "資金退潮") return "text-red-300";
+  return "text-slate-300";
+}
+
+function moneySentence(
+  stock: Stock,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  atrInfo: AtrInfo,
+  position?: PositionInfo
+) {
+  const state = moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+  const pv = priceVolumeState(stock, list, settings);
+  const vol = volumeState(stock, list);
+
+  if (state === "資金流入") return `${pv}，${vol}，股價站上開盤，資金偏流入。`;
+  if (state === "資金剛轉強") return `股價即時轉強，尚未過熱，可列入盤中觀察。`;
+  if (state === "資金過熱") return `資金有進來，但漲幅偏熱，不適合追高。`;
+  if (state === "資金退潮") return `股價轉弱或跌破開盤，資金有退潮跡象。`;
+
+  return `${vol}，目前資金觀望，先等更明確量價同步。`;
+}
+
+function mainScore(
+  stock: Stock,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  atrInfo: AtrInfo,
+  position?: PositionInfo
+) {
+  let score = 0;
+
+  if (isMain(stock, mainIndustries)) score += 30;
+  if (stock.price > 0 && stock.price <= settings.maxPrice) score += 18;
+  if (stock.changePercent >= 3 && stock.changePercent <= 7.5) score += 15;
+  if (stock.price >= stock.openPrice) score += 10;
+  if (isBreakout(stock)) score += 8;
+  if (isNearOpen(stock)) score += 6;
+  if (atrStatus(stock, settings, atrInfo, position) === "安全") score += 10;
+  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金流入") score += 15;
+  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金剛轉強") score += 10;
+  if (atrInfo.hasReal) score += 4;
+
+  if (isHot(stock, settings)) score -= 25;
+  if (isWeak(stock)) score -= 30;
+  if (priceVolumeState(stock, list, settings) === "量價背離") score -= 10;
+  if (moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position) === "資金退潮") score -= 25;
+
+  if (settings.decisionMode === "保守" && !isMain(stock, mainIndustries)) score -= 25;
+  if (settings.decisionMode === "保守" && stock.price > settings.maxPrice) score -= 20;
+
+  return Math.max(0, Math.min(100, Math.round(score)));
+}
+
+function decisionLabel(
+  stock: Stock,
+  list: Stock[],
+  mainIndustries: string[],
+  settings: Settings,
+  priceDirections: Record<string, PriceDirection>,
+  atrInfo: AtrInfo,
+  position?: PositionInfo
+) {
+  const money = moneyState(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+
+  if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破ATR";
+  if (money === "資金退潮") return "移除";
+  if (money === "資金過熱") return "不追高";
+  if (isWeak(stock)) return "移除";
+  if (isHot(stock, settings)) return "不追高";
+
+  if (
+    isMain(stock, mainIndustries) &&
+    stock.price <= settings.maxPrice &&
+    atrStatus(stock, settings, atrInfo, position) === "安全" &&
+    (money === "資金流入" || money === "資金剛轉強")
+  ) {
+    return "可觀察";
+  }
+
+  if (isNearOpen(stock) && stock.price >= stock.previousClose && !isHot(stock, settings)) return "等回測";
+
+  const score = mainScore(stock, list, mainIndustries, settings, priceDirections, atrInfo, position);
+
+  if (score >= 72) return "可觀察";
+  return "等回測";
+}
+
+function decisionTone(label: string) {
+  if (label === "可觀察") return "text-emerald-300";
+  if (label === "等回測") return "text-yellow-300";
+  if (label === "不追高") return "text-orange-300";
+  if (label === "跌破ATR") return "text-red-300";
+  return "text-slate-300";
 }
 
 function directionText(direction?: PriceDirection) {
@@ -510,68 +661,6 @@ function instantPercent(stock: Stock, previousPriceMap: Record<string, number>) 
   return ((stock.price - prev) / prev) * 100;
 }
 
-function decisionLabel(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>,
-  atrInfo: AtrInfo,
-  position?: PositionInfo
-) {
-  if (isAtrBroken(stock, settings, atrInfo, position)) return "跌破ATR";
-  if (isHot(stock, settings)) return "不追高";
-  if (isWeak(stock) || priceDirections[stock.code] === "down") return "移除";
-  if (isWaitPullback(stock, mainIndustries, settings, atrInfo, position)) return "等回測";
-
-  const score = mainScore(stock, mainIndustries, settings, atrInfo, position);
-
-  if (settings.decisionMode === "保守") {
-    if (isMain(stock, mainIndustries) && stock.price <= settings.maxPrice && score >= 70) return "可觀察";
-    return "等回測";
-  }
-
-  if (settings.decisionMode === "積極") {
-    if (score >= 68 && !isWeak(stock)) return "可觀察";
-    if (!isMain(stock, mainIndustries) && stock.changePercent >= 5) return "可觀察";
-    return "等回測";
-  }
-
-  if (isMain(stock, mainIndustries) && score >= 70) return "可觀察";
-  return "等回測";
-}
-
-function decisionTone(label: string) {
-  if (label === "可觀察") return "text-emerald-300";
-  if (label === "等回測") return "text-yellow-300";
-  if (label === "不追高") return "text-orange-300";
-  if (label === "跌破ATR") return "text-red-300";
-  return "text-slate-300";
-}
-
-function decisionReason(
-  stock: Stock,
-  mainIndustries: string[],
-  settings: Settings,
-  priceDirections: Record<string, PriceDirection>,
-  atrInfo: AtrInfo,
-  position?: PositionInfo
-) {
-  const reasons: string[] = [];
-
-  if (isMain(stock, mainIndustries)) reasons.push("主流產業");
-  if (stock.price <= settings.maxPrice) reasons.push(`${settings.maxPrice}內`);
-  if (priceDirections[stock.code] === "up") reasons.push("即時上升");
-  if (stock.price >= stock.openPrice) reasons.push("站上開盤");
-  if (isBreakout(stock)) reasons.push("突破");
-  if (isNearOpen(stock)) reasons.push("接近開盤");
-  if (!isHot(stock, settings)) reasons.push("未過熱");
-  if (!isWeak(stock)) reasons.push("未轉弱");
-  if (atrStatus(stock, settings, atrInfo, position) === "安全") reasons.push("ATR安全");
-  if (atrInfo.hasReal) reasons.push("真實ATR");
-
-  return reasons.length ? reasons.join(" / ") : "暫無明確理由";
-}
-
 function getIndustryRanking(
   stocks: Stock[],
   settings: Settings,
@@ -586,7 +675,7 @@ function getIndustryRanking(
     const key = stock.industry || "其他";
     const atr = getAtr(stock);
     const pos = getPos(stock);
-    const status = atrStatus(stock, settings, atr, pos);
+    const money = moneyState(stock, stocks, mainIndustries, settings, priceDirections, atr, pos);
 
     const item =
       map.get(key) ??
@@ -599,11 +688,16 @@ function getIndustryRanking(
         hotCount: 0,
         atrSafeCount: 0,
         realAtrCount: 0,
-        watchableCount: 0,
+        moneyInCount: 0,
+        moneyTurningCount: 0,
+        moneyOutCount: 0,
+        moneyHotCount: 0,
         score: 0,
+        moneyScore: 0,
         safetyRate: 0,
         hotRate: 0,
         weakRate: 0,
+        moneyInRate: 0,
         concentrationRate: 0,
         status: "觀察中",
         stocks: [],
@@ -616,8 +710,15 @@ function getIndustryRanking(
     if (priceDirections[stock.code] === "up" && stock.price >= stock.openPrice) item.strongCount += 1;
     if (isWeak(stock)) item.weakCount += 1;
     if (isHot(stock, settings)) item.hotCount += 1;
-    if (status === "安全") item.atrSafeCount += 1;
+    if (atrStatus(stock, settings, atr, pos) === "安全") item.atrSafeCount += 1;
     if (atr.hasReal) item.realAtrCount += 1;
+
+    if (money === "資金流入") item.moneyInCount += 1;
+    if (money === "資金剛轉強") item.moneyTurningCount += 1;
+    if (money === "資金退潮") item.moneyOutCount += 1;
+    if (money === "資金過熱") item.moneyHotCount += 1;
+
+    item.moneyScore += moneyScore(stock, stocks, mainIndustries, settings, priceDirections, atr, pos);
 
     map.set(key, item);
   });
@@ -628,21 +729,27 @@ function getIndustryRanking(
       const safetyRate = (item.atrSafeCount / Math.max(item.count, 1)) * 100;
       const hotRate = (item.hotCount / Math.max(item.count, 1)) * 100;
       const weakRate = (item.weakCount / Math.max(item.count, 1)) * 100;
+      const moneyInRate = ((item.moneyInCount + item.moneyTurningCount) / Math.max(item.count, 1)) * 100;
       const concentrationRate = (item.count / Math.max(stocks.length, 1)) * 100;
+      const avgMoney = item.moneyScore / Math.max(item.count, 1);
 
       let status: IndustryItem["status"] = "觀察中";
 
-      if (hotRate >= 35) status = "過熱中";
-      else if (weakRate >= 40) status = "轉弱中";
-      else if (avg >= 3 && safetyRate >= 50 && item.strongCount >= Math.max(1, Math.ceil(item.count * 0.35))) status = "延續中";
+      if (item.moneyOutCount >= Math.max(2, Math.ceil(item.count * 0.4)) || weakRate >= 45) status = "資金退潮";
+      else if (hotRate >= 35 || item.moneyHotCount >= Math.max(2, Math.ceil(item.count * 0.35))) status = "過熱中";
+      else if (moneyInRate >= 45 && safetyRate >= 45 && avgMoney >= 55) status = "資金流入";
+      else if (moneyInRate >= 25 && item.count >= 2) status = "資金擴散";
 
       const score =
-        item.count * 11 +
-        avg * 3.5 +
-        item.strongCount * 6 +
+        item.count * 10 +
+        avg * 2.5 +
+        item.strongCount * 5 +
         item.atrSafeCount * 4 +
-        item.realAtrCount * 2 -
-        item.hotCount * 4 -
+        item.realAtrCount * 2 +
+        item.moneyInCount * 12 +
+        item.moneyTurningCount * 8 -
+        item.moneyOutCount * 10 -
+        item.moneyHotCount * 5 -
         item.weakCount * 5;
 
       return {
@@ -651,12 +758,14 @@ function getIndustryRanking(
         safetyRate,
         hotRate,
         weakRate,
+        moneyInRate,
         concentrationRate,
         status,
+        moneyScore: avgMoney,
         score,
       };
     })
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => b.moneyScore + b.score * 0.25 - (a.moneyScore + a.score * 0.25));
 }
 
 function getKLinks(code: string, name: string) {
@@ -673,9 +782,10 @@ function sleep(ms: number) {
 }
 
 function industryTone(status: IndustryItem["status"]) {
-  if (status === "延續中") return "text-emerald-300";
+  if (status === "資金流入") return "text-emerald-300";
+  if (status === "資金擴散") return "text-cyan-300";
   if (status === "過熱中") return "text-orange-300";
-  if (status === "轉弱中") return "text-red-300";
+  if (status === "資金退潮") return "text-red-300";
   return "text-yellow-300";
 }
 
@@ -741,23 +851,21 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
     <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-bold text-slate-500">#{rank} 今日主流產業</div>
+          <div className="text-xs font-bold text-slate-500">#{rank} 資金流向產業</div>
           <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
           <div className={`mt-1 text-sm font-black ${industryTone(item.status)}`}>{item.status}</div>
         </div>
 
         <div className="text-right">
           <div className="text-2xl font-black text-yellow-300">{item.count}檔</div>
-          <div className={`text-sm font-black ${item.avg >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-            平均 {formatPercent(item.avg)}
-          </div>
+          <div className="text-sm font-black text-cyan-300">資金 {item.moneyScore.toFixed(0)}</div>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">安全率<br />{item.safetyRate.toFixed(0)}%</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">流入率<br />{item.moneyInRate.toFixed(0)}%</div>
         <div className="rounded-2xl bg-black/30 p-2 text-orange-300">過熱率<br />{item.hotRate.toFixed(0)}%</div>
-        <div className="rounded-2xl bg-black/30 p-2 text-red-300">轉弱率<br />{item.weakRate.toFixed(0)}%</div>
+        <div className="rounded-2xl bg-black/30 p-2 text-red-300">退潮率<br />{item.weakRate.toFixed(0)}%</div>
       </div>
     </button>
   );
@@ -767,6 +875,7 @@ function StockCard({
   stock,
   rank,
   industryRank,
+  top50,
   mainIndustries,
   settings,
   favoriteCodes,
@@ -785,6 +894,7 @@ function StockCard({
   stock: Stock;
   rank: number;
   industryRank?: number;
+  top50: Stock[];
   mainIndustries: string[];
   settings: Settings;
   favoriteCodes: string[];
@@ -802,7 +912,8 @@ function StockCard({
 }) {
   const position = positionMap[stock.code];
   const atrInfo = getAtrInfo(stock, settings, klineMap[stock.code]);
-  const label = decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfo, position);
+  const label = decisionLabel(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
+  const money = moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceOf(stock, previousPriceMap);
   const diff = instantDiff(stock, previousPriceMap);
@@ -820,7 +931,7 @@ function StockCard({
             <div className="mt-1 text-lg font-black text-white">{stock.name}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">
               {stock.industry}
-              {mainIndex >= 0 ? `｜主流${mainIndex + 1}` : ""}
+              {mainIndex >= 0 ? `｜資金主流${mainIndex + 1}` : ""}
               {industryRank ? `｜產業第${industryRank}` : ""}
             </div>
           </div>
@@ -835,17 +946,18 @@ function StockCard({
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(label)}`}>{label}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${moneyTone(money)}`}>{money}</span>
+          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">資金 {moneyScore(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}</span>
+          <span className="rounded-full bg-purple-950 px-3 py-1 text-purple-200">{priceVolumeState(stock, top50, settings)}</span>
+          <span className="rounded-full bg-blue-950 px-3 py-1 text-blue-200">{volumeState(stock, top50)}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${atrTone(stock, settings, atrInfo, position)}`}>ATR {atrStatus(stock, settings, atrInfo, position)}</span>
-          <span className="rounded-full bg-cyan-950 px-3 py-1 text-cyan-200">{atrInfo.source}</span>
-          <span className="rounded-full bg-orange-950 px-3 py-1 text-orange-200">主線 {mainScore(stock, mainIndustries, settings, atrInfo, position)}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
-          {position?.holdingStatus === "已進場" && <span className="rounded-full bg-purple-500/20 px-3 py-1 text-purple-200">已進場</span>}
           {isTomorrow && <span className="rounded-full bg-cyan-500/20 px-3 py-1 text-cyan-300">明日觀察</span>}
           {isFavorite && <span className="rounded-full bg-yellow-500/20 px-3 py-1 text-yellow-300">自選</span>}
         </div>
 
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-200">
-          {decisionReason(stock, mainIndustries, settings, priceDirections, atrInfo, position)}
+          {moneySentence(stock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -903,7 +1015,7 @@ export default function App() {
   const [entryInput, setEntryInput] = useState("");
 
   const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("industry");
+  const [sortKey, setSortKey] = useState<SortKey>("money");
   const [showFilters, setShowFilters] = useState(false);
 
   const [updating, setUpdating] = useState(false);
@@ -1067,6 +1179,164 @@ export default function App() {
     }
   }
 
+  const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
+
+  function atrInfoOf(stock: Stock) {
+    return getAtrInfo(stock, settings, klineMap[stock.code]);
+  }
+
+  function posOf(stock: Stock) {
+    return positionMap[stock.code];
+  }
+
+  const industryRanking = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections, [], atrInfoOf, posOf),
+    [top50, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyIndustries = useMemo(() => industryRanking.slice(0, 3).map((item) => item.industry), [industryRanking]);
+
+  const finalIndustryRanking = useMemo(
+    () => getIndustryRanking(top50, settings, priceDirections, moneyIndustries, atrInfoOf, posOf),
+    [top50, settings, priceDirections, klineMap, positionMap, moneyIndustries]
+  );
+
+  const mainIndustries = moneyIndustries;
+
+  const watchableList = useMemo(
+    () =>
+      top50
+        .filter((stock) => {
+          const atr = atrInfoOf(stock);
+          const pos = posOf(stock);
+          return decisionLabel(stock, top50, mainIndustries, settings, priceDirections, atr, pos) === "可觀察";
+        })
+        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const waitPullbackList = useMemo(
+    () =>
+      top50
+        .filter((stock) => isMain(stock, mainIndustries) && isNearOpen(stock) && !isHot(stock, settings))
+        .sort((a, b) => Math.abs(distanceFromOpen(a)) - Math.abs(distanceFromOpen(b))),
+    [top50, mainIndustries, settings]
+  );
+
+  const moneyInList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金流入")
+        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyTurningList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金剛轉強")
+        .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyHotList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金過熱")
+        .sort((a, b) => b.changePercent - a.changePercent),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const moneyOutList = useMemo(
+    () =>
+      top50
+        .filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金退潮")
+        .sort((a, b) => moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)) - moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b))),
+    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
+  );
+
+  const realAtrSafeList = useMemo(
+    () =>
+      top50.filter((stock) => {
+        const atr = atrInfoOf(stock);
+        return atr.hasReal && atrStatus(stock, settings, atr, posOf(stock)) === "安全";
+      }),
+    [top50, settings, klineMap, positionMap]
+  );
+
+  const atrMissingList = useMemo(
+    () => top50.filter((stock) => !atrInfoOf(stock).hasReal),
+    [top50, settings, klineMap]
+  );
+
+  const favoriteStocks = useMemo(
+    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    [favoriteCodes, stocks]
+  );
+
+  const tomorrowStocksManual = useMemo(
+    () => tomorrowCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    [tomorrowCodes, stocks]
+  );
+
+  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
+
+  const tomorrowCombined = useMemo(() => {
+    const map = new Map<string, Stock>();
+    [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
+    return Array.from(map.values());
+  }, [tomorrowStocksManual, tomorrowAutoList]);
+
+  const tomorrowGroupedByIndustry = useMemo(() => {
+    const map = new Map<string, Stock[]>();
+
+    tomorrowCombined.forEach((stock) => {
+      const list = map.get(stock.industry) || [];
+      list.push(stock);
+      map.set(stock.industry, list);
+    });
+
+    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
+  }, [tomorrowCombined]);
+
+  const selectedIndustryItem = useMemo(
+    () => finalIndustryRanking.find((item) => item.industry === selectedIndustry) || null,
+    [finalIndustryRanking, selectedIndustry]
+  );
+
+  const selectedIndustryStocks = useMemo(() => {
+    if (!selectedIndustry) return [];
+
+    return top50
+      .filter((stock) => stock.industry === selectedIndustry)
+      .sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)));
+  }, [selectedIndustry, top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
+
+  const industryMapList = useMemo(() => {
+    const map = new Map<string, Stock[]>();
+
+    top50.forEach((stock) => {
+      const list = map.get(stock.industry) || [];
+      list.push(stock);
+      map.set(stock.industry, list);
+    });
+
+    map.forEach((list, key) => {
+      map.set(
+        key,
+        list.sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)))
+      );
+    });
+
+    return map;
+  }, [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]);
+
+  function industryRankOf(stock: Stock) {
+    const list = industryMapList.get(stock.industry) || [];
+    const index = list.findIndex((item) => item.code === stock.code);
+    return index >= 0 ? index + 1 : undefined;
+  }
+
   function buildKlineTargets(list: Stock[]) {
     const holdingCodes = Object.entries(positionMap)
       .filter(([, pos]) => pos.holdingStatus === "已進場")
@@ -1076,6 +1346,8 @@ export default function App() {
       ...holdingCodes,
       ...favoriteCodes,
       ...tomorrowCodes,
+      ...moneyInList.map((stock) => stock.code),
+      ...moneyTurningList.map((stock) => stock.code),
       ...watchableList.map((stock) => stock.code),
       ...list.map((stock) => stock.code),
     ];
@@ -1087,7 +1359,8 @@ export default function App() {
         ...holdingCodes,
         ...favoriteCodes,
         ...tomorrowCodes,
-        ...watchableList.slice(0, 10).map((stock) => stock.code),
+        ...moneyInList.slice(0, 10).map((stock) => stock.code),
+        ...moneyTurningList.slice(0, 10).map((stock) => stock.code),
       ];
 
       return Array.from(new Set(important.map(cleanCode).filter(Boolean))).slice(0, settings.klineLimit);
@@ -1230,158 +1503,34 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [settings.refreshSeconds, settings.dataSaver, lastPriceMap]);
 
-  const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
-
-  function atrInfoOf(stock: Stock) {
-    return getAtrInfo(stock, settings, klineMap[stock.code]);
-  }
-
-  function posOf(stock: Stock) {
-    return positionMap[stock.code];
-  }
-
-  const industryRanking = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections, [], atrInfoOf, posOf),
-    [top50, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const mainIndustries = useMemo(() => industryRanking.slice(0, 3).map((item) => item.industry), [industryRanking]);
-
-  const finalIndustryRanking = useMemo(
-    () => getIndustryRanking(top50, settings, priceDirections, mainIndustries, atrInfoOf, posOf),
-    [top50, settings, priceDirections, klineMap, positionMap, mainIndustries]
-  );
-
-  const industryMapList = useMemo(() => {
-    const map = new Map<string, Stock[]>();
-
-    top50.forEach((stock) => {
-      const list = map.get(stock.industry) || [];
-      list.push(stock);
-      map.set(stock.industry, list);
-    });
-
-    map.forEach((list, key) => {
-      map.set(
-        key,
-        list.sort((a, b) => mainScore(b, mainIndustries, settings, atrInfoOf(b), posOf(b)) - mainScore(a, mainIndustries, settings, atrInfoOf(a), posOf(a)))
-      );
-    });
-
-    return map;
-  }, [top50, mainIndustries, settings, klineMap, positionMap]);
-
-  function industryRankOf(stock: Stock) {
-    const list = industryMapList.get(stock.industry) || [];
-    const index = list.findIndex((item) => item.code === stock.code);
-    return index >= 0 ? index + 1 : undefined;
-  }
-
-  const watchableList = useMemo(
-    () =>
-      top50
-        .filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "可觀察")
-        .sort((a, b) => mainScore(b, mainIndustries, settings, atrInfoOf(b), posOf(b)) - mainScore(a, mainIndustries, settings, atrInfoOf(a), posOf(a))),
-    [top50, mainIndustries, settings, priceDirections, klineMap, positionMap]
-  );
-
-  const waitPullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => isWaitPullback(stock, mainIndustries, settings, atrInfoOf(stock), posOf(stock)))
-        .sort((a, b) => Math.abs(distanceFromOpen(a)) - Math.abs(distanceFromOpen(b))),
-    [top50, mainIndustries, settings, klineMap, positionMap]
-  );
-
-  const atrSafeList = useMemo(
-    () => top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全"),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const realAtrSafeList = useMemo(
-    () => atrSafeList.filter((stock) => atrInfoOf(stock).hasReal),
-    [atrSafeList, klineMap, settings]
-  );
-
-  const atrNearList = useMemo(
-    () => top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "接近停利" || atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "觀察偏近"),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const atrBrokenList = useMemo(
-    () => top50.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利"),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const atrMissingList = useMemo(
-    () => top50.filter((stock) => !atrInfoOf(stock).hasReal),
-    [top50, settings, klineMap]
-  );
-
-  const holdingRiskList = useMemo(
-    () =>
-      top50
-        .filter((stock) => posOf(stock)?.holdingStatus === "已進場")
-        .filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) !== "安全"),
-    [top50, settings, klineMap, positionMap]
-  );
-
-  const strongIndustryList = useMemo(() => finalIndustryRanking.filter((item) => item.status === "延續中"), [finalIndustryRanking]);
-  const weakIndustryList = useMemo(() => finalIndustryRanking.filter((item) => item.status === "轉弱中"), [finalIndustryRanking]);
-  const hotIndustryList = useMemo(() => finalIndustryRanking.filter((item) => item.status === "過熱中"), [finalIndustryRanking]);
-
-  const favoriteStocks = useMemo(
-    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [favoriteCodes, stocks]
-  );
-
-  const tomorrowStocksManual = useMemo(
-    () => tomorrowCodes.map((code) => stocks.find((s) => s.code === code)).filter(Boolean) as Stock[],
-    [tomorrowCodes, stocks]
-  );
-
-  const tomorrowAutoList = useMemo(() => watchableList.slice(0, 20), [watchableList]);
-
-  const tomorrowCombined = useMemo(() => {
-    const map = new Map<string, Stock>();
-    [...tomorrowStocksManual, ...tomorrowAutoList].forEach((stock) => map.set(stock.code, stock));
-    return Array.from(map.values());
-  }, [tomorrowStocksManual, tomorrowAutoList]);
-
-  const tomorrowGroupedByIndustry = useMemo(() => {
-    const map = new Map<string, Stock[]>();
-
-    tomorrowCombined.forEach((stock) => {
-      const list = map.get(stock.industry) || [];
-      list.push(stock);
-      map.set(stock.industry, list);
-    });
-
-    return Array.from(map.entries()).sort((a, b) => b[1].length - a[1].length);
-  }, [tomorrowCombined]);
-
-  const tomorrowAtrBroken = useMemo(
-    () => tomorrowCombined.filter((stock) => isAtrBroken(stock, settings, atrInfoOf(stock), posOf(stock))),
-    [tomorrowCombined, settings, klineMap, positionMap]
-  );
-
   const atrCompletionRate = useMemo(() => {
     const total = Math.max(1, Math.min(settings.klineLimit, top50.length));
     const real = top50.slice(0, settings.klineLimit).filter((stock) => atrInfoOf(stock).hasReal).length;
     return Math.round((real / total) * 100);
   }, [top50, settings.klineLimit, klineMap]);
 
-  const mainConcentrationRate = useMemo(() => {
+  const moneyConcentrationRate = useMemo(() => {
     const count = top50.filter((stock) => mainIndustries.includes(stock.industry)).length;
     return top50.length ? Math.round((count / top50.length) * 100) : 0;
   }, [top50, mainIndustries]);
 
-  const marketStructure = useMemo(() => {
-    if (hotIndustryList.length >= 2) return "過熱退潮";
-    if (mainConcentrationRate >= 40 && strongIndustryList.length >= 2) return "主線清楚";
-    if (mainConcentrationRate < 25) return "題材分散";
-    return "等回測";
-  }, [hotIndustryList, mainConcentrationRate, strongIndustryList]);
+  const moneyFlowStructure = useMemo(() => {
+    if (moneyOutList.length >= 18) return "資金退潮";
+    if (moneyConcentrationRate >= 40 && moneyInList.length >= 6) return "資金集中";
+    if (moneyConcentrationRate < 25) return "資金擴散";
+    return "資金輪動";
+  }, [moneyOutList, moneyConcentrationRate, moneyInList]);
+
+  const moneySentenceHome = useMemo(() => {
+    const top = finalIndustryRanking[0];
+
+    if (!top) return "目前資金流向尚未明確，先等資料更新。";
+    if (top.status === "資金流入") return `資金目前集中在 ${top.industry}，優先看量價同步、ATR安全的個股。`;
+    if (top.status === "資金擴散") return `資金從 ${top.industry} 擴散中，可看同產業剛轉強股。`;
+    if (top.status === "過熱中") return `${top.industry} 有資金但偏過熱，先等回測，不追高。`;
+    if (top.status === "資金退潮") return `${top.industry} 進榜但退潮訊號多，先保守。`;
+    return `${top.industry} 暫列資金第一，但仍需看量價是否同步。`;
+  }, [finalIndustryRanking]);
 
   const dataStatus = useMemo(() => {
     if (updating) return "更新中";
@@ -1390,31 +1539,6 @@ export default function App() {
     if (lastSuccessAt) return "即時正常";
     return "讀取中";
   }, [updating, error, usingCache, lastSuccessAt]);
-
-  const riskMode = useMemo(() => {
-    if (holdingRiskList.length >= 2 || atrBrokenList.length >= 5) return { label: "風控優先", tone: "text-red-300" };
-    if (atrNearList.length >= 8) return { label: "小心", tone: "text-yellow-300" };
-    return { label: "正常", tone: "text-emerald-300" };
-  }, [holdingRiskList, atrBrokenList, atrNearList]);
-
-  const mainIndustrySentence = useMemo(() => {
-    const top = finalIndustryRanking[0];
-
-    if (!top) return "目前主流產業尚未形成，先等資料更新。";
-    if (top.status === "延續中") return `${top.industry}是目前主線，安全率 ${top.safetyRate.toFixed(0)}%，優先從裡面挑ATR安全股。`;
-    if (top.status === "過熱中") return `${top.industry}雖然強，但過熱率 ${top.hotRate.toFixed(0)}%，不建議追高。`;
-    if (top.status === "轉弱中") return `${top.industry}進榜多但轉弱率偏高，先等回測確認。`;
-    return `${top.industry}暫列第一，但仍屬觀察中，先看個股是否站上開盤。`;
-  }, [finalIndustryRanking]);
-
-  const todaySummary = useMemo(() => {
-    const main = mainIndustries.slice(0, 3).join("、") || "主流產業";
-
-    if (marketStructure === "主線清楚") return `今天主線集中在 ${main}，優先挑主流內ATR安全股。`;
-    if (marketStructure === "過熱退潮") return `今天有產業過熱，主流仍要看，但不要追高。`;
-    if (marketStructure === "題材分散") return `今天題材分散，先看產業排名前3名，不急著追。`;
-    return `今天先等回測，主流產業內接近開盤且ATR安全者優先。`;
-  }, [marketStructure, mainIndustries]);
 
   const selectedStock = useMemo(
     () => stocks.find((stock) => stock.code === selectedCode) || null,
@@ -1432,42 +1556,16 @@ export default function App() {
     }
   }, [selectedStock]);
 
-  const selectedIndustryItem = useMemo(
-    () => finalIndustryRanking.find((item) => item.industry === selectedIndustry) || null,
-    [finalIndustryRanking, selectedIndustry]
-  );
-
-  const selectedIndustryStocks = useMemo(() => {
-    if (!selectedIndustry) return [];
-
-    return top50
-      .filter((stock) => stock.industry === selectedIndustry)
-      .sort((a, b) => {
-        const atrA = atrInfoOf(a);
-        const atrB = atrInfoOf(b);
-        const posA = posOf(a);
-        const posB = posOf(b);
-
-        const safeA = atrStatus(a, settings, atrA, posA) === "安全" ? 1 : 0;
-        const safeB = atrStatus(b, settings, atrB, posB) === "安全" ? 1 : 0;
-
-        if (safeA !== safeB) return safeB - safeA;
-
-        return mainScore(b, mainIndustries, settings, atrB, posB) - mainScore(a, mainIndustries, settings, atrA, posA);
-      });
-  }, [selectedIndustry, top50, settings, klineMap, positionMap, mainIndustries]);
-
   function filterTopList(list: Stock[]) {
     if (tab !== "top50") return list;
 
-    if (settings.topFilter === "可觀察") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "可觀察");
-    if (settings.topFilter === "等回測") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "等回測");
-    if (settings.topFilter === "不追高") return list.filter((stock) => decisionLabel(stock, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "不追高");
+    if (settings.topFilter === "資金流入") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金流入");
+    if (settings.topFilter === "資金轉強") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金剛轉強");
+    if (settings.topFilter === "資金過熱") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金過熱");
+    if (settings.topFilter === "資金退潮") return list.filter((stock) => moneyState(stock, top50, mainIndustries, settings, priceDirections, atrInfoOf(stock), posOf(stock)) === "資金退潮");
+    if (settings.topFilter === "主流產業") return list.filter((stock) => mainIndustries.includes(stock.industry));
     if (settings.topFilter === "ATR安全") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "安全");
     if (settings.topFilter === "真實ATR") return list.filter((stock) => atrInfoOf(stock).hasReal);
-    if (settings.topFilter === "主流產業") return list.filter((stock) => mainIndustries.includes(stock.industry));
-    if (settings.topFilter === "ATR風險") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) !== "安全");
-    if (settings.topFilter === "跌破ATR") return list.filter((stock) => atrStatus(stock, settings, atrInfoOf(stock), posOf(stock)) === "跌破停利");
 
     return list;
   }
@@ -1480,9 +1578,10 @@ export default function App() {
       arr = arr.filter((stock) => stock.code.includes(keyword) || stock.name.includes(keyword) || stock.industry.includes(keyword));
     }
 
+    if (sortKey === "money") return arr.sort((a, b) => moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)));
     if (sortKey === "change") return arr.sort((a, b) => b.changePercent - a.changePercent);
     if (sortKey === "price") return arr.sort((a, b) => a.price - b.price);
-    if (sortKey === "score") return arr.sort((a, b) => mainScore(b, mainIndustries, settings, atrInfoOf(b), posOf(b)) - mainScore(a, mainIndustries, settings, atrInfoOf(a), posOf(a)));
+    if (sortKey === "score") return arr.sort((a, b) => mainScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - mainScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a)));
     if (sortKey === "atr") return arr.sort((a, b) => atrRiskScore(a, settings, atrInfoOf(a), posOf(a)) - atrRiskScore(b, settings, atrInfoOf(b), posOf(b)));
     if (sortKey === "industry") {
       return arr.sort((a, b) => {
@@ -1491,16 +1590,11 @@ export default function App() {
 
         if (ia !== ib) return ia - ib;
 
-        return mainScore(b, mainIndustries, settings, atrInfoOf(b), posOf(b)) - mainScore(a, mainIndustries, settings, atrInfoOf(a), posOf(a));
+        return moneyScore(b, top50, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b)) - moneyScore(a, top50, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a));
       });
     }
 
-    return arr.sort((a, b) => {
-      const order: Record<string, number> = { 可觀察: 1, 等回測: 2, 不追高: 3, 移除: 4, 跌破ATR: 5 };
-      const da = decisionLabel(a, mainIndustries, settings, priceDirections, atrInfoOf(a), posOf(a));
-      const db = decisionLabel(b, mainIndustries, settings, priceDirections, atrInfoOf(b), posOf(b));
-      return (order[da] || 99) - (order[db] || 99);
-    });
+    return arr;
   }
 
   const currentList = useMemo(() => {
@@ -1510,23 +1604,13 @@ export default function App() {
     if (tab === "more") {
       if (moreView === "watchable") return sortList(watchableList);
       if (moreView === "waitPullback") return sortList(waitPullbackList);
-      if (moreView === "atrSafe") return sortList(atrSafeList);
+      if (moreView === "moneyIn") return sortList(moneyInList);
+      if (moreView === "moneyTurning") return sortList(moneyTurningList);
+      if (moreView === "moneyHot") return sortList(moneyHotList);
+      if (moreView === "moneyOut") return sortList(moneyOutList);
       if (moreView === "realAtrSafe") return sortList(realAtrSafeList);
-      if (moreView === "atrNear") return sortList(atrNearList);
-      if (moreView === "atrBroken") return sortList(atrBrokenList);
       if (moreView === "atrMissing") return sortList(atrMissingList);
-      if (moreView === "holdingRisk") return sortList(holdingRiskList);
       if (moreView === "industryDetail") return sortList(selectedIndustryStocks);
-      if (moreView === "industryWatchable") {
-        return sortList(
-          selectedIndustryStocks.filter((stock) => {
-            const atr = atrInfoOf(stock);
-            const pos = posOf(stock);
-            return stock.price <= settings.maxPrice && !isHot(stock, settings) && atrStatus(stock, settings, atr, pos) === "安全";
-          })
-        );
-      }
-      if (moreView === "industryHot") return sortList(selectedIndustryStocks.filter((stock) => isHot(stock, settings)));
     }
 
     return [];
@@ -1537,12 +1621,12 @@ export default function App() {
     favoriteStocks,
     watchableList,
     waitPullbackList,
-    atrSafeList,
+    moneyInList,
+    moneyTurningList,
+    moneyHotList,
+    moneyOutList,
     realAtrSafeList,
-    atrNearList,
-    atrBrokenList,
     atrMissingList,
-    holdingRiskList,
     selectedIndustryStocks,
     searchText,
     sortKey,
@@ -1578,17 +1662,13 @@ export default function App() {
     setTab("tomorrow");
   }
 
-  function removeAtrBrokenTomorrow() {
-    const removeSet = new Set(tomorrowAtrBroken.map((stock) => stock.code));
-    saveTomorrow(tomorrowCodes.filter((code) => !removeSet.has(code)));
-  }
-
   function setAtrMode(mode: AtrMode) {
     const multiple = mode === "短線" ? 1.5 : mode === "標準" ? 2 : 3;
     saveSettings({ ...settings, atrMode: mode, atrMultiple: multiple });
   }
 
   const cardProps = {
+    top50,
     mainIndustries,
     settings,
     favoriteCodes,
@@ -1608,25 +1688,13 @@ export default function App() {
   if (selectedStock) {
     const position = positionMap[selectedStock.code];
     const atrInfo = getAtrInfo(selectedStock, settings, klineMap[selectedStock.code]);
-    const label = decisionLabel(selectedStock, mainIndustries, settings, priceDirections, atrInfo, position);
+    const money = moneyState(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
+    const label = decisionLabel(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position);
     const direction = priceDirections[selectedStock.code];
     const prevPrice = previousPriceOf(selectedStock, previousPriceMap);
     const diff = instantDiff(selectedStock, previousPriceMap);
     const diffPct = instantPercent(selectedStock, previousPriceMap);
     const links = getKLinks(selectedStock.code, selectedStock.name);
-
-    const todayAction =
-      isAtrBroken(selectedStock, settings, atrInfo, position)
-        ? "跌破移除"
-        : isAtrNear(selectedStock, settings, atrInfo, position)
-          ? position?.holdingStatus === "已進場"
-            ? "守ATR"
-            : "觀察偏近"
-          : label === "可觀察"
-            ? "可觀察"
-            : label === "等回測"
-              ? "等回測"
-              : "不追高";
 
     return (
       <div className="min-h-screen bg-black text-white">
@@ -1650,11 +1718,21 @@ export default function App() {
               </div>
             </div>
 
+            <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${moneyTone(money)}`}>
+              <div className="text-xs font-bold text-slate-400">資金判斷</div>
+              <div className="mt-1 text-3xl font-black">{money}</div>
+              <div className="mt-2 text-sm font-bold text-slate-300">
+                {moneySentence(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}
+              </div>
+            </div>
+
             <div className={`mt-4 rounded-2xl bg-black/30 p-4 ${decisionTone(label)}`}>
               <div className="text-xs font-bold text-slate-400">今天該怎麼做</div>
-              <div className="mt-1 text-3xl font-black">{todayAction}</div>
+              <div className="mt-1 text-3xl font-black">{label}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                {decisionReason(selectedStock, mainIndustries, settings, priceDirections, atrInfo, position)}
+                資金分數：{moneyScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)}｜
+                {priceVolumeState(selectedStock, top50, settings)}｜
+                {volumeState(selectedStock, top50)}
               </div>
             </div>
 
@@ -1662,8 +1740,6 @@ export default function App() {
               <div className="text-xs font-bold text-slate-400">日K狀態：{atrInfo.hasReal ? "真實ATR已完成" : klineFailMap[selectedStock.code] ? "使用簡化ATR" : "日K讀取中或等待補抓"}</div>
               <div className="mt-1 text-2xl font-black">ATR狀態：{atrStatus(selectedStock, settings, atrInfo, position)}</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                {atrSentence(selectedStock, settings, atrInfo, position)}
-                <br />
                 ATR來源：{atrInfo.source}
                 <br />
                 ATR數值：{formatPrice(atrInfo.atr)}
@@ -1740,17 +1816,6 @@ export default function App() {
               </div>
             </section>
 
-            <section className="mt-4 rounded-2xl bg-yellow-950/30 p-4">
-              <div className="text-lg font-black text-yellow-100">近{settings.atrDays}日波動</div>
-              <div className="mt-2 text-sm font-bold text-yellow-100">
-                近{settings.atrDays}日最高：{formatPrice(atrInfo.highN)}
-                <br />
-                近{settings.atrDays}日最低：{formatPrice(atrInfo.lowN)}
-                <br />
-                波動幅度：{formatPercent(atrInfo.rangePercent)}
-              </div>
-            </section>
-
             <div className="mt-4 rounded-2xl bg-black/30 p-4">
               <div className="text-xs font-bold text-slate-500">即時股價</div>
               <div className={`mt-1 text-xl font-black ${directionTone(direction)}`}>{directionText(direction)}</div>
@@ -1762,10 +1827,10 @@ export default function App() {
             </div>
 
             <div className="mt-4 grid grid-cols-2 gap-2">
-              <DetailRow label="主線分數" value={mainScore(selectedStock, mainIndustries, settings, atrInfo, position)} />
-              <DetailRow label="ATR風險分" value={atrRiskScore(selectedStock, settings, atrInfo, position)} />
-              <DetailRow label="產業排名" value={`${selectedStock.industry} 第 ${industryRankOf(selectedStock) || "--"}`} />
-              <DetailRow label="停利基準" value={settings.profitAnchor} />
+              <DetailRow label="資金分數" value={moneyScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)} />
+              <DetailRow label="主線分數" value={mainScore(selectedStock, top50, mainIndustries, settings, priceDirections, atrInfo, position)} />
+              <DetailRow label="成交量強度" value={volumeState(selectedStock, top50)} />
+              <DetailRow label="量價狀態" value={priceVolumeState(selectedStock, top50, settings)} />
             </div>
           </section>
 
@@ -1783,16 +1848,33 @@ export default function App() {
     );
   }
 
+  function posOf(stock: Stock) {
+    return positionMap[stock.code];
+  }
+
+  function clearKlineCache() {
+    localStorage.removeItem(KLINE_CACHE_KEY);
+    setKlineMap({});
+    setKlineFailMap({});
+    setKlineLoadedCount(0);
+    setKlineTargetCount(0);
+  }
+
+  function setAtrMode(mode: AtrMode) {
+    const multiple = mode === "短線" ? 1.5 : mode === "標準" ? 2 : 3;
+    saveSettings({ ...settings, atrMode: mode, atrMultiple: multiple });
+  }
+
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">台股主流產業優化版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">主流產業雷達</h1>
+              <div className="text-sm font-bold text-slate-400">台股資金流向雷達版</div>
+              <h1 className="mt-1 text-3xl font-black tracking-tight">資金流向雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                先看主流產業，再從主流裡挑安全股。
+                先看資金往哪裡去，再挑量價同步、ATR安全股。
               </p>
             </div>
 
@@ -1822,37 +1904,31 @@ export default function App() {
         </section>
 
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-          <div className="text-xs font-bold text-yellow-300">今日主流產業</div>
+          <div className="text-xs font-bold text-yellow-300">資金正在去哪裡</div>
           <div className="mt-1 text-xl font-black text-yellow-100">
             {mainIndustries.length ? mainIndustries.map((name, i) => `${i + 1}.${name}`).join("　") : "尚未形成"}
           </div>
-          <div className="mt-2 text-sm font-bold text-slate-300">{mainIndustrySentence}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">{moneySentenceHome}</div>
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <DetailRow label="主流集中度" value={`${mainConcentrationRate}%`} />
-            <DetailRow label="盤面結構" value={marketStructure} />
+            <DetailRow label="資金集中度" value={`${moneyConcentrationRate}%`} />
+            <DetailRow label="資金型態" value={moneyFlowStructure} />
           </div>
         </section>
 
-        <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-          <div className="text-xs font-bold text-emerald-300">今日決策總結</div>
-          <div className="mt-1 text-xl font-black text-emerald-100">{todaySummary}</div>
-          <div className={`mt-2 text-2xl font-black ${riskMode.tone}`}>風控模式：{riskMode.label}</div>
+        <section className="mt-4 grid grid-cols-2 gap-3">
+          <MiniCard title="資金流入股" value={moneyInList.length} sub="量價同步 + 主流" tone="text-emerald-300" onClick={() => goMore("moneyIn")} />
+          <MiniCard title="資金剛轉強" value={moneyTurningList.length} sub="即時上升未過熱" tone="text-cyan-300" onClick={() => goMore("moneyTurning")} />
+          <MiniCard title="資金過熱" value={moneyHotList.length} sub="有資金但不追高" tone="text-orange-300" onClick={() => goMore("moneyHot")} />
+          <MiniCard title="資金退潮" value={moneyOutList.length} sub="轉弱先避開" tone="text-red-300" onClick={() => goMore("moneyOut")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="主流集中度" value={`${mainConcentrationRate}%`} sub="前三產業佔50強比例" tone="text-cyan-300" onClick={() => goMore("industry")} />
-          <MiniCard title="延續產業" value={strongIndustryList.length} sub="安全率高且轉強" tone="text-emerald-300" onClick={() => goMore("strongIndustry")} />
-          <MiniCard title="過熱產業" value={hotIndustryList.length} sub="不適合追高" tone="text-orange-300" onClick={() => goMore("hotIndustry")} />
-          <MiniCard title="轉弱產業" value={weakIndustryList.length} sub="小心退潮" tone="text-red-300" onClick={() => goMore("weakIndustry")} />
-        </section>
-
-        <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="產業熱度" sub="主流產業完整排行" badge={finalIndustryRanking.length} tone="text-cyan-300" onClick={() => goMore("industry")} />
-          <ActionCard title="產業輪動" sub="轉強 / 退潮 / 過熱" badge={marketStructure} tone="text-yellow-300" onClick={() => goMore("strongIndustry")} />
-          <ActionCard title="50強" sub="含產業排名" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
-          <ActionCard title="明日觀察" sub="依產業分組" badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
-          <ActionCard title="可觀察雷達" sub="主流 + ATR安全" badge={watchableList.length} tone="text-emerald-300" onClick={() => goMore("watchable")} />
+          <ActionCard title="資金流向產業" sub="資金排名前三" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => goMore("moneyIndustry")} />
+          <ActionCard title="50強" sub="含資金分數" badge={top50.length} tone="text-red-300" onClick={() => setTab("top50")} />
+          <ActionCard title="明日觀察" sub="含資金延續" badge={tomorrowCombined.length} tone="text-cyan-300" onClick={() => setTab("tomorrow")} />
           <ActionCard title="只更新股價" sub="不重抓日K" badge="快" tone="text-cyan-300" onClick={() => loadStocks({ withKline: false })} />
+          <ActionCard title="可觀察雷達" sub="資金 + 主流 + ATR" badge={watchableList.length} tone="text-emerald-300" onClick={() => goMore("watchable")} />
+          <ActionCard title="等回測雷達" sub="主流裡等位置" badge={waitPullbackList.length} tone="text-yellow-300" onClick={() => goMore("waitPullback")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
@@ -1876,8 +1952,9 @@ export default function App() {
 
           {showFilters && (
             <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-6 gap-2">
+              <div className="grid grid-cols-7 gap-2">
                 {[
+                  ["money", "資金"],
                   ["industry", "產業"],
                   ["decision", "決策"],
                   ["score", "主線"],
@@ -1899,7 +1976,7 @@ export default function App() {
 
               {tab === "top50" && (
                 <div className="grid grid-cols-3 gap-2">
-                  {(["全部", "可觀察", "等回測", "不追高", "ATR安全", "真實ATR", "主流產業", "ATR風險", "跌破ATR"] as TopFilter[]).map((filter) => (
+                  {(["全部", "資金流入", "資金轉強", "資金過熱", "資金退潮", "主流產業", "ATR安全", "真實ATR"] as TopFilter[]).map((filter) => (
                     <button
                       key={filter}
                       onClick={() => saveSettings({ ...settings, topFilter: filter })}
@@ -1921,13 +1998,13 @@ export default function App() {
             <h2 className="text-xl font-black">更多功能</h2>
 
             <div className="mt-4 grid grid-cols-2 gap-3">
-              <ActionCard title="產業熱度" sub="主流產業排行" badge={finalIndustryRanking.length} tone="text-cyan-300" onClick={() => setMoreView("industry")} />
-              <ActionCard title="轉強產業" sub="延續中產業" badge={strongIndustryList.length} tone="text-emerald-300" onClick={() => setMoreView("strongIndustry")} />
-              <ActionCard title="退潮產業" sub="轉弱中產業" badge={weakIndustryList.length} tone="text-red-300" onClick={() => setMoreView("weakIndustry")} />
-              <ActionCard title="過熱產業" sub="不追高提醒" badge={hotIndustryList.length} tone="text-orange-300" onClick={() => setMoreView("hotIndustry")} />
-              <ActionCard title="真實ATR安全股" sub="日K成功 + ATR安全" badge={realAtrSafeList.length} tone="text-emerald-300" onClick={() => setMoreView("realAtrSafe")} />
-              <ActionCard title="ATR資料不足" sub="使用簡化ATR備援" badge={atrMissingList.length} tone="text-yellow-300" onClick={() => setMoreView("atrMissing")} />
-              <ActionCard title="持有中風控" sub="已進場股票" badge={holdingRiskList.length} tone="text-orange-300" onClick={() => setMoreView("holdingRisk")} />
+              <ActionCard title="資金流向產業" sub="產業資金排名" badge={finalIndustryRanking.length} tone="text-yellow-300" onClick={() => setMoreView("moneyIndustry")} />
+              <ActionCard title="資金流入股" sub="量價同步" badge={moneyInList.length} tone="text-emerald-300" onClick={() => setMoreView("moneyIn")} />
+              <ActionCard title="資金剛轉強" sub="即時轉強未過熱" badge={moneyTurningList.length} tone="text-cyan-300" onClick={() => setMoreView("moneyTurning")} />
+              <ActionCard title="資金過熱股" sub="有資金但不追" badge={moneyHotList.length} tone="text-orange-300" onClick={() => setMoreView("moneyHot")} />
+              <ActionCard title="資金退潮股" sub="轉弱先避開" badge={moneyOutList.length} tone="text-red-300" onClick={() => setMoreView("moneyOut")} />
+              <ActionCard title="真實ATR安全" sub="日K成功 + ATR安全" badge={realAtrSafeList.length} tone="text-emerald-300" onClick={() => setMoreView("realAtrSafe")} />
+              <ActionCard title="ATR資料不足" sub="使用簡化ATR" badge={atrMissingList.length} tone="text-yellow-300" onClick={() => setMoreView("atrMissing")} />
               <ActionCard title="設定" sub="快取 / 數量 / ATR" badge="⚙️" tone="text-purple-300" onClick={() => setMoreView("settings")} />
             </div>
           </section>
@@ -1940,34 +2017,29 @@ export default function App() {
               {tab === "top50" && "📊 今日50強"}
               {tab === "tomorrow" && "📌 明日觀察"}
               {tab === "favorite" && "⭐ 自選股"}
-              {tab === "more" && moreView === "industry" && "🏭 產業熱度"}
+              {tab === "more" && moreView === "moneyIndustry" && "💰 資金流向產業"}
               {tab === "more" && moreView === "industryDetail" && `🏭 ${selectedIndustry}`}
-              {tab === "more" && moreView === "industryWatchable" && `✅ ${selectedIndustry} 可觀察`}
-              {tab === "more" && moreView === "industryHot" && `🔥 ${selectedIndustry} 過熱`}
-              {tab === "more" && moreView === "strongIndustry" && "🟢 轉強產業"}
-              {tab === "more" && moreView === "weakIndustry" && "🔴 退潮產業"}
-              {tab === "more" && moreView === "hotIndustry" && "🟠 過熱產業"}
               {tab === "more" && moreView === "watchable" && "✅ 可觀察雷達"}
               {tab === "more" && moreView === "waitPullback" && "↩️ 等回測雷達"}
-              {tab === "more" && moreView === "atrSafe" && "🟢 ATR安全股"}
-              {tab === "more" && moreView === "realAtrSafe" && "🟢 真實ATR安全股"}
-              {tab === "more" && moreView === "atrNear" && "🟡 接近ATR線"}
-              {tab === "more" && moreView === "atrBroken" && "🔴 跌破ATR"}
+              {tab === "more" && moreView === "moneyIn" && "🟢 資金流入股"}
+              {tab === "more" && moreView === "moneyTurning" && "🔵 資金剛轉強"}
+              {tab === "more" && moreView === "moneyHot" && "🟠 資金過熱股"}
+              {tab === "more" && moreView === "moneyOut" && "🔴 資金退潮股"}
+              {tab === "more" && moreView === "realAtrSafe" && "🟢 真實ATR安全"}
               {tab === "more" && moreView === "atrMissing" && "🟡 ATR資料不足"}
-              {tab === "more" && moreView === "holdingRisk" && "⚠️ 持有中風控"}
               {tab === "more" && moreView === "settings" && "⚙️ 設定"}
               {tab === "more" && moreView === "data" && "📡 資料健康檢查"}
             </h2>
 
             <p className="mt-1 text-sm font-bold text-slate-500">
-              主流：{mainIndustries.slice(0, 3).join("、") || "--"}｜結構：{marketStructure}
+              資金主流：{mainIndustries.slice(0, 3).join("、") || "--"}｜型態：{moneyFlowStructure}
             </p>
           </div>
 
           {tab === "home" && (
             <div className="space-y-4">
-              <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-                <h3 className="text-xl font-black">前三主流產業</h3>
+              <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
+                <h3 className="text-xl font-black">資金流向前三產業</h3>
                 <div className="mt-3 space-y-3">
                   {finalIndustryRanking.slice(0, 3).map((item, index) => (
                     <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
@@ -1976,14 +2048,28 @@ export default function App() {
               </section>
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <h3 className="text-xl font-black">主流裡最該看 5 檔</h3>
+                <h3 className="text-xl font-black">資金最強 5 檔</h3>
                 <div className="mt-3 space-y-3">
-                  {watchableList.slice(0, 5).length === 0 && (
+                  {moneyInList.slice(0, 5).length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確可觀察股票。
+                      目前沒有明確資金流入股。
                     </div>
                   )}
-                  {watchableList.slice(0, 5).map((stock, index) => (
+                  {moneyInList.slice(0, 5).map((stock, index) => (
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} industryRank={industryRankOf(stock)} {...cardProps} />
+                  ))}
+                </div>
+              </section>
+
+              <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
+                <h3 className="text-xl font-black">資金剛轉強 5 檔</h3>
+                <div className="mt-3 space-y-3">
+                  {moneyTurningList.slice(0, 5).length === 0 && (
+                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                      目前沒有明確剛轉強股。
+                    </div>
+                  )}
+                  {moneyTurningList.slice(0, 5).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} industryRank={industryRankOf(stock)} {...cardProps} />
                   ))}
                 </div>
@@ -1994,17 +2080,14 @@ export default function App() {
           {tab === "tomorrow" && (
             <div className="space-y-5">
               <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-                <h3 className="text-xl font-black">明日觀察：依產業分組</h3>
+                <h3 className="text-xl font-black">明日觀察：資金延續</h3>
                 <div className="mt-2 text-sm font-bold text-cyan-100">
-                  先看主流產業是否延續，再看個股是否ATR安全。
+                  優先追蹤今天資金流入、資金剛轉強、量價同步的個股。
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button onClick={addWatchableToTomorrow} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
                     加入可觀察
-                  </button>
-                  <button onClick={removeAtrBrokenTomorrow} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-                    移除跌破ATR
                   </button>
                   <button onClick={() => saveTomorrow([])} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
                     一鍵清空
@@ -2031,7 +2114,7 @@ export default function App() {
             </div>
           )}
 
-          {tab === "more" && moreView === "industry" && (
+          {tab === "more" && moreView === "moneyIndustry" && (
             <div className="space-y-3">
               {finalIndustryRanking.map((item, index) => (
                 <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
@@ -2039,74 +2122,21 @@ export default function App() {
             </div>
           )}
 
-          {tab === "more" && moreView === "strongIndustry" && (
-            <div className="space-y-3">
-              {strongIndustryList.length === 0 && <div className="rounded-2xl bg-slate-950 p-5 text-slate-400">目前沒有明確轉強產業。</div>}
-              {strongIndustryList.map((item, index) => (
-                <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
-              ))}
-            </div>
-          )}
-
-          {tab === "more" && moreView === "weakIndustry" && (
-            <div className="space-y-3">
-              {weakIndustryList.length === 0 && <div className="rounded-2xl bg-slate-950 p-5 text-slate-400">目前沒有明顯退潮產業。</div>}
-              {weakIndustryList.map((item, index) => (
-                <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
-              ))}
-            </div>
-          )}
-
-          {tab === "more" && moreView === "hotIndustry" && (
-            <div className="space-y-3">
-              {hotIndustryList.length === 0 && <div className="rounded-2xl bg-slate-950 p-5 text-slate-400">目前沒有明顯過熱產業。</div>}
-              {hotIndustryList.map((item, index) => (
-                <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => openIndustry(item.industry)} />
-              ))}
-            </div>
-          )}
-
           {tab === "more" && moreView === "industryDetail" && selectedIndustryItem && (
             <section className="mb-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
-              <div className="text-sm font-bold text-cyan-300">產業詳情</div>
+              <div className="text-sm font-bold text-cyan-300">產業資金詳情</div>
               <div className="mt-1 text-3xl font-black">{selectedIndustryItem.industry}</div>
               <div className={`mt-2 text-xl font-black ${industryTone(selectedIndustryItem.status)}`}>{selectedIndustryItem.status}</div>
               <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-black">
-                <div className="rounded-2xl bg-black/30 p-3 text-emerald-300">安全率<br />{selectedIndustryItem.safetyRate.toFixed(0)}%</div>
+                <div className="rounded-2xl bg-black/30 p-3 text-emerald-300">流入率<br />{selectedIndustryItem.moneyInRate.toFixed(0)}%</div>
                 <div className="rounded-2xl bg-black/30 p-3 text-orange-300">過熱率<br />{selectedIndustryItem.hotRate.toFixed(0)}%</div>
-                <div className="rounded-2xl bg-black/30 p-3 text-red-300">轉弱率<br />{selectedIndustryItem.weakRate.toFixed(0)}%</div>
-              </div>
-
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button onClick={() => setMoreView("industryWatchable")} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
-                  產業內可觀察
-                </button>
-                <button onClick={() => setMoreView("industryHot")} className="rounded-2xl bg-orange-500/20 py-3 text-sm font-black text-orange-200">
-                  產業內過熱
-                </button>
+                <div className="rounded-2xl bg-black/30 p-3 text-red-300">退潮率<br />{selectedIndustryItem.weakRate.toFixed(0)}%</div>
               </div>
             </section>
           )}
 
           {tab === "more" && moreView === "settings" && (
             <div className="space-y-4 rounded-3xl border border-purple-500/50 bg-purple-950/20 p-5">
-              <div>
-                <div className="mb-2 text-lg font-black">日K快取時間</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[10, 30, 60].map((min) => (
-                    <button
-                      key={min}
-                      onClick={() => saveSettings({ ...settings, klineCacheMinutes: min })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.klineCacheMinutes === min ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {min}分
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               <div>
                 <div className="mb-2 text-lg font-black">日K抓取數量</div>
                 <div className="grid grid-cols-3 gap-2">
@@ -2124,6 +2154,23 @@ export default function App() {
                 </div>
               </div>
 
+              <div>
+                <div className="mb-2 text-lg font-black">日K快取時間</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {[10, 30, 60].map((min) => (
+                    <button
+                      key={min}
+                      onClick={() => saveSettings({ ...settings, klineCacheMinutes: min })}
+                      className={`rounded-2xl py-3 text-sm font-black ${
+                        settings.klineCacheMinutes === min ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      }`}
+                    >
+                      {min}分
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               <button
                 onClick={() => saveSettings({ ...settings, klineSaveMode: !settings.klineSaveMode })}
                 className={`w-full rounded-2xl py-3 text-lg font-black ${
@@ -2132,23 +2179,6 @@ export default function App() {
               >
                 省流量日K模式：{settings.klineSaveMode ? "開啟" : "關閉"}
               </button>
-
-              <div>
-                <div className="mb-2 text-lg font-black">ATR天數</div>
-                <div className="grid grid-cols-3 gap-2">
-                  {[7, 14, 20].map((days) => (
-                    <button
-                      key={days}
-                      onClick={() => saveSettings({ ...settings, atrDays: days })}
-                      className={`rounded-2xl py-3 text-sm font-black ${
-                        settings.atrDays === days ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
-                      }`}
-                    >
-                      {days}日
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               <div>
                 <div className="mb-2 text-lg font-black">ATR模式</div>
@@ -2200,19 +2230,16 @@ export default function App() {
                 <div>資料筆數：{stocks.length}</div>
                 <div>50強筆數：{top50.length}</div>
                 <div>最新資料時間：{apiDataTime || "讀取中"}</div>
-                <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
                 <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
                 <div>資料來源：{source || "讀取中"}</div>
                 <div>日K載入進度：{klineLoading ? `${klineLoadedCount}/${klineTargetCount}` : "目前未載入中"}</div>
                 <div>真實ATR完成率：{atrCompletionRate}%</div>
-                <div>真實ATR：{Object.keys(klineMap).length} 檔</div>
-                <div>日K失敗：{Object.keys(klineFailMap).length} 檔</div>
-                <div>產業數量：{finalIndustryRanking.length}</div>
-                <div>前三產業：{mainIndustries.join("、") || "--"}</div>
-                <div>主流集中度：{mainConcentrationRate}%</div>
-                <div>盤面結構：{marketStructure}</div>
-                <div>過熱產業數：{hotIndustryList.length}</div>
-                <div>轉弱產業數：{weakIndustryList.length}</div>
+                <div>資金流入股數：{moneyInList.length}</div>
+                <div>資金轉強股數：{moneyTurningList.length}</div>
+                <div>資金退潮股數：{moneyOutList.length}</div>
+                <div>資金集中度：{moneyConcentrationRate}%</div>
+                <div>資金最強產業：{mainIndustries[0] || "--"}</div>
+                <div>資金型態：{moneyFlowStructure}</div>
                 <div>最後日K更新：{klineLastUpdatedAt || "--"}</div>
               </div>
 
@@ -2235,7 +2262,7 @@ export default function App() {
 
           {tab !== "home" &&
             tab !== "tomorrow" &&
-            !(tab === "more" && ["industry", "strongIndustry", "weakIndustry", "hotIndustry", "settings", "data", "menu"].includes(moreView)) && (
+            !(tab === "more" && ["moneyIndustry", "settings", "data", "menu"].includes(moreView)) && (
               <div className="space-y-3">
                 {currentList.length === 0 && (
                   <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
