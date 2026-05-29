@@ -16,6 +16,14 @@ type Stock = {
 };
 
 type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
+type QuickFilterKey =
+  | "core"
+  | "money"
+  | "volume"
+  | "industry"
+  | "pullback"
+  | "overheat"
+  | "failed";
 type PopupKey =
   | ""
   | "industry"
@@ -1006,6 +1014,7 @@ export default function App() {
 
   const [searchText, setSearchText] = useState("");
   const [sortKey, setSortKey] = useState("mainline");
+  const [quickFilter, setQuickFilter] = useState<QuickFilterKey>("money");
   const [showFilters, setShowFilters] = useState(false);
 
   const [queryText, setQueryText] = useState("");
@@ -1472,7 +1481,53 @@ export default function App() {
     return sortList(top50.filter((stock) => stock.industry === industryPopup));
   }, [industryPopup, top50, searchText, sortKey, signalMap, mainIndustries]);
 
-  const homeCoreList = useMemo(() => [...coreList, ...pullbackList].slice(0, 8), [coreList, pullbackList]);
+  function quickFilterTitle(key: QuickFilterKey) {
+  if (key === "core") return "主線核心";
+  if (key === "money") return "資金排行";
+  if (key === "volume") return "成交量排行";
+  if (key === "industry") return "產業主線";
+  if (key === "pullback") return "等回測";
+  if (key === "overheat") return "過熱不追";
+  if (key === "failed") return "主線失效";
+  return "資金排行";
+}
+
+function quickFilterSub(key: QuickFilterKey) {
+  if (key === "core") return "資金、量能、價格同步";
+  if (key === "money") return "主力資金最集中的個股";
+  if (key === "volume") return "成交量最活躍的個股";
+  if (key === "industry") return "前三主線產業內個股";
+  if (key === "pullback") return "主線內，不追高，等合理位置";
+  if (key === "overheat") return "短線漲太快，避免追高";
+  if (key === "failed") return "爆量不漲或轉弱，先避開";
+  return "";
+}
+
+const quickFilterList = useMemo(() => {
+  if (quickFilter === "core") return sortList(coreList).slice(0, 30);
+  if (quickFilter === "money") return [...amountList].slice(0, 50);
+  if (quickFilter === "volume") return [...top50].sort((a, b) => b.volume - a.volume).slice(0, 50);
+  if (quickFilter === "industry") {
+    const mainSet = new Set(industryRanking.slice(0, 3).map((item) => item.industry));
+    return sortList(top50.filter((stock) => mainSet.has(stock.industry))).slice(0, 50);
+  }
+  if (quickFilter === "pullback") return sortList(pullbackList).slice(0, 30);
+  if (quickFilter === "overheat") return sortList(overheatList).slice(0, 30);
+  if (quickFilter === "failed") return sortList(failedList).slice(0, 30);
+  return [...amountList].slice(0, 50);
+}, [
+  quickFilter,
+  coreList,
+  amountList,
+  top50,
+  industryRanking,
+  pullbackList,
+  overheatList,
+  failedList,
+  signalMap,
+  mainIndustries,
+  settings,
+]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -1587,47 +1642,50 @@ export default function App() {
           <ActionCard title="設定" sub="確認次數 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
-        <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-black">搜尋與排序</h2>
-              <p className="text-xs font-bold text-slate-500">這裡篩選目前清單；全個股查詢在上方。</p>
-            </div>
+       <section className="mt-4 rounded-3xl border border-slate-700 bg-slate-950 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <h2 className="text-lg font-black">主線快篩</h2>
+      <p className="mt-1 text-xs font-bold text-slate-500">
+        不用打字，盤中直接切換要看的清單。
+      </p>
+    </div>
 
-            <button onClick={() => setShowFilters(!showFilters)} className="rounded-2xl bg-slate-800 px-4 py-2 text-sm font-black text-slate-200">
-              篩選
-            </button>
-          </div>
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-bold text-slate-500">目前顯示</div>
+      <div className="text-sm font-black text-yellow-300">{quickFilterTitle(quickFilter)}</div>
+    </div>
+  </div>
 
-          <input
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="篩選目前清單"
-            className="mt-3 w-full rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-          />
+  <div className="mt-4 grid grid-cols-3 gap-2">
+    {[
+      ["core", "主線核心", "💎"],
+      ["money", "資金排行", "💰"],
+      ["volume", "成交量", "📊"],
+      ["industry", "產業主線", "🏭"],
+      ["pullback", "等回測", "🎯"],
+      ["overheat", "過熱不追", "🔥"],
+      ["failed", "主線失效", "⚠️"],
+    ].map(([key, label, icon]) => (
+      <button
+        key={key}
+        onClick={() => setQuickFilter(key as QuickFilterKey)}
+        className={`rounded-2xl py-3 text-xs font-black active:scale-95 ${
+          quickFilter === key
+            ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
+            : "bg-black/30 text-slate-300"
+        }`}
+      >
+        <div className="text-lg">{icon}</div>
+        {label}
+      </button>
+    ))}
+  </div>
 
-          {showFilters && (
-            <div className="mt-3 grid grid-cols-4 gap-2">
-              {[
-                ["mainline", "主線"],
-                ["money", "金額"],
-                ["volume", "成交量"],
-                ["industry", "產業"],
-                ["change", "漲幅"],
-              ].map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setSortKey(key)}
-                  className={`rounded-2xl py-3 text-xs font-black ${
-                    sortKey === key ? "bg-indigo-500 text-white" : "bg-black/30 text-slate-300"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-        </section>
+  <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-300">
+    {quickFilterSub(quickFilter)}
+  </div>
+</section>
 
         <section className="mt-4">
           <div className="mb-3">
@@ -1663,19 +1721,19 @@ export default function App() {
 
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">最值得看的主線股</h3>
+                  <h3 className="text-xl font-black">{quickFilterTitle(quickFilter)}</h3>
                   <button onClick={() => setPopup("core")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
                     核心股
                   </button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {homeCoreList.length === 0 && (
+                  {quickFilterList.length === 0 && (
                     <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
                       目前主線核心尚未明確。
                     </div>
                   )}
-                  {homeCoreList.map((stock, index) => (
+                  {quickFilterList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} {...cardProps()} />
                   ))}
                 </div>
