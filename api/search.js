@@ -24,6 +24,30 @@ const nameToCode = {
   萬海: "2615",
 };
 
+const codeToName = {
+  "2330": "台積電",
+  "2303": "聯電",
+  "2317": "鴻海",
+  "2454": "聯發科",
+  "2344": "華邦電",
+  "2408": "南亞科",
+  "2337": "旺宏",
+  "3481": "群創",
+  "2409": "友達",
+  "2382": "廣達",
+  "3231": "緯創",
+  "2324": "仁寶",
+  "2356": "英業達",
+  "2308": "台達電",
+  "2882": "國泰金",
+  "2881": "富邦金",
+  "2891": "中信金",
+  "2884": "玉山金",
+  "2603": "長榮",
+  "2609": "陽明",
+  "2615": "萬海",
+};
+
 const industryMap = {
   "1101": "水泥",
   "1102": "水泥",
@@ -237,7 +261,7 @@ function parseYahoo(result, code, market) {
   return {
     code,
     symbol: `${code}.${market}`,
-    name: String(meta.shortName || meta.longName || code)
+    name: codeToName[code] || String(meta.shortName || meta.longName || code)
       .replace(".TW", "")
       .replace(".TWO", ""),
     price,
