@@ -472,8 +472,11 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
   const personalStop1 = hasPosition ? Math.min(buyPrice * 0.98, stock.openPrice) : stock.openPrice;
   const personalStop2 = atrLine;
   const personalStop3 = stock.previousClose;
-  const personalTakeProfit1 = hasPosition ? buyPrice * 1.05 : stock.openPrice * 1.05;
-  const personalTakeProfit2 = atrLine;
+
+  const personalTakeProfit1 = hasPosition ? buyPrice * 1.03 : stock.openPrice * 1.03;
+  const personalTakeProfit2 = hasPosition ? buyPrice * 1.05 : stock.openPrice * 1.05;
+  const personalTakeProfit3 = hasPosition ? buyPrice * 1.08 : stock.openPrice * 1.08;
+
   const addPrice = Math.max(stock.highPrice, hasPosition ? buyPrice * 1.03 : stock.openPrice * 1.025);
 
   let buyText = "尚未輸入買進價，先看理想買點。";
@@ -488,7 +491,9 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
   if (stock.price < personalStop3) stopText = "跌破昨收，主線偏弱，出場避開。";
 
   let profitText = "用ATR移動停利，不猜最高點。";
-  if (hasPosition && pnlPercent >= 5 && stock.price >= personalTakeProfit1) profitText = "獲利達第一停利區，分批停利或守ATR線。";
+  if (hasPosition && pnlPercent >= 3) profitText = "已有獲利，開始守移動停利。";
+  if (hasPosition && pnlPercent >= 5) profitText = "獲利達第一段停利區，可分批保護獲利。";
+  if (hasPosition && pnlPercent >= 8) profitText = "獲利偏大，避免貪高，分批停利更安全。";
   if (isOverheat(stock, settings)) profitText = "短線過熱，不追高，持有者可分批停利。";
   if (stock.price < atrLine) profitText = "跌破ATR線，獲利需保護。";
 
@@ -519,7 +524,57 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
   else if (chase === "追高風險高") action = hasPosition ? "持有勿追" : "不追高";
   else if (!hasPosition && pullback === "回測買點") action = "低風險觀察";
   else if (canAdd) action = "可小幅加倉";
+  else if (hasPosition && pnlPercent >= 8) action = "高獲利分批";
+  else if (hasPosition && pnlPercent >= 5) action = "分批停利";
   else if (hasPosition && pnlPercent > 0 && stock.price > atrLine) action = "續抱觀察";
+
+  let batchTitle = "尚未進入分批停利";
+  let batchStep1 = "尚未有明確獲利，先守停損。";
+  let batchStep2 = "等獲利達 3%～5% 後，再考慮分批。";
+  let batchStep3 = "若跌破開盤價、ATR線或昨收，降低持股。";
+  let dangerText = "目前無明顯持倉危險。";
+
+  if (!hasPosition) {
+    batchTitle = "尚未輸入持倉";
+    batchStep1 = "請先輸入買進價。";
+    batchStep2 = "輸入後會自動計算分批停利。";
+    batchStep3 = "張數可填可不填。";
+    dangerText = "尚未建立個人風控。";
+  } else if (pnlPercent < 0) {
+    batchTitle = "虧損中，先不要加倉";
+    batchStep1 = "第一步：守個人停損線。";
+    batchStep2 = `跌破 ${formatPrice(personalStop1)} 先減碼觀察。`;
+    batchStep3 = `跌破昨收 ${formatPrice(personalStop3)} 主線偏弱。`;
+    dangerText = "成本以下不建議攤平加倉。";
+  } else if (pnlPercent >= 0 && pnlPercent < 3) {
+    batchTitle = "小獲利，先續抱觀察";
+    batchStep1 = "第一步：不用急著停利。";
+    batchStep2 = `守 ATR 線 ${formatPrice(atrLine)}。`;
+    batchStep3 = "若轉弱或爆量不漲，再減碼。";
+    dangerText = "還沒到明顯停利區。";
+  } else if (pnlPercent >= 3 && pnlPercent < 5) {
+    batchTitle = "獲利 3%+，開始守停利";
+    batchStep1 = "第一段：可以先守，不一定急賣。";
+    batchStep2 = `跌破 ATR 線 ${formatPrice(atrLine)} 可先出 1/3。`;
+    batchStep3 = "若主線失效，剩餘部位降低。";
+    dangerText = "不要再追高加碼。";
+  } else if (pnlPercent >= 5 && pnlPercent < 8) {
+    batchTitle = "獲利 5%+，可分批停利";
+    batchStep1 = "第一段：可先停利 1/3。";
+    batchStep2 = `第二段：跌破 ATR 線 ${formatPrice(atrLine)} 再出 1/3。`;
+    batchStep3 = "最後一段：跌破開盤價或主線失效再出。";
+    dangerText = "已進入保護獲利區。";
+  } else {
+    batchTitle = "獲利 8%+，避免貪高";
+    batchStep1 = "第一段：建議先分批停利 1/3。";
+    batchStep2 = `第二段：跌破 ATR 線 ${formatPrice(atrLine)} 再出 1/3。`;
+    batchStep3 = "最後一段：跌破開盤價、昨收或主線失效，出場保護獲利。";
+    dangerText = "獲利很大時，重點是守住，不是追更高。";
+  }
+
+  if (exit.includes("跌破") || exit.includes("出場")) {
+    dangerText = `警戒：${exit}`;
+  }
 
   return {
     hasPosition,
@@ -538,12 +593,18 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
     personalStop3,
     personalTakeProfit1,
     personalTakeProfit2,
+    personalTakeProfit3,
     addPrice,
     buyText,
     stopText,
     profitText,
     addText,
     action,
+    batchTitle,
+    batchStep1,
+    batchStep2,
+    batchStep3,
+    dangerText,
   };
 }
 
@@ -890,7 +951,9 @@ function StockCard({
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
           加倉：{plan.addText}
         </div>
-
+         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${riskTone(plan.batchTitle)}`}>
+          分批停利：{plan.batchTitle}
+         </div>
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
           即時：{directionText(direction)}
           <br />
@@ -1082,7 +1145,29 @@ function StockQuickModal({
           <DetailRow label="估算損益金額" value={plan.hasPosition && plan.shares > 0 ? formatAmount(plan.pnlAmount) : "--"} tone={plan.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"} />
         </div>
       </section>
+      <section className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-950/30 p-4">
+  <div className="text-lg font-black text-yellow-100">個人分批停利計畫</div>
 
+  <div className={`mt-2 text-2xl font-black ${riskTone(plan.action)}`}>
+    {plan.batchTitle}
+  </div>
+
+  <div className="mt-3 space-y-2 text-sm font-bold text-yellow-100">
+    <div className="rounded-2xl bg-black/30 p-3">
+      ① {plan.batchStep1}
+    </div>
+    <div className="rounded-2xl bg-black/30 p-3">
+      ② {plan.batchStep2}
+    </div>
+    <div className="rounded-2xl bg-black/30 p-3">
+      ③ {plan.batchStep3}
+    </div>
+  </div>
+
+  <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(plan.dangerText)}`}>
+    {plan.dangerText}
+  </div>
+</section>
       <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
         <div className="text-lg font-black text-blue-100">我的買點在哪</div>
         <div className={`mt-2 text-2xl font-black ${riskTone(pullback)}`}>{pullback}</div>
