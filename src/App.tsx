@@ -30,6 +30,7 @@ type PopupKey =
   | "search"
   | "data"
   | "settings";
+  | "positions";
 
 type SignalHistory = {
   code: string;
@@ -1435,7 +1436,65 @@ export default function App() {
     });
     return { count: list.length, active, totalPnl };
   }, [positions, stocks, searchHistory]);
+  const positionRows = useMemo(() => {
+  return Object.values(positions)
+    .map((position) => {
+      const stock =
+        stocks.find((s) => s.code === position.code) ||
+        searchHistory.find((s) => s.code === position.code);
 
+      if (!stock) return null;
+
+      const plan = positionPlan(
+        stock,
+        position,
+        top50.length > 0 ? top50 : [stock],
+        mainIndustries,
+        settings,
+        stockIndustryStatus(stock)
+      );
+
+      return {
+        stock,
+        position,
+        plan,
+        pnlPercent: plan.pnlPercent,
+        pnlAmount: plan.pnlAmount,
+        action: plan.action,
+        danger: plan.dangerText,
+      };
+    })
+    .filter(Boolean)
+    .sort((a: any, b: any) => {
+      const riskWeight = (row: any) => {
+        if (row.action.includes("停損") || row.action.includes("出場")) return 1000;
+        if (row.action.includes("分批")) return 800;
+        if (row.action.includes("持有勿追")) return 600;
+        if (row.action.includes("續抱")) return 400;
+        return 200;
+      };
+
+      return riskWeight(b) - riskWeight(a);
+    }) as {
+      stock: Stock;
+      position: Position;
+      plan: ReturnType<typeof positionPlan>;
+      pnlPercent: number;
+      pnlAmount: number;
+      action: string;
+      danger: string;
+    }[];
+}, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking]);
+
+const bestPosition = positionRows.length
+  ? [...positionRows].sort((a, b) => b.pnlPercent - a.pnlPercent)[0]
+  : null;
+
+const dangerPosition = positionRows.length
+  ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場")) ||
+    positionRows.find((row) => row.action.includes("分批")) ||
+    positionRows[0]
+  : null;
   const riskSummary = useMemo(() => {
     const buyCount = top50.filter((stock) => pullbackRadar(stock, top50, mainIndustries, settings) === "回測買點").length;
     const chaseHighCount = top50.filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高").length;
@@ -1907,8 +1966,9 @@ export default function App() {
           <ActionCard title="產業資金排行" sub="看錢往哪裡去" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
           <ActionCard title="成交金額排行" sub="主力資金核心" badge={amountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
           <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
+          <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
           <ActionCard title="設定" sub="確認次數 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
-        </section>
+       </section>
 
         <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950/90 p-3">
           <div className="flex items-center justify-between gap-3">
@@ -2018,12 +2078,13 @@ export default function App() {
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
-              <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
-              <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
-              <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-              <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
-              <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
-              <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
+             <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
+             <ActionCard title="持倉總表" sub="損益 / 風險集中看" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
+             <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+             <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
+             <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+             <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
+             <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
           )}
         </section>
@@ -2144,6 +2205,96 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+      {popup === "positions" && (
+  <ModalShell title="持倉總表風險雷達" sub="你的買進價、損益、停利、停損集中看" onClose={() => setPopup("")}>
+    <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+      <div className="grid grid-cols-2 gap-2">
+        <DetailRow label="持倉檔數" value={`${positionStats.count} 檔`} tone="text-cyan-300" />
+        <DetailRow
+          label="持倉總損益"
+          value={formatAmount(positionStats.totalPnl)}
+          tone={positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}
+        />
+        <DetailRow
+          label="最賺股票"
+          value={bestPosition ? `${stockDisplayName(bestPosition.stock)} ${formatPercent(bestPosition.pnlPercent)}` : "--"}
+          tone="text-red-300"
+        />
+        <DetailRow
+          label="最高風險"
+          value={dangerPosition ? `${stockDisplayName(dangerPosition.stock)}｜${dangerPosition.action}` : "--"}
+          tone="text-yellow-300"
+        />
+      </div>
+    </div>
+
+    <div className="mt-4 space-y-3">
+      {positionRows.length === 0 && (
+        <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
+          目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。
+        </div>
+      )}
+
+      {positionRows.map((row, index) => (
+        <button
+          key={row.stock.code}
+          onClick={() => setSelectedCode(row.stock.code)}
+          className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-slate-500">
+                #{index + 1}　{row.stock.code}｜{row.stock.industry}
+              </div>
+              <div className="mt-1 text-2xl font-black text-white">
+                {stockDisplayName(row.stock)}
+              </div>
+              <div className={`mt-1 text-sm font-black ${riskTone(row.action)}`}>
+                {row.action}
+              </div>
+            </div>
+
+            <div className="text-right">
+              <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                {formatPercent(row.pnlPercent)}
+              </div>
+              <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                {formatAmount(row.pnlAmount)}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
+            <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
+              買進價
+              <br />
+              {formatPrice(row.position.buyPrice)}
+            </div>
+            <div className="rounded-2xl bg-black/30 p-2 text-white">
+              現價
+              <br />
+              {formatPrice(row.stock.price)}
+            </div>
+            <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
+              ATR線
+              <br />
+              {formatPrice(row.plan.atrLine)}
+            </div>
+            <div className="rounded-2xl bg-black/30 p-2 text-purple-300">
+              張數
+              <br />
+              {row.position.shares || "--"}
+            </div>
+          </div>
+
+          <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>
+            {row.danger}
+          </div>
+        </button>
+      ))}
+    </div>
+  </ModalShell>
+)}
 
       {popup === "data" && (
         <ModalShell title="主線統計" sub="資料健康檢查" onClose={() => setPopup("")}>
