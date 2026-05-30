@@ -33,6 +33,8 @@ type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
 type PopupKey =
   | ""
   | "industry"
+  | "moneyUp"
+  | "moneyDown"
   | "sneaky"
   | "core"
   | "pullback"
@@ -54,6 +56,21 @@ type SneakyHistory = {
   failRaw: boolean[];
   hotRaw: boolean[];
 };
+
+type MoneyHistory = {
+  code: string;
+  amountRaw: number[];
+  volumeRaw: number[];
+  priceRaw: number[];
+};
+
+type MoneyTrend =
+  | "資金慢慢增加"
+  | "資金突然放大"
+  | "資金持平"
+  | "資金開始減少"
+  | "資金放大但股價不漲"
+  | "尚未累積";
 
 type IndustryItem = {
   industry: string;
@@ -82,10 +99,11 @@ const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const SETTINGS_KEY = "taiwan-stock-radar-sneaky-confirm-settings";
-const CACHE_KEY = "taiwan-stock-radar-sneaky-confirm-cache";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-sneaky-confirm-locked";
-const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-sneaky-confirm-history";
+const SETTINGS_KEY = "taiwan-stock-radar-money-trend-settings";
+const CACHE_KEY = "taiwan-stock-radar-money-trend-cache";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-money-trend-locked";
+const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-money-trend-sneaky-history";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-money-trend-history";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -367,6 +385,88 @@ function stableCount(values: boolean[] | undefined) {
 
   return count;
 }
+
+function latestNumber(values: number[] | undefined) {
+  if (!values || values.length === 0) return 0;
+  return values[values.length - 1] || 0;
+}
+
+function previousNumber(values: number[] | undefined) {
+  if (!values || values.length < 2) return 0;
+  return values[values.length - 2] || 0;
+}
+
+function changePercentNumber(now: number, prev: number) {
+  if (!Number.isFinite(now) || !Number.isFinite(prev) || prev <= 0) return 0;
+  return ((now - prev) / prev) * 100;
+}
+
+function moneyTrendChange(code: string, moneyHistory: Record<string, MoneyHistory>) {
+  const history = moneyHistory[code];
+  const nowAmount = latestNumber(history?.amountRaw);
+  const prevAmount = previousNumber(history?.amountRaw);
+  const nowVolume = latestNumber(history?.volumeRaw);
+  const prevVolume = previousNumber(history?.volumeRaw);
+  const nowPrice = latestNumber(history?.priceRaw);
+  const prevPrice = previousNumber(history?.priceRaw);
+
+  return {
+    nowAmount,
+    prevAmount,
+    amountChangePercent: changePercentNumber(nowAmount, prevAmount),
+    nowVolume,
+    prevVolume,
+    volumeChangePercent: changePercentNumber(nowVolume, prevVolume),
+    nowPrice,
+    prevPrice,
+    priceChangePercent: changePercentNumber(nowPrice, prevPrice),
+  };
+}
+
+function moneyTrendLabel(stock: Stock, moneyHistory: Record<string, MoneyHistory>): MoneyTrend {
+  const history = moneyHistory[stock.code];
+
+  if (!history || history.amountRaw.length < 2) return "尚未累積";
+
+  const data = moneyTrendChange(stock.code, moneyHistory);
+  const amountUp = data.amountChangePercent >= 15;
+  const amountBigUp = data.amountChangePercent >= 45;
+  const amountDown = data.amountChangePercent <= -15;
+  const volumeUp = data.volumeChangePercent >= 12;
+  const priceFlat = Math.abs(data.priceChangePercent) <= 0.35;
+
+  if (amountBigUp && priceFlat) return "資金放大但股價不漲";
+  if (amountBigUp && stock.price >= stock.openPrice) return "資金突然放大";
+  if (amountUp && volumeUp && stock.price >= stock.openPrice) return "資金慢慢增加";
+  if (amountDown || data.volumeChangePercent <= -20) return "資金開始減少";
+
+  return "資金持平";
+}
+
+function moneyTrendTone(label: MoneyTrend | string) {
+  if (label === "資金慢慢增加" || label === "資金突然放大") return "text-emerald-300";
+  if (label === "資金持平" || label === "尚未累積") return "text-slate-300";
+  if (label === "資金放大但股價不漲") return "text-orange-300";
+  if (label === "資金開始減少") return "text-red-300";
+  return "text-slate-300";
+}
+
+function moneyTrendReason(stock: Stock, moneyHistory: Record<string, MoneyHistory>) {
+  const label = moneyTrendLabel(stock, moneyHistory);
+  const data = moneyTrendChange(stock.code, moneyHistory);
+
+  if (label === "尚未累積") return "等待下一次更新後判斷。";
+
+  const amountText = `${formatAmount(data.prevAmount)} → ${formatAmount(data.nowAmount)}（${formatPercent(data.amountChangePercent)}）`;
+  const volumeText = `${formatAmount(data.prevVolume)} → ${formatAmount(data.nowVolume)}（${formatPercent(data.volumeChangePercent)}）`;
+  const priceText = `${formatPrice(data.prevPrice)} → ${formatPrice(data.nowPrice)}（${formatPercent(data.priceChangePercent)}）`;
+
+  if (label === "資金慢慢增加") return `成交金額增加，量能也增加。金額：${amountText}｜量：${volumeText}`;
+  if (label === "資金突然放大") return `成交金額突然放大，股價仍守開盤價。金額：${amountText}`;
+  if (label === "資金放大但股價不漲") return `資金放大但股價幾乎不動，要防爆量不漲。金額：${amountText}｜股價：${priceText}`;
+  if (label === "資金開始減少") return `成交金額或量能開始下降。金額：${amountText}｜量：${volumeText}`;
+  return `資金變化不大。金額：${amountText}`;
+}
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
 
@@ -527,12 +627,14 @@ function exitAlert(stock: Stock, list: Stock[], settings: Settings, industryStat
   return "續抱觀察";
 }
 
-function decisionText(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, sneakyHistory?: Record<string, SneakyHistory>) {
+function decisionText(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, sneakyHistory?: Record<string, SneakyHistory>, moneyHistory?: Record<string, MoneyHistory>) {
   const confirm = sneakyHistory ? sneakyConfirmCount(stock.code, sneakyHistory) : 0;
+  const moneyLabel = moneyHistory ? moneyTrendLabel(stock, moneyHistory) : "尚未累積";
 
   if (isFail(stock, list, settings)) return "主線失效";
   if (isOverheat(stock, settings)) return "過熱不追";
   if (isMoneyAttack(stock, list, mainIndustries, settings)) return "主線核心";
+  if (moneyLabel === "資金慢慢增加" || moneyLabel === "資金突然放大") return "資金增加中";
   if (confirm >= 3 && isSneakyMoney(stock, list, mainIndustries, settings)) return "資金續航";
   if (isSneakyMoney(stock, list, mainIndustries, settings)) return "資金偷偷流入";
   if (pullbackRadar(stock, list, mainIndustries, settings) === "回測買點") return "回測買點";
@@ -557,7 +659,8 @@ function positionPlan(
   mainIndustries: string[],
   settings: Settings,
   industryStatus?: string,
-  sneakyHistory?: Record<string, SneakyHistory>
+  sneakyHistory?: Record<string, SneakyHistory>,
+  moneyHistory?: Record<string, MoneyHistory>
 ) {
   const buyPrice = position?.buyPrice || 0;
   const shares = position?.shares || 0;
@@ -571,6 +674,7 @@ function positionPlan(
   const pv = priceVolumeState(stock, list, settings);
   const main = mainIndustries.includes(stock.industry);
   const confirm = sneakyHistory ? sneakyConfirmCount(stock.code, sneakyHistory) : 0;
+  const moneyLabel = moneyHistory ? moneyTrendLabel(stock, moneyHistory) : "尚未累積";
 
   const pnlPercent = hasPosition ? ((stock.price - buyPrice) / buyPrice) * 100 : 0;
   const pnlAmount = hasPosition && shares > 0 ? (stock.price - buyPrice) * shares * 1000 : 0;
@@ -592,6 +696,10 @@ function positionPlan(
 
   let buyText = "尚未輸入買進價，先看理想買點。";
   if (!hasPosition && pullback === "回測買點") buyText = "可列入低風險觀察區。";
+  if (!hasPosition && moneyLabel === "資金慢慢增加") buyText = "資金慢慢增加，可加入觀察，等回測或突破確認。";
+  if (!hasPosition && moneyLabel === "資金突然放大") buyText = "資金突然放大，先看股價有沒有跟上，不追高。";
+  if (!hasPosition && moneyLabel === "資金放大但股價不漲") buyText = "資金放大但股價不漲，防爆量不漲。";
+  if (!hasPosition && moneyLabel === "資金開始減少") buyText = "資金開始減少，先不要急著進場。";
   if (!hasPosition && confirm >= 3 && isSneakyMoney(stock, list, mainIndustries, settings)) buyText = "資金連續流入3次，可列入優先觀察，不追高。";
   else if (!hasPosition && isSneakyMoney(stock, list, mainIndustries, settings)) buyText = "資金有偷偷流入跡象，可加入觀察，不急著追。";
   if (!hasPosition && pullback === "接近買點") buyText = "接近買點，等量價確認。";
@@ -599,6 +707,7 @@ function positionPlan(
   if (hasPosition) buyText = `你的買進價 ${formatPrice(buyPrice)}，目前損益 ${formatPercent(pnlPercent)}。`;
 
   let stopText = "停損以開盤價、ATR線、昨收三層觀察。";
+  if (moneyLabel === "資金開始減少") stopText = "資金開始減少，停損線要更嚴格。";
   if (hasPosition && stock.price < personalStop1) stopText = "跌破個人第一停損線，先減碼觀察。";
   if (stock.price < personalStop2) stopText = "跌破ATR移動停利線，保護獲利或降低風險。";
   if (stock.price < personalStop3) stopText = "跌破昨收，主線偏弱，出場避開。";
@@ -620,11 +729,15 @@ function positionPlan(
     amountRankPercent(stock, list) >= 70 &&
     volumeRankPercent(stock, list) >= 65 &&
     industryStatus !== "主線退潮" &&
-    stock.price > atrLine;
+    stock.price > atrLine &&
+    moneyLabel !== "資金開始減少" &&
+    moneyLabel !== "資金放大但股價不漲";
 
   let addText = "尚未達加倉條件。";
   if (!hasPosition) addText = "尚未輸入買進價，先不判斷加倉。";
   else if (canAdd) addText = "可小幅加倉，但仍要守ATR線。";
+  else if (moneyLabel === "資金開始減少") addText = "資金開始減少，不加倉。";
+  else if (moneyLabel === "資金放大但股價不漲") addText = "資金放大但股價不漲，先不加倉。";
   else if (pnlPercent < 0) addText = "成本以下，不建議加倉。";
   else if (!main) addText = "非前三主線，不建議加倉。";
   else if (chase === "追高風險高") addText = "追高風險高，不加倉。";
@@ -634,6 +747,10 @@ function positionPlan(
   let action = "觀察";
   if (hasPosition && pnlPercent <= -3) action = "個人停損警戒";
   if (exit.includes("出場") || exit.includes("跌破")) action = "出場提醒";
+  else if (moneyLabel === "資金開始減少") action = "資金減少警戒";
+  else if (moneyLabel === "資金放大但股價不漲") action = "爆量不漲警戒";
+  else if (moneyLabel === "資金慢慢增加") action = "資金增溫觀察";
+  else if (moneyLabel === "資金突然放大") action = "資金放大觀察";
   else if (chase === "追高風險高") action = hasPosition ? "持有勿追" : "不追高";
   else if (!hasPosition && confirm >= 3 && isSneakyMoney(stock, list, mainIndustries, settings)) action = "資金續航觀察";
   else if (!hasPosition && isSneakyMoney(stock, list, mainIndustries, settings)) action = "資金流入觀察";
@@ -655,6 +772,12 @@ function positionPlan(
     batchStep2 = "輸入後會自動計算分批停利。";
     batchStep3 = "張數可填可不填。";
     dangerText = "尚未建立個人風控。";
+  } else if (moneyLabel === "資金開始減少") {
+    batchTitle = "資金減少，先降低風險";
+    batchStep1 = "第一步：不加倉。";
+    batchStep2 = `第二步：守 ATR 線 ${formatPrice(atrLine)}。`;
+    batchStep3 = "第三步：跌破開盤價或昨收就降低持股。";
+    dangerText = "資金開始退場，保護本金與獲利。";
   } else if (pnlPercent < 0) {
     batchTitle = "虧損中，先不要加倉";
     batchStep1 = "第一步：守個人停損線。";
@@ -723,15 +846,15 @@ function positionPlan(
   };
 }
 function riskTone(label: string) {
-  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉", "資金偷偷流入", "資金流入觀察", "資金續航", "資金續航觀察"].includes(label)) return "text-emerald-300";
-  if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察", "觀察中", "持有勿追", "資金初現 1/3"].includes(label)) return "text-yellow-300";
-  if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利", "高獲利分批", "流入後過熱"].includes(label)) return "text-orange-300";
-  if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高") || label.includes("停損") || label.includes("警戒") || label.includes("轉弱")) return "text-red-300";
+  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉", "資金偷偷流入", "資金流入觀察", "資金續航", "資金續航觀察", "資金增溫觀察", "資金放大觀察"].includes(label)) return "text-emerald-300";
+  if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察", "觀察中", "持有勿追", "資金初現 1/3", "資金持平"].includes(label)) return "text-yellow-300";
+  if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利", "高獲利分批", "流入後過熱", "資金放大但股價不漲", "爆量不漲警戒"].includes(label)) return "text-orange-300";
+  if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高") || label.includes("停損") || label.includes("警戒") || label.includes("轉弱") || label.includes("減少")) return "text-red-300";
   return "text-slate-300";
 }
 
 function decisionTone(label: string) {
-  if (["主線核心", "回測買點", "資金主攻", "強勢", "續航", "資金偷偷流入", "資金續航"].includes(label)) return "text-emerald-300";
+  if (["主線核心", "回測買點", "資金主攻", "強勢", "續航", "資金偷偷流入", "資金續航", "資金增加中"].includes(label)) return "text-emerald-300";
   if (["等回測", "觀察中", "接近買點", "轉強", "分歧"].includes(label)) return "text-yellow-300";
   if (["過熱不追", "分批停利", "短線過熱", "過熱"].includes(label)) return "text-orange-300";
   if (["主線失效", "出場避開", "轉弱退潮", "爆量不漲", "低量假強", "轉弱"].includes(label)) return "text-red-300";
@@ -761,7 +884,13 @@ function directionText(direction?: PriceDirection) {
   return "--";
 }
 
-function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries: string[], sneakyHistory: Record<string, SneakyHistory>): IndustryItem[] {
+function getIndustryRanking(
+  list: Stock[],
+  settings: Settings,
+  lockedIndustries: string[],
+  sneakyHistory: Record<string, SneakyHistory>,
+  moneyHistory: Record<string, MoneyHistory>
+): IndustryItem[] {
   const totalAmount = list.reduce((sum, s) => sum + estimatedAmount(s), 0);
   const totalVolume = list.reduce((sum, s) => sum + s.volume, 0);
 
@@ -822,8 +951,16 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
       let overheatCount = 0;
 
       item.stocks.forEach((stock) => {
+        const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+
         if (isMoneyAttack(stock, list, mainIndustries, settings)) coreCount += 1;
-        if (sneakyConfirmCount(stock.code, sneakyHistory) >= 2 && isSneakyMoney(stock, list, mainIndustries, settings)) sneakyCount += 1;
+        if (
+          sneakyConfirmCount(stock.code, sneakyHistory) >= 2 ||
+          moneyLabel === "資金慢慢增加" ||
+          moneyLabel === "資金突然放大"
+        ) {
+          sneakyCount += 1;
+        }
         if (isFail(stock, list, settings)) failCount += 1;
         if (isOverheat(stock, settings)) overheatCount += 1;
       });
@@ -962,7 +1099,7 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
 
       <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-black">
         <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
-          續航<br />{item.sneakyCount}
+          增加<br />{item.sneakyCount}
         </div>
         <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
           核心<br />{item.coreCount}
@@ -984,6 +1121,7 @@ function StockCard({
   mainIndustries,
   settings,
   sneakyHistory,
+  moneyHistory,
   industryStatus,
   position,
   favoriteCodes,
@@ -1003,6 +1141,7 @@ function StockCard({
   mainIndustries: string[];
   settings: Settings;
   sneakyHistory: Record<string, SneakyHistory>;
+  moneyHistory: Record<string, MoneyHistory>;
   industryStatus: string;
   position?: Position;
   favoriteCodes: string[];
@@ -1016,8 +1155,8 @@ function StockCard({
   onAddWatch: (code: string) => void;
   onRemoveWatch: (code: string) => void;
 }) {
-  const decision = decisionText(stock, top50, mainIndustries, settings, sneakyHistory);
-  const plan = positionPlan(stock, position, top50, mainIndustries, settings, industryStatus, sneakyHistory);
+  const decision = decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
+  const plan = positionPlan(stock, position, top50, mainIndustries, settings, industryStatus, sneakyHistory, moneyHistory);
   const pv = priceVolumeState(stock, top50, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
@@ -1030,6 +1169,9 @@ function StockCard({
   const sneakyReason = sneakyMoneyReason(stock, top50, mainIndustries, settings, sneakyHistory);
   const status = sneakyStatus(stock, top50, mainIndustries, settings, sneakyHistory);
   const confirm = Math.min(3, sneakyConfirmCount(stock.code, sneakyHistory));
+  const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+  const moneyData = moneyTrendChange(stock.code, moneyHistory);
+  const moneyReason = moneyTrendReason(stock, moneyHistory);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -1054,6 +1196,18 @@ function StockCard({
 
         <div className="mt-3 rounded-2xl bg-black/30 p-2">
           <div className="flex items-center justify-between text-xs font-black text-slate-300">
+            <span>個股資金趨勢</span>
+            <span className={moneyTrendTone(moneyLabel)}>{moneyLabel}</span>
+          </div>
+          <div className={`mt-1 text-xs font-bold ${moneyTrendTone(moneyLabel)}`}>
+            成交金額：{formatAmount(moneyData.prevAmount)} → {formatAmount(moneyData.nowAmount)}
+            <br />
+            變化：{formatPercent(moneyData.amountChangePercent)}
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl bg-black/30 p-2">
+          <div className="flex items-center justify-between text-xs font-black text-slate-300">
             <span>資金流入確認</span>
             <span className={sneakyStatusTone(status)}>{status}</span>
           </div>
@@ -1067,8 +1221,8 @@ function StockCard({
           <div className={`rounded-2xl bg-black/30 p-2 ${decisionTone(decision)}`}>
             主線判斷<br />{decision}
           </div>
-          <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
-            流入分數<br />{sneakyScore.toFixed(0)}
+          <div className={`rounded-2xl bg-black/30 p-2 ${moneyTrendTone(moneyLabel)}`}>
+            資金趨勢<br />{moneyLabel.replace("資金", "")}
           </div>
           <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(plan.action)}`}>
             我的計畫<br />{plan.action}
@@ -1078,32 +1232,19 @@ function StockCard({
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-          <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(pullback)}`}>
-            買點雷達<br />{pullback}
-          </div>
-          <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(chase)}`}>
-            追高風險<br />{chase.replace("追高風險", "")}
-          </div>
+        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-emerald-200">
+          資金原因：{moneyReason}
         </div>
 
-        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-emerald-200">
-          資金原因：{sneakyReason}
+        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
+          續航原因：{sneakyReason}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
           <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(decision)}`}>{decision}</span>
+          <span className={`rounded-full bg-black/40 px-3 py-1 ${moneyTrendTone(moneyLabel)}`}>{moneyLabel}</span>
           <span className={`rounded-full bg-black/40 px-3 py-1 ${sneakyStatusTone(status)}`}>{status}</span>
-          <span className={`rounded-full bg-black/40 px-3 py-1 ${decisionTone(pv)}`}>{pv}</span>
           <span className={`rounded-full bg-black/30 px-3 py-1 ${directionTone(direction)}`}>{directionText(direction)}</span>
-        </div>
-
-        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
-          加倉：{plan.addText}
-        </div>
-
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${riskTone(plan.batchTitle)}`}>
-          分批停利：{plan.batchTitle}
         </div>
 
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
@@ -1140,6 +1281,7 @@ function StockQuickModal({
   mainIndustries,
   settings,
   sneakyHistory,
+  moneyHistory,
   industryStatus,
   position,
   onSavePosition,
@@ -1160,6 +1302,7 @@ function StockQuickModal({
   mainIndustries: string[];
   settings: Settings;
   sneakyHistory: Record<string, SneakyHistory>;
+  moneyHistory: Record<string, MoneyHistory>;
   industryStatus: string;
   position?: Position;
   onSavePosition: (position: Position) => void;
@@ -1179,8 +1322,8 @@ function StockQuickModal({
   const [sharesText, setSharesText] = useState(position?.shares ? String(position.shares) : "");
   const [noteText, setNoteText] = useState(position?.note || "");
 
-  const decision = decisionText(stock, top50, mainIndustries, settings, sneakyHistory);
-  const plan = positionPlan(stock, position, top50, mainIndustries, settings, industryStatus, sneakyHistory);
+  const decision = decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
+  const plan = positionPlan(stock, position, top50, mainIndustries, settings, industryStatus, sneakyHistory, moneyHistory);
   const pv = priceVolumeState(stock, top50, settings);
   const direction = priceDirections[stock.code];
   const prevPrice = previousPriceMap[stock.code];
@@ -1193,6 +1336,9 @@ function StockQuickModal({
   const sneakyReason = sneakyMoneyReason(stock, top50, mainIndustries, settings, sneakyHistory);
   const status = sneakyStatus(stock, top50, mainIndustries, settings, sneakyHistory);
   const confirm = Math.min(3, sneakyConfirmCount(stock.code, sneakyHistory));
+  const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+  const moneyData = moneyTrendChange(stock.code, moneyHistory);
+  const moneyReason = moneyTrendReason(stock, moneyHistory);
 
   function saveMyPosition() {
     const buyPrice = Number(buyPriceText);
@@ -1224,52 +1370,48 @@ function StockQuickModal({
       </div>
 
       <section className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4">
-        <div className="text-lg font-black text-emerald-100">資金偷偷流入續航確認</div>
+        <div className="text-lg font-black text-emerald-100">個股資金增減趨勢</div>
+        <div className={`mt-2 text-3xl font-black ${moneyTrendTone(moneyLabel)}`}>{moneyLabel}</div>
+        <div className="mt-2 text-sm font-bold text-emerald-100">
+          成交金額：{formatAmount(moneyData.prevAmount)} → {formatAmount(moneyData.nowAmount)}
+          <br />
+          金額變化：{formatPercent(moneyData.amountChangePercent)}
+          <br />
+          成交量：{formatAmount(moneyData.prevVolume)} → {formatAmount(moneyData.nowVolume)}
+          <br />
+          量能變化：{formatPercent(moneyData.volumeChangePercent)}
+          <br />
+          股價變化：{formatPercent(moneyData.priceChangePercent)}
+        </div>
+        <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${moneyTrendTone(moneyLabel)}`}>
+          {moneyReason}
+        </div>
+      </section>
+
+      <section className="mt-3 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+        <div className="text-lg font-black text-cyan-100">資金偷偷流入續航確認</div>
         <div className={`mt-2 text-3xl font-black ${sneakyStatusTone(status)}`}>{status}</div>
         <div className="mt-2 text-lg tracking-widest text-emerald-300">
           {"●".repeat(confirm)}
           {"○".repeat(Math.max(0, 3 - confirm))}
         </div>
-        <div className="mt-2 text-sm font-bold text-emerald-100">
-          分數：{sneakyScore.toFixed(0)}
+        <div className="mt-2 text-sm font-bold text-cyan-100">
+          流入分數：{sneakyScore.toFixed(0)}
           <br />
           原因：{sneakyReason}
-          <br />
-          成交金額排名：#{amountRankIndex(stock, top50)}｜成交量排名：#{volumeRankIndex(stock, top50)}
         </div>
       </section>
 
       <section className="mt-3 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 p-4">
         <div className="text-lg font-black text-cyan-100">輸入我的持倉</div>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <input
-            value={buyPriceText}
-            onChange={(e) => setBuyPriceText(e.target.value)}
-            placeholder="我的買進價"
-            inputMode="decimal"
-            className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none"
-          />
-          <input
-            value={sharesText}
-            onChange={(e) => setSharesText(e.target.value)}
-            placeholder="張數，可不填"
-            inputMode="decimal"
-            className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none"
-          />
+          <input value={buyPriceText} onChange={(e) => setBuyPriceText(e.target.value)} placeholder="我的買進價" inputMode="decimal" className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none" />
+          <input value={sharesText} onChange={(e) => setSharesText(e.target.value)} placeholder="張數，可不填" inputMode="decimal" className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none" />
         </div>
-        <input
-          value={noteText}
-          onChange={(e) => setNoteText(e.target.value)}
-          placeholder="備註，可不填"
-          className="mt-2 w-full rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-bold text-white outline-none"
-        />
+        <input value={noteText} onChange={(e) => setNoteText(e.target.value)} placeholder="備註，可不填" className="mt-2 w-full rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-bold text-white outline-none" />
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <button onClick={saveMyPosition} className="rounded-2xl bg-cyan-500 py-3 text-sm font-black text-white">
-            儲存我的買點
-          </button>
-          <button onClick={() => onDeletePosition(stock.code)} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
-            刪除買點
-          </button>
+          <button onClick={saveMyPosition} className="rounded-2xl bg-cyan-500 py-3 text-sm font-black text-white">儲存我的買點</button>
+          <button onClick={() => onDeletePosition(stock.code)} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">刪除買點</button>
         </div>
       </section>
 
@@ -1305,35 +1447,7 @@ function StockQuickModal({
           <div className="rounded-2xl bg-black/30 p-3">② {plan.batchStep2}</div>
           <div className="rounded-2xl bg-black/30 p-3">③ {plan.batchStep3}</div>
         </div>
-        <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(plan.dangerText)}`}>
-          {plan.dangerText}
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
-        <div className="text-lg font-black text-blue-100">我的買點在哪</div>
-        <div className={`mt-2 text-2xl font-black ${riskTone(pullback)}`}>{pullback}</div>
-        <div className="mt-2 text-sm font-bold text-blue-100">
-          理想回測買點：{formatPrice(plan.idealBuyLow)} ～ {formatPrice(plan.idealBuyHigh)}
-          <br />
-          突破確認買點：{formatPrice(plan.breakoutBuy)}
-          <br />
-          追高禁止區：高於 {formatPrice(plan.noChasePrice)}
-          <br />
-          目前開盤後：{formatPercent(afterOpenPercent(stock))}
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-red-950/30 p-4">
-        <div className="text-lg font-black text-red-100">我的停損在哪</div>
-        <div className={`mt-2 text-xl font-black ${riskTone(exit)}`}>{exit}</div>
-        <div className="mt-2 text-sm font-bold text-red-100">
-          第一停損：{formatPrice(plan.personalStop1)}
-          <br />
-          第二停損 ATR：{formatPrice(plan.personalStop2)}
-          <br />
-          最終停損昨收：{formatPrice(plan.personalStop3)}
-        </div>
+        <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(plan.dangerText)}`}>{plan.dangerText}</div>
       </section>
 
       <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
@@ -1365,22 +1479,12 @@ function StockQuickModal({
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
-          className={`rounded-2xl py-3 text-sm font-black ${isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"}`}
-        >
+        <button onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))} className={`rounded-2xl py-3 text-sm font-black ${isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"}`}>
           {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
         </button>
-        <button
-          onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
-          className={`rounded-2xl py-3 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}
-        >
+        <button onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))} className={`rounded-2xl py-3 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}>
           {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
         </button>
-      </div>
-
-      <div className="mt-3 rounded-2xl bg-black/40 p-3 text-xs font-bold text-slate-400">
-        提醒：資金續航是觀察名單，不代表一定會上漲。
       </div>
     </ModalShell>
   );
@@ -1392,6 +1496,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(defaultSettings);
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [sneakyHistory, setSneakyHistory] = useState<Record<string, SneakyHistory>>({});
+  const [moneyHistory, setMoneyHistory] = useState<Record<string, MoneyHistory>>({});
 
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
@@ -1424,30 +1529,20 @@ export default function App() {
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   function jumpToContent() {
-    setTimeout(() => {
-      contentRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 80);
+    setTimeout(() => contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
 
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
   const floatingMainIndustries = useMemo(() => {
     const map = new Map<string, { industry: string; amount: number; volume: number }>();
-
     top50.forEach((stock) => {
       const item = map.get(stock.industry) || { industry: stock.industry, amount: 0, volume: 0 };
       item.amount += estimatedAmount(stock);
       item.volume += stock.volume;
       map.set(stock.industry, item);
     });
-
-    return Array.from(map.values())
-      .sort((a, b) => b.amount + b.volume * 10 - (a.amount + a.volume * 10))
-      .slice(0, 3)
-      .map((item) => item.industry);
+    return Array.from(map.values()).sort((a, b) => b.amount + b.volume * 10 - (a.amount + a.volume * 10)).slice(0, 3).map((item) => item.industry);
   }, [top50]);
 
   const mainIndustries = useMemo(() => {
@@ -1456,17 +1551,25 @@ export default function App() {
   }, [settings.stableIndustryLock, lockedIndustries, floatingMainIndustries]);
 
   const industryRanking = useMemo(
-    () => getIndustryRanking(top50, settings, settings.stableIndustryLock ? lockedIndustries : [], sneakyHistory),
-    [top50, settings, lockedIndustries, sneakyHistory]
+    () => getIndustryRanking(top50, settings, settings.stableIndustryLock ? lockedIndustries : [], sneakyHistory, moneyHistory),
+    [top50, settings, lockedIndustries, sneakyHistory, moneyHistory]
   );
 
-  const selectedStock = useMemo(() => {
-    return stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null;
-  }, [stocks, searchHistory, selectedCode]);
+  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null, [stocks, searchHistory, selectedCode]);
 
   function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
+
+  const moneyUpList = useMemo(
+    () => top50.filter((stock) => ["資金慢慢增加", "資金突然放大"].includes(moneyTrendLabel(stock, moneyHistory))).sort((a, b) => moneyTrendChange(b.code, moneyHistory).amountChangePercent - moneyTrendChange(a.code, moneyHistory).amountChangePercent),
+    [top50, moneyHistory]
+  );
+
+  const moneyDownList = useMemo(
+    () => top50.filter((stock) => ["資金開始減少", "資金放大但股價不漲"].includes(moneyTrendLabel(stock, moneyHistory))).sort((a, b) => moneyTrendChange(a.code, moneyHistory).amountChangePercent - moneyTrendChange(b.code, moneyHistory).amountChangePercent),
+    [top50, moneyHistory]
+  );
 
   const sneakyList = useMemo(
     () =>
@@ -1480,47 +1583,29 @@ export default function App() {
     [top50, mainIndustries, settings, sneakyHistory]
   );
 
-  const sneakyStrongList = useMemo(
-    () => sneakyList.filter((stock) => sneakyConfirmCount(stock.code, sneakyHistory) >= 3),
-    [sneakyList, sneakyHistory]
-  );
+  const sneakyStrongList = useMemo(() => sneakyList.filter((stock) => sneakyConfirmCount(stock.code, sneakyHistory) >= 3), [sneakyList, sneakyHistory]);
 
   const coreList = useMemo(
-    () =>
-      top50
-        .filter((stock) => decisionText(stock, top50, mainIndustries, settings, sneakyHistory) === "主線核心")
-        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, mainIndustries, settings, sneakyHistory]
+    () => top50.filter((stock) => decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory) === "主線核心").sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
+    [top50, mainIndustries, settings, sneakyHistory, moneyHistory]
   );
 
   const pullbackList = useMemo(
-    () =>
-      top50
-        .filter((stock) => {
-          const radar = pullbackRadar(stock, top50, mainIndustries, settings);
-          return radar === "回測買點" || radar === "接近買點";
-        })
-        .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
+    () => top50.filter((stock) => ["回測買點", "接近買點"].includes(pullbackRadar(stock, top50, mainIndustries, settings))).sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
     [top50, mainIndustries, settings]
   );
 
-  const overheatList = useMemo(
-    () =>
-      top50
-        .filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高")
-        .sort((a, b) => b.changePercent - a.changePercent),
-    [top50, settings]
-  );
+  const overheatList = useMemo(() => top50.filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高").sort((a, b) => b.changePercent - a.changePercent), [top50, settings]);
 
   const failedList = useMemo(
     () =>
       top50
         .filter((stock) => {
           const exit = exitAlert(stock, top50, settings, stockIndustryStatus(stock));
-          return decisionText(stock, top50, mainIndustries, settings, sneakyHistory) === "主線失效" || exit.includes("出場") || exit.includes("跌破");
+          return decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory) === "主線失效" || exit.includes("出場") || exit.includes("跌破");
         })
         .sort((a, b) => estimatedAmount(b) - estimatedAmount(a)),
-    [top50, mainIndustries, settings, industryRanking, sneakyHistory]
+    [top50, mainIndustries, settings, industryRanking, sneakyHistory, moneyHistory]
   );
 
   const amountList = useMemo(() => [...top50].sort((a, b) => estimatedAmount(b) - estimatedAmount(a)), [top50]);
@@ -1528,24 +1613,15 @@ export default function App() {
 
   const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
-
     watchCodes.forEach((code) => {
       const stock = stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code);
       if (stock) map.set(code, stock);
     });
-
-    [...sneakyStrongList, ...sneakyList, ...coreList, ...pullbackList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
-
+    [...moneyUpList, ...sneakyStrongList, ...sneakyList, ...coreList, ...pullbackList].slice(0, 25).forEach((stock) => map.set(stock.code, stock));
     return Array.from(map.values());
-  }, [watchCodes, stocks, searchHistory, sneakyStrongList, sneakyList, coreList, pullbackList]);
+  }, [watchCodes, stocks, searchHistory, moneyUpList, sneakyStrongList, sneakyList, coreList, pullbackList]);
 
-  const favoriteStocks = useMemo(
-    () =>
-      favoriteCodes
-        .map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code))
-        .filter(Boolean) as Stock[],
-    [favoriteCodes, stocks, searchHistory]
-  );
+  const favoriteStocks = useMemo(() => favoriteCodes.map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code)).filter(Boolean) as Stock[], [favoriteCodes, stocks, searchHistory]);
 
   const topIndustry = industryRanking[0];
   const secondIndustry = industryRanking[1];
@@ -1556,7 +1632,6 @@ export default function App() {
     const list = Object.values(positions);
     let totalPnl = 0;
     let active = 0;
-
     list.forEach((p) => {
       const stock = stocks.find((s) => s.code === p.code) || searchHistory.find((s) => s.code === p.code);
       if (stock && p.buyPrice > 0 && p.shares > 0) {
@@ -1564,7 +1639,6 @@ export default function App() {
         totalPnl += (stock.price - p.buyPrice) * p.shares * 1000;
       }
     });
-
     return { count: list.length, active, totalPnl };
   }, [positions, stocks, searchHistory]);
 
@@ -1573,29 +1647,18 @@ export default function App() {
       .map((position) => {
         const stock = stocks.find((s) => s.code === position.code) || searchHistory.find((s) => s.code === position.code);
         if (!stock) return null;
-
-        const plan = positionPlan(stock, position, top50.length > 0 ? top50 : [stock], mainIndustries, settings, stockIndustryStatus(stock), sneakyHistory);
-
-        return {
-          stock,
-          position,
-          plan,
-          pnlPercent: plan.pnlPercent,
-          pnlAmount: plan.pnlAmount,
-          action: plan.action,
-          danger: plan.dangerText,
-        };
+        const plan = positionPlan(stock, position, top50.length > 0 ? top50 : [stock], mainIndustries, settings, stockIndustryStatus(stock), sneakyHistory, moneyHistory);
+        return { stock, position, plan, pnlPercent: plan.pnlPercent, pnlAmount: plan.pnlAmount, action: plan.action, danger: plan.dangerText };
       })
       .filter(Boolean)
       .sort((a: any, b: any) => {
         const riskWeight = (row: any) => {
-          if (row.action.includes("停損") || row.action.includes("出場")) return 1000;
+          if (row.action.includes("停損") || row.action.includes("出場") || row.action.includes("減少")) return 1000;
           if (row.action.includes("分批")) return 800;
           if (row.action.includes("持有勿追")) return 600;
           if (row.action.includes("續抱")) return 400;
           return 200;
         };
-
         return riskWeight(b) - riskWeight(a);
       }) as {
       stock: Stock;
@@ -1606,35 +1669,29 @@ export default function App() {
       action: string;
       danger: string;
     }[];
-  }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking, sneakyHistory]);
+  }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking, sneakyHistory, moneyHistory]);
 
   const bestPosition = positionRows.length ? [...positionRows].sort((a, b) => b.pnlPercent - a.pnlPercent)[0] : null;
-
-  const dangerPosition = positionRows.length
-    ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場")) ||
-      positionRows.find((row) => row.action.includes("分批")) ||
-      positionRows[0]
-    : null;
+  const dangerPosition = positionRows.length ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場") || row.action.includes("減少")) || positionRows[0] : null;
 
   const marketStructure = useMemo(() => {
     if (!topIndustry) return "等待資料";
+    if (moneyUpList.length >= 6) return "資金增溫擴散";
+    if (moneyDownList.length >= 6) return "資金退潮擴散";
     if (sneakyStrongList.length >= 3) return "資金續航擴散";
-    if (sneakyList.length >= 5) return "資金偷偷流入擴散";
     if (topIndustry.strength === "轉弱") return "主線退潮，先避開";
     if (topIndustry.strength === "過熱") return "短線過熱，不追高";
     if (topIndustry.strength === "強勢") return "主線強勢，盯核心股";
     if (topIndustry.strength === "續航") return "主線續航，看核心股";
-    if (topIndustry.strength === "轉強") return "資金剛轉強，等確認";
-    if (topIndustry.strength === "分歧") return "資金分歧，只挑核心";
     return "資金尚未集中";
-  }, [topIndustry, sneakyList, sneakyStrongList]);
+  }, [topIndustry, moneyUpList, moneyDownList, sneakyStrongList]);
 
   const homeSentence = useMemo(() => {
-    if (sneakyStrongList.length >= 3) return `目前有 ${sneakyStrongList.length} 檔資金連續流入 3/3，優先看沒過熱、守開盤價的股票。`;
-    if (sneakyList.length >= 5) return `目前有 ${sneakyList.length} 檔出現資金偷偷流入跡象，先看 2/3、3/3 續航股。`;
+    if (moneyUpList.length >= 6) return `目前有 ${moneyUpList.length} 檔資金慢慢增加，優先看主線內、沒過熱、守開盤價的股票。`;
+    if (moneyDownList.length >= 6) return `目前有 ${moneyDownList.length} 檔資金減少或爆量不漲，要注意退潮風險。`;
     if (!topIndustry) return "目前尚未取得資料。";
     return topIndustry.reason;
-  }, [topIndustry, sneakyList, sneakyStrongList]);
+  }, [topIndustry, moneyUpList, moneyDownList]);
 
   useEffect(() => {
     if (initedRef.current) return;
@@ -1652,19 +1709,17 @@ export default function App() {
     setLockedIndustries(safeParse(localStorage.getItem(LOCKED_INDUSTRY_KEY), []));
     setPositions(safeParse(localStorage.getItem(POSITIONS_KEY), {}));
     setSneakyHistory(safeParse(localStorage.getItem(SNEAKY_HISTORY_KEY), {}));
+    setMoneyHistory(safeParse(localStorage.getItem(MONEY_HISTORY_KEY), {}));
 
     const cached = safeParse<any>(localStorage.getItem(CACHE_KEY), null);
     if (cached && Array.isArray(cached.stocks)) {
       setStocks(cached.stocks);
       setUsingCache(true);
-
       const prices: Record<string, number> = {};
       cached.stocks.forEach((stock: Stock) => {
         prices[stock.code] = stock.price;
       });
-
       setLastPriceMap(prices);
-
       if (cached.lastSuccessAt) setLastSuccessAt(cached.lastSuccessAt);
       if (cached.apiDataTime) setApiDataTime(cached.apiDataTime);
       if (cached.source) setSource(cached.source);
@@ -1675,7 +1730,6 @@ export default function App() {
 
   useEffect(() => {
     if (settings.refreshSeconds <= 0) return;
-
     const timer = window.setInterval(() => {
       setAutoSeconds((sec) => {
         if (sec <= 1) {
@@ -1685,9 +1739,8 @@ export default function App() {
         return sec - 1;
       });
     }, 1000);
-
     return () => window.clearInterval(timer);
-  }, [settings.refreshSeconds, lastPriceMap, mainIndustries, sneakyHistory]);
+  }, [settings.refreshSeconds, lastPriceMap, mainIndustries, sneakyHistory, moneyHistory]);
 
   function saveSettings(next: Settings) {
     setSettings(next);
@@ -1729,24 +1782,13 @@ export default function App() {
 
   function updateSneakyHistory(list: Stock[]) {
     const topList = list.slice(0, 50);
-
     setSneakyHistory((old) => {
       const next = { ...old };
-
       topList.forEach((stock) => {
-        const history =
-          next[stock.code] ||
-          ({
-            code: stock.code,
-            sneakyRaw: [],
-            failRaw: [],
-            hotRaw: [],
-          } as SneakyHistory);
-
+        const history = next[stock.code] || ({ code: stock.code, sneakyRaw: [], failRaw: [], hotRaw: [] } as SneakyHistory);
         const sneakyNow = isSneakyMoney(stock, topList, mainIndustries, settings);
         const failNow = isFail(stock, topList, settings);
         const hotNow = isOverheat(stock, settings);
-
         next[stock.code] = {
           code: stock.code,
           sneakyRaw: [...history.sneakyRaw, sneakyNow].slice(-6),
@@ -1754,8 +1796,25 @@ export default function App() {
           hotRaw: [...history.hotRaw, hotNow].slice(-6),
         };
       });
-
       localStorage.setItem(SNEAKY_HISTORY_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  function updateMoneyHistory(list: Stock[]) {
+    const topList = list.slice(0, 50);
+    setMoneyHistory((old) => {
+      const next = { ...old };
+      topList.forEach((stock) => {
+        const history = next[stock.code] || ({ code: stock.code, amountRaw: [], volumeRaw: [], priceRaw: [] } as MoneyHistory);
+        next[stock.code] = {
+          code: stock.code,
+          amountRaw: [...history.amountRaw, estimatedAmount(stock)].slice(-8),
+          volumeRaw: [...history.volumeRaw, stock.volume].slice(-8),
+          priceRaw: [...history.priceRaw, stock.price].slice(-8),
+        };
+      });
+      localStorage.setItem(MONEY_HISTORY_KEY, JSON.stringify(next));
       return next;
     });
   }
@@ -1771,14 +1830,7 @@ export default function App() {
 
       const json = await response.json();
 
-      const list = Array.isArray(json.rankedStocks)
-        ? json.rankedStocks
-        : Array.isArray(json.stocks)
-          ? json.stocks
-          : Array.isArray(json.data)
-            ? json.data
-            : [];
-
+      const list = Array.isArray(json.rankedStocks) ? json.rankedStocks : Array.isArray(json.stocks) ? json.stocks : Array.isArray(json.data) ? json.data : [];
       const dataTime = json.updatedAtTaiwan || (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
 
       const normalized = list
@@ -1794,9 +1846,7 @@ export default function App() {
 
       normalized.forEach((stock: Stock) => {
         const oldPrice = oldPriceMap[stock.code];
-
         nextPriceMap[stock.code] = stock.price;
-
         if (oldPrice === undefined) nextDirections[stock.code] = "new";
         else if (stock.price > oldPrice) nextDirections[stock.code] = "up";
         else if (stock.price < oldPrice) nextDirections[stock.code] = "down";
@@ -1816,16 +1866,9 @@ export default function App() {
       setUsingCache(false);
 
       updateSneakyHistory(normalized);
+      updateMoneyHistory(normalized);
 
-      localStorage.setItem(
-        CACHE_KEY,
-        JSON.stringify({
-          stocks: normalized,
-          lastSuccessAt: successTime,
-          apiDataTime: dataTime,
-          source: dataSource,
-        })
-      );
+      localStorage.setItem(CACHE_KEY, JSON.stringify({ stocks: normalized, lastSuccessAt: successTime, apiDataTime: dataTime, source: dataSource }));
     } catch (err: any) {
       setUsingCache(true);
       setError(err?.message || "資料更新失敗，已保留上次成功資料");
@@ -1837,7 +1880,6 @@ export default function App() {
 
   async function searchAnyStock() {
     const q = queryText.trim();
-
     if (!q) {
       setQueryMessage("請先輸入股票代號或名稱。");
       return;
@@ -1856,14 +1898,11 @@ export default function App() {
       }
 
       const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
-
       saveSearchHistory([stock, ...searchHistory]);
-
       setPreviousPriceMap((old) => ({ ...old, [stock.code]: old[stock.code] || stock.price }));
       setLastPriceMap((old) => ({ ...old, [stock.code]: stock.price }));
       setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
       setSelectedCode(stock.code);
-
       setQueryMessage(`已查到 ${stock.code} ${stockDisplayName(stock)}`);
     } catch (err: any) {
       setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
@@ -1874,30 +1913,30 @@ export default function App() {
 
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
-      const ad = decisionText(a, top50, mainIndustries, settings, sneakyHistory);
-      const bd = decisionText(b, top50, mainIndustries, settings, sneakyHistory);
-      const ar = positionPlan(a, positions[a.code], top50, mainIndustries, settings, stockIndustryStatus(a), sneakyHistory).action;
-      const br = positionPlan(b, positions[b.code], top50, mainIndustries, settings, stockIndustryStatus(b), sneakyHistory).action;
+      const ad = decisionText(a, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
+      const bd = decisionText(b, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
+      const ar = positionPlan(a, positions[a.code], top50, mainIndustries, settings, stockIndustryStatus(a), sneakyHistory, moneyHistory).action;
+      const br = positionPlan(b, positions[b.code], top50, mainIndustries, settings, stockIndustryStatus(b), sneakyHistory, moneyHistory).action;
 
       const weight = (d: string, r: string, code: string) => {
         let score = 0;
         const confirm = sneakyConfirmCount(code, sneakyHistory);
+        const moneyLabel = moneyTrendLabel({ code } as Stock, moneyHistory);
 
         if (d === "主線核心") score += 1000;
-        if (d === "資金續航") score += 950;
-        if (d === "資金偷偷流入") score += 800;
-        if (d === "回測買點") score += 700;
-        if (d === "觀察中") score += 300;
-        if (d === "過熱不追") score += 100;
+        if (d === "資金增加中") score += 900;
+        if (d === "資金續航") score += 850;
+        if (d === "資金偷偷流入") score += 750;
+        if (d === "回測買點") score += 650;
+        if (moneyLabel === "資金慢慢增加") score += 500;
+        if (moneyLabel === "資金突然放大") score += 450;
+        if (moneyLabel === "資金開始減少") score -= 700;
+        if (moneyLabel === "資金放大但股價不漲") score -= 350;
+        score += Math.min(3, confirm) * 100;
 
-        score += Math.min(3, confirm) * 120;
-
-        if (r === "資金續航觀察") score += 500;
-        if (r === "資金流入觀察") score += 350;
-        if (r === "低風險觀察") score += 300;
-        if (r === "可小幅加倉") score += 300;
-        if (r === "續抱觀察") score += 250;
-        if (r === "不追高") score -= 300;
+        if (r === "資金增溫觀察") score += 450;
+        if (r === "資金放大觀察") score += 350;
+        if (r === "資金減少警戒") score -= 750;
         if (r === "出場提醒") score -= 600;
         if (r === "個人停損警戒") score -= 800;
 
@@ -1909,6 +1948,8 @@ export default function App() {
   }
 
   function popupList(key: PopupKey) {
+    if (key === "moneyUp") return sortList(moneyUpList);
+    if (key === "moneyDown") return sortList(moneyDownList);
     if (key === "sneaky") return sortList(sneakyList);
     if (key === "core") return sortList(coreList);
     if (key === "pullback") return sortList(pullbackList);
@@ -1921,6 +1962,8 @@ export default function App() {
   }
 
   function popupTitle(key: PopupKey) {
+    if (key === "moneyUp") return "資金慢慢增加";
+    if (key === "moneyDown") return "資金減少警戒";
     if (key === "sneaky") return "資金偷偷流入續航";
     if (key === "core") return "主線核心股";
     if (key === "pullback") return "買點與回測雷達";
@@ -1938,6 +1981,7 @@ export default function App() {
       mainIndustries,
       settings,
       sneakyHistory,
+      moneyHistory,
       favoriteCodes,
       watchCodes,
       priceDirections,
@@ -1954,7 +1998,7 @@ export default function App() {
   const industrySelectedList = useMemo(() => {
     if (!industryPopup) return [];
     return sortList(top50.filter((stock) => stock.industry === industryPopup));
-  }, [industryPopup, top50, mainIndustries, industryRanking, positions, sneakyHistory]);
+  }, [industryPopup, top50, mainIndustries, industryRanking, positions, sneakyHistory, moneyHistory]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -1962,10 +2006,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項資金偷偷流入續航確認版</div>
+              <div className="text-sm font-bold text-slate-400">20項個股資金增減趨勢版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                找出資金偷偷流入，並用 1/3、2/3、3/3 判斷是否續航。
+                每檔顯示資金慢慢增加、減少、持平、突然放大、爆量不漲。
               </p>
             </div>
 
@@ -1987,15 +2031,7 @@ export default function App() {
           </div>
 
           <div className="mt-3 flex gap-2">
-            <input
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") searchAnyStock();
-              }}
-              placeholder="輸入股票代號或名稱"
-              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-            />
+            <input value={queryText} onChange={(e) => setQueryText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") searchAnyStock(); }} placeholder="輸入股票代號或名稱" className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none" />
             <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500/80 px-4 py-3 text-sm font-black text-white">
               {queryLoading ? "查詢中" : "查"}
             </button>
@@ -2025,15 +2061,20 @@ export default function App() {
         </section>
 
         <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-          <div className="text-xs font-bold text-emerald-300">資金偷偷流入續航確認</div>
+          <div className="text-xs font-bold text-emerald-300">個股資金增減趨勢</div>
           <div className="mt-1 text-xl font-black text-emerald-100">
-            續航 3/3：{sneakyStrongList.length} 檔｜流入中：{sneakyList.length} 檔
+            增加：{moneyUpList.length} 檔｜減少警戒：{moneyDownList.length} 檔
           </div>
           <div className="mt-2 text-sm font-bold text-slate-300">{homeSentence}</div>
 
-          <button onClick={() => setPopup("sneaky")} className="mt-3 w-full rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
-            查看資金續航清單
-          </button>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button onClick={() => setPopup("moneyUp")} className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
+              資金增加清單
+            </button>
+            <button onClick={() => setPopup("moneyDown")} className="rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+              資金減少警戒
+            </button>
+          </div>
         </section>
 
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
@@ -2056,17 +2097,17 @@ export default function App() {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="資金續航3/3" value={`${sneakyStrongList.length} 檔`} tone="text-emerald-300" />
-            <DetailRow label="持倉估算損益" value={formatAmount(positionStats.totalPnl)} tone={positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"} />
+            <DetailRow label="資金增加" value={`${moneyUpList.length} 檔`} tone="text-emerald-300" />
+            <DetailRow label="資金減少" value={`${moneyDownList.length} 檔`} tone="text-red-300" />
             <DetailRow label="資金集中度" value={topIndustry ? `${topIndustry.amountShare.toFixed(1)}%` : "--"} />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="資金續航3/3" value={sneakyStrongList.length} sub="連續流入確認" tone="text-emerald-300" onClick={() => setPopup("sneaky")} />
-          <MiniCard title="資金流入中" value={sneakyList.length} sub="1/3～3/3" tone="text-cyan-300" onClick={() => setPopup("sneaky")} />
+          <MiniCard title="資金慢慢增加" value={moneyUpList.length} sub="金額/量能增加" tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
+          <MiniCard title="資金減少警戒" value={moneyDownList.length} sub="退潮或爆量不漲" tone="text-red-300" onClick={() => setPopup("moneyDown")} />
+          <MiniCard title="資金續航3/3" value={sneakyStrongList.length} sub="連續流入確認" tone="text-cyan-300" onClick={() => setPopup("sneaky")} />
           <MiniCard title="追高風險" value={overheatList.length} sub="過熱不追" tone="text-orange-300" onClick={() => setPopup("overheat")} />
-          <MiniCard title="停損出場" value={failedList.length} sub="主線失效" tone="text-red-300" onClick={() => setPopup("failed")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
@@ -2074,28 +2115,28 @@ export default function App() {
           <ActionCard title="成交金額排行" sub="主力資金核心" badge={amountList.length} tone="text-yellow-300" onClick={() => setPopup("amount")} />
           <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
           <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
-          <ActionCard title="設定" sub="更新頻率 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
+          <ActionCard title="設定" sub="更新頻率 / 重置紀錄" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
         <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950/90 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-black text-white">資金快篩</h2>
-              <p className="mt-1 text-[11px] font-bold text-slate-500">1/3剛出現、2/3提高注意、3/3續航確認。</p>
+              <p className="mt-1 text-[11px] font-bold text-slate-500">每檔顯示資金增加、減少、持平、爆量不漲。</p>
             </div>
-            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-emerald-300">續航版</div>
+            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-emerald-300">增減版</div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
             {[
-              ["sneaky", "🟢", "續航"],
+              ["moneyUp", "🟢", "增加"],
+              ["moneyDown", "🔻", "減少"],
+              ["sneaky", "🧲", "續航"],
               ["industry", "🏭", "強弱"],
               ["core", "💎", "核心"],
               ["pullback", "🎯", "買點"],
               ["overheat", "🔥", "追高"],
               ["failed", "⚠️", "停損"],
-              ["amount", "💰", "資金"],
-              ["volume", "📊", "成交量"],
               ["positions", "📒", "持倉"],
             ].map(([key, icon, label]) => (
               <button key={key} onClick={() => setPopup(key as PopupKey)} className="shrink-0 rounded-2xl bg-black/40 px-4 py-3 text-xs font-black text-slate-200 active:scale-95">
@@ -2109,13 +2150,12 @@ export default function App() {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
-              {tab === "home" && "資金續航快選"}
+              {tab === "home" && "資金增加快選"}
               {tab === "top50" && "今日50強"}
               {tab === "watch" && "觀察清單"}
               {tab === "favorite" && "自選股"}
               {tab === "more" && "更多功能"}
             </h2>
-
             <p className="mt-1 text-sm font-bold text-slate-500">
               主線：{industryRanking.slice(0, 3).map((item) => `${item.industry}${item.score.toFixed(0)}`).join("、") || "--"}
             </p>
@@ -2125,20 +2165,13 @@ export default function App() {
             <div className="space-y-4">
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">資金續航清單</h3>
-                  <button onClick={() => setPopup("sneaky")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
-                    看全部
-                  </button>
+                  <h3 className="text-xl font-black">資金慢慢增加</h3>
+                  <button onClick={() => setPopup("moneyUp")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">看全部</button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {sneakyList.length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確資金續航個股。
-                    </div>
-                  )}
-
-                  {sneakyList.slice(0, 8).map((stock, index) => (
+                  {moneyUpList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前還沒有明確資金增加個股，等下一次更新。</div>}
+                  {moneyUpList.slice(0, 8).map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
                   ))}
                 </div>
@@ -2147,9 +2180,7 @@ export default function App() {
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xl font-black">產業強弱前三名</h3>
-                  <button onClick={() => setPopup("industry")} className="rounded-2xl bg-yellow-500/20 px-3 py-2 text-xs font-black text-yellow-200">
-                    看全部
-                  </button>
+                  <button onClick={() => setPopup("industry")} className="rounded-2xl bg-yellow-500/20 px-3 py-2 text-xs font-black text-yellow-200">看全部</button>
                 </div>
 
                 <div className="mt-3 space-y-3">
@@ -2189,12 +2220,12 @@ export default function App() {
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
-              <ActionCard title="資金續航確認" sub="1/3、2/3、3/3" badge={sneakyStrongList.length} tone="text-emerald-300" onClick={() => setPopup("sneaky")} />
+              <ActionCard title="資金慢慢增加" sub="個股資金增溫" badge={moneyUpList.length} tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
+              <ActionCard title="資金減少警戒" sub="退潮 / 爆量不漲" badge={moneyDownList.length} tone="text-red-300" onClick={() => setPopup("moneyDown")} />
               <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
               <ActionCard title="產業強弱排行" sub="主線強弱集中看" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
               <ActionCard title="持倉總表" sub="損益 / 風險集中看" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
               <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-              <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
               <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
               <ActionCard title="設定" sub="更新頻率" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
@@ -2202,8 +2233,8 @@ export default function App() {
         </section>
       </div>
 
-      {["sneaky", "core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
-        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看資金續航`} onClose={() => setPopup("")}>
+      {["moneyUp", "moneyDown", "sneaky", "core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
+        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看資金增減`} onClose={() => setPopup("")}>
           <div className="space-y-3">
             {popupList(popup).length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前沒有符合條件的股票。</div>}
             {popupList(popup).map((stock, index) => (
@@ -2214,7 +2245,7 @@ export default function App() {
       )}
 
       {popup === "industry" && (
-        <ModalShell title="產業主線強弱排行" sub="依資金、量能、核心、續航排序" onClose={() => setPopup("")}>
+        <ModalShell title="產業主線強弱排行" sub="依資金、量能、核心、資金增加排序" onClose={() => setPopup("")}>
           <div className="space-y-3">
             {industryRanking.map((item, index) => (
               <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
@@ -2235,55 +2266,21 @@ export default function App() {
           </div>
 
           <div className="mt-4 space-y-3">
-            {positionRows.length === 0 && (
-              <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
-                目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。
-              </div>
-            )}
-
+            {positionRows.length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。</div>}
             {positionRows.map((row, index) => (
-              <button
-                key={row.stock.code}
-                onClick={() => setSelectedCode(row.stock.code)}
-                className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95"
-              >
+              <button key={row.stock.code} onClick={() => setSelectedCode(row.stock.code)} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-xs font-bold text-slate-500">
-                      #{index + 1}　{row.stock.code}｜{row.stock.industry}
-                    </div>
+                    <div className="text-xs font-bold text-slate-500">#{index + 1}　{row.stock.code}｜{row.stock.industry}</div>
                     <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(row.stock)}</div>
                     <div className={`mt-1 text-sm font-black ${riskTone(row.action)}`}>{row.action}</div>
                   </div>
-
                   <div className="text-right">
-                    <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-                      {formatPercent(row.pnlPercent)}
-                    </div>
-                    <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-                      {formatAmount(row.pnlAmount)}
-                    </div>
+                    <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>{formatPercent(row.pnlPercent)}</div>
+                    <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>{formatAmount(row.pnlAmount)}</div>
                   </div>
                 </div>
-
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-                  <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
-                    買進價<br />{formatPrice(row.position.buyPrice)}
-                  </div>
-                  <div className="rounded-2xl bg-black/30 p-2 text-white">
-                    現價<br />{formatPrice(row.stock.price)}
-                  </div>
-                  <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-                    ATR線<br />{formatPrice(row.plan.atrLine)}
-                  </div>
-                  <div className="rounded-2xl bg-black/30 p-2 text-purple-300">
-                    張數<br />{row.position.shares || "--"}
-                  </div>
-                </div>
-
-                <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>
-                  {row.danger}
-                </div>
+                <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>{row.danger}</div>
               </button>
             ))}
           </div>
@@ -2305,20 +2302,9 @@ export default function App() {
         <ModalShell title="全個股查詢" sub="輸入代號或中文名稱" onClose={() => setPopup("")}>
           <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
             <div className="flex gap-2">
-              <input
-                value={queryText}
-                onChange={(e) => setQueryText(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") searchAnyStock();
-                }}
-                placeholder="例如 華邦電、群創、2330"
-                className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-              />
-              <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">
-                {queryLoading ? "查詢中" : "查詢"}
-              </button>
+              <input value={queryText} onChange={(e) => setQueryText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") searchAnyStock(); }} placeholder="例如 華邦電、群創、2330" className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none" />
+              <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500 px-4 py-3 text-sm font-black text-white">{queryLoading ? "查詢中" : "查詢"}</button>
             </div>
-
             {queryMessage && <div className="mt-3 text-sm font-bold text-yellow-200">{queryMessage}</div>}
           </div>
 
@@ -2346,54 +2332,28 @@ export default function App() {
                   [60, "60秒"],
                   [0, "手動"],
                 ].map(([value, label]) => (
-                  <button
-                    key={String(value)}
-                    onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })}
-                    className={`rounded-2xl py-3 text-sm font-black ${settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}
-                  >
+                  <button key={String(value)} onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })} className={`rounded-2xl py-3 text-sm font-black ${settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"}`}>
                     {label}
                   </button>
                 ))}
               </div>
             </div>
 
-            <button
-              onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })}
-              className={`w-full rounded-2xl py-3 text-lg font-black ${settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"}`}
-            >
+            <button onClick={() => saveSettings({ ...settings, stableIndustryLock: !settings.stableIndustryLock })} className={`w-full rounded-2xl py-3 text-lg font-black ${settings.stableIndustryLock ? "bg-emerald-500/30 text-emerald-200" : "bg-slate-800 text-slate-200"}`}>
               主流產業鎖定：{settings.stableIndustryLock ? "開啟" : "關閉"}
             </button>
 
             <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => {
-                  const next = industryRanking.slice(0, 3).map((item) => item.industry);
-                  setLockedIndustries(next);
-                  localStorage.setItem(LOCKED_INDUSTRY_KEY, JSON.stringify(next));
-                }}
-                className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200"
-              >
+              <button onClick={() => { const next = industryRanking.slice(0, 3).map((item) => item.industry); setLockedIndustries(next); localStorage.setItem(LOCKED_INDUSTRY_KEY, JSON.stringify(next)); }} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
                 鎖定前三主線
               </button>
-              <button
-                onClick={() => {
-                  setLockedIndustries([]);
-                  localStorage.removeItem(LOCKED_INDUSTRY_KEY);
-                }}
-                className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200"
-              >
+              <button onClick={() => { setLockedIndustries([]); localStorage.removeItem(LOCKED_INDUSTRY_KEY); }} className="rounded-2xl bg-slate-800 py-3 text-sm font-black text-slate-200">
                 解除鎖定
               </button>
             </div>
 
-            <button
-              onClick={() => {
-                setSneakyHistory({});
-                localStorage.removeItem(SNEAKY_HISTORY_KEY);
-              }}
-              className="w-full rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200"
-            >
-              重置資金續航紀錄
+            <button onClick={() => { setMoneyHistory({}); localStorage.removeItem(MONEY_HISTORY_KEY); }} className="w-full rounded-2xl bg-red-500/20 py-3 text-sm font-black text-red-200">
+              重置資金增減紀錄
             </button>
           </div>
         </ModalShell>
@@ -2409,7 +2369,8 @@ export default function App() {
             <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
             <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
             <div>資料來源：{source || "讀取中"}</div>
-            <div>資金流入中：{sneakyList.length} 檔</div>
+            <div>資金增加：{moneyUpList.length} 檔</div>
+            <div>資金減少警戒：{moneyDownList.length} 檔</div>
             <div>資金續航3/3：{sneakyStrongList.length} 檔</div>
             <div>持倉檔數：{positionStats.count}</div>
             <div>持倉估算損益：{formatAmount(positionStats.totalPnl)}</div>
@@ -2420,9 +2381,7 @@ export default function App() {
           </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
-              立即更新
-            </button>
+            <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">立即更新</button>
           </div>
         </ModalShell>
       )}
@@ -2434,6 +2393,7 @@ export default function App() {
           mainIndustries={mainIndustries}
           settings={settings}
           sneakyHistory={sneakyHistory}
+          moneyHistory={moneyHistory}
           industryStatus={stockIndustryStatus(selectedStock)}
           position={positions[selectedStock.code]}
           onSavePosition={savePosition}
