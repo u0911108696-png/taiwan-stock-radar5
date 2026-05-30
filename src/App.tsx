@@ -29,7 +29,7 @@ type PopupKey =
   | "top50"
   | "search"
   | "data"
-  | "settings";
+  | "settings"
   | "positions";
 
 type SignalHistory = {
@@ -161,9 +161,11 @@ const industryMap: Record<string, string> = {
   "6415": "半導體",
   "6770": "半導體",
   "3711": "半導體",
+
   "2344": "記憶體",
   "2408": "記憶體",
   "2337": "記憶體",
+
   "2317": "電子代工",
   "2382": "AI伺服器",
   "3231": "AI伺服器",
@@ -173,6 +175,7 @@ const industryMap: Record<string, string> = {
   "2357": "電腦週邊",
   "2376": "AI伺服器",
   "2377": "電腦週邊",
+
   "2383": "PCB",
   "3037": "PCB",
   "3189": "PCB",
@@ -180,22 +183,28 @@ const industryMap: Record<string, string> = {
   "2368": "PCB",
   "2313": "PCB",
   "2367": "PCB",
+
   "3017": "散熱",
   "3324": "散熱",
   "3653": "散熱",
+
   "2308": "電源能源",
   "2301": "電源能源",
+
   "3481": "面板",
   "2409": "面板",
+
   "1519": "重電",
   "1503": "重電",
   "1514": "重電",
   "1513": "重電",
+
   "2881": "金融",
   "2882": "金融",
   "2884": "金融",
   "2885": "金融",
   "2891": "金融",
+
   "2603": "航運",
   "2609": "航運",
   "2615": "航運",
@@ -242,6 +251,7 @@ function formatAmount(value: number) {
   if (!Number.isFinite(value) || value === 0) return "0";
   const abs = Math.abs(value);
   const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+
   if (abs >= 100000000) return `${sign}${(abs / 100000000).toFixed(1)}億`;
   if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(0)}萬`;
   return `${sign}${abs.toFixed(0)}`;
@@ -341,10 +351,12 @@ function volumeState(stock: Stock, list: Stock[]) {
 
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
+
   if (stock.price < stock.openPrice || stock.price < stock.previousClose) return "轉弱退潮";
   if (stock.changePercent >= 3 && vol === "量能強") return "量價同步";
   if (stock.changePercent >= settings.hotPercent && vol !== "量能強") return "低量假強";
   if (amountRankPercent(stock, list) >= 70 && stock.changePercent < 2.5) return "爆量不漲";
+
   return "觀察中";
 }
 
@@ -382,10 +394,12 @@ function isPullback(stock: Stock, list: Stock[], mainIndustries: string[], setti
 function stableCount(values: boolean[] | undefined) {
   if (!values || values.length === 0) return 0;
   let count = 0;
+
   for (let i = values.length - 1; i >= 0; i--) {
     if (values[i]) count += 1;
     else break;
   }
+
   return count;
 }
 
@@ -413,21 +427,25 @@ function pullbackRadar(stock: Stock, list: Stock[], mainIndustries: string[], se
   if (openGap >= 0 && openGap <= 1.5 && amountStrong && pv !== "轉弱退潮") return "回測買點";
   if (openGap > 1.5 && openGap <= 3.5 && amountStrong) return "接近買點";
   if (openGap > 3.5) return "尚未回測";
+
   return "觀察中";
 }
 
 function chaseRisk(stock: Stock, list: Stock[], settings: Settings) {
   const pv = priceVolumeState(stock, list, settings);
+
   if (pv === "低量假強" || pv === "爆量不漲") return "追高風險高";
   if (isOverheat(stock, settings)) return "追高風險高";
   if (afterOpenPercent(stock) >= 3 || openingPremium(stock) >= 4) return "追高風險中";
   if (stock.changePercent >= 5 && volumeState(stock, list) !== "量能強") return "追高風險中";
+
   return "追高風險低";
 }
 
 function exitAlert(stock: Stock, list: Stock[], settings: Settings, industryStatus?: string) {
   const stop = atrStopLine(stock);
   const pv = priceVolumeState(stock, list, settings);
+
   if (stock.price < stock.previousClose) return "跌破昨收，出場避開";
   if (stock.price < stock.openPrice) return "跌破開盤，出場觀察";
   if (stock.price < stop) return "跌破ATR線，減碼觀察";
@@ -435,6 +453,7 @@ function exitAlert(stock: Stock, list: Stock[], settings: Settings, industryStat
   if (pv === "轉弱退潮") return "量價轉弱，出場觀察";
   if (industryStatus === "主線退潮") return "產業退潮，降低持股";
   if (isOverheat(stock, settings)) return "短線過熱，分批停利";
+
   return "續抱觀察";
 }
 
@@ -442,11 +461,13 @@ function riskAction(stock: Stock, list: Stock[], mainIndustries: string[], setti
   const pullback = pullbackRadar(stock, list, mainIndustries, settings);
   const chase = chaseRisk(stock, list, settings);
   const exit = exitAlert(stock, list, settings, industryStatus);
+
   if (exit.includes("出場") || exit.includes("跌破") || exit.includes("退潮")) return "出場提醒";
   if (chase === "追高風險高") return "不追高";
   if (pullback === "回測買點") return "低風險觀察";
   if (pullback === "接近買點") return "等確認";
   if (exit === "短線過熱，分批停利") return "分批停利";
+
   return "續抱觀察";
 }
 
@@ -454,6 +475,7 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
   const buyPrice = position?.buyPrice || 0;
   const shares = position?.shares || 0;
   const hasPosition = buyPrice > 0;
+
   const atr = atrValue(stock);
   const atrLine = atrStopLine(stock);
   const pullback = pullbackRadar(stock, list, mainIndustries, settings);
@@ -547,19 +569,19 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
     batchStep2 = `跌破 ${formatPrice(personalStop1)} 先減碼觀察。`;
     batchStep3 = `跌破昨收 ${formatPrice(personalStop3)} 主線偏弱。`;
     dangerText = "成本以下不建議攤平加倉。";
-  } else if (pnlPercent >= 0 && pnlPercent < 3) {
+  } else if (pnlPercent < 3) {
     batchTitle = "小獲利，先續抱觀察";
     batchStep1 = "第一步：不用急著停利。";
     batchStep2 = `守 ATR 線 ${formatPrice(atrLine)}。`;
     batchStep3 = "若轉弱或爆量不漲，再減碼。";
     dangerText = "還沒到明顯停利區。";
-  } else if (pnlPercent >= 3 && pnlPercent < 5) {
+  } else if (pnlPercent < 5) {
     batchTitle = "獲利 3%+，開始守停利";
     batchStep1 = "第一段：可以先守，不一定急賣。";
     batchStep2 = `跌破 ATR 線 ${formatPrice(atrLine)} 可先出 1/3。`;
     batchStep3 = "若主線失效，剩餘部位降低。";
     dangerText = "不要再追高加碼。";
-  } else if (pnlPercent >= 5 && pnlPercent < 8) {
+  } else if (pnlPercent < 8) {
     batchTitle = "獲利 5%+，可分批停利";
     batchStep1 = "第一段：可先停利 1/3。";
     batchStep2 = `第二段：跌破 ATR 線 ${formatPrice(atrLine)} 再出 1/3。`;
@@ -612,8 +634,8 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
 function riskTone(label: string) {
   if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉"].includes(label)) return "text-emerald-300";
   if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察", "觀察中", "持有勿追"].includes(label)) return "text-yellow-300";
-  if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利"].includes(label)) return "text-orange-300";
-  if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高") || label.includes("停損")) return "text-red-300";
+  if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利", "高獲利分批"].includes(label)) return "text-orange-300";
+  if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高") || label.includes("停損") || label.includes("警戒")) return "text-red-300";
   return "text-slate-300";
 }
 
@@ -648,17 +670,30 @@ function directionText(direction?: PriceDirection) {
   return "--";
 }
 
+function getDecision(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, history?: SignalHistory) {
+  const attackStable = stableCount(history?.attackRaw) >= settings.confirmTimes;
+  const failStable = stableCount(history?.failRaw) >= 2;
+  const overheatStable = stableCount(history?.overheatRaw) >= 2;
+  const pullbackStable = stableCount(history?.pullbackRaw) >= 2;
+
+  if (failStable || isFail(stock, list, settings)) return "主線失效";
+  if (overheatStable || isOverheat(stock, settings)) return "過熱不追";
+  if (attackStable) return "主線核心";
+  if (pullbackStable || isPullback(stock, list, mainIndustries, settings)) return "等回測";
+  if (isMoneyAttack(stock, list, mainIndustries, settings)) return "資金主攻";
+  return "觀察中";
+}
+
 function getIndustryRanking(list: Stock[], settings: Settings, signalMap: Record<string, SignalHistory>, lockedIndustries: string[]): IndustryItem[] {
   const totalAmount = list.reduce((sum, s) => sum + estimatedAmount(s), 0);
   const totalVolume = list.reduce((sum, s) => sum + s.volume, 0);
-  const rawMain = lockedIndustries.length ? lockedIndustries : [];
 
   const map = new Map<string, IndustryItem>();
 
   list.forEach((stock) => {
     const item =
       map.get(stock.industry) ||
-      {
+      ({
         industry: stock.industry,
         count: 0,
         totalAmount: 0,
@@ -674,7 +709,7 @@ function getIndustryRanking(list: Stock[], settings: Settings, signalMap: Record
         status: "觀察中",
         light: "灰燈",
         stocks: [],
-      };
+      } as IndustryItem);
 
     item.count += 1;
     item.totalAmount += estimatedAmount(stock);
@@ -684,16 +719,16 @@ function getIndustryRanking(list: Stock[], settings: Settings, signalMap: Record
     map.set(stock.industry, item);
   });
 
-  const temp = Array.from(map.values()).map((item) => {
-    const avgChange = item.avgChange / Math.max(1, item.count);
-    const amountShare = totalAmount > 0 ? (item.totalAmount / totalAmount) * 100 : 0;
-    const volumeShare = totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0;
-    return { ...item, avgChange, amountShare, volumeShare };
-  });
+  const temp = Array.from(map.values()).map((item) => ({
+    ...item,
+    avgChange: item.avgChange / Math.max(1, item.count),
+    amountShare: totalAmount > 0 ? (item.totalAmount / totalAmount) * 100 : 0,
+    volumeShare: totalVolume > 0 ? (item.totalVolume / totalVolume) * 100 : 0,
+  }));
 
   const mainIndustries =
-    rawMain.length > 0
-      ? rawMain
+    lockedIndustries.length > 0
+      ? lockedIndustries
       : temp
           .sort((a, b) => b.totalAmount + b.totalVolume * 10 - (a.totalAmount + a.totalVolume * 10))
           .slice(0, 3)
@@ -747,23 +782,18 @@ function getIndustryRanking(list: Stock[], settings: Settings, signalMap: Record
         light = "黃燈";
       }
 
-      return { ...item, attackCount, coreCount, failCount, overheatCount, score, status, light };
+      return {
+        ...item,
+        attackCount,
+        coreCount,
+        failCount,
+        overheatCount,
+        score,
+        status,
+        light,
+      };
     })
     .sort((a, b) => b.score - a.score);
-}
-
-function getDecision(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, history?: SignalHistory) {
-  const attackStable = stableCount(history?.attackRaw) >= settings.confirmTimes;
-  const failStable = stableCount(history?.failRaw) >= 2;
-  const overheatStable = stableCount(history?.overheatRaw) >= 2;
-  const pullbackStable = stableCount(history?.pullbackRaw) >= 2;
-
-  if (failStable || isFail(stock, list, settings)) return "主線失效";
-  if (overheatStable || isOverheat(stock, settings)) return "過熱不追";
-  if (attackStable) return "主線核心";
-  if (pullbackStable || isPullback(stock, list, mainIndustries, settings)) return "等回測";
-  if (isMoneyAttack(stock, list, mainIndustries, settings)) return "資金主攻";
-  return "觀察中";
 }
 
 function getMainlineText(decision: string) {
@@ -815,13 +845,17 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
         <div>
           <div className="text-xs font-bold text-slate-500">#{rank} 資金主線</div>
           <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
-          <div className={`mt-1 text-sm font-black ${flowTone(item.status)}`}>{item.light}｜{item.status}</div>
+          <div className={`mt-1 text-sm font-black ${flowTone(item.status)}`}>
+            {item.light}｜{item.status}
+          </div>
         </div>
+
         <div className="text-right">
           <div className="text-xl font-black text-yellow-300">{formatAmount(item.totalAmount)}</div>
           <div className="text-xs font-black text-slate-400">資金占比 {item.amountShare.toFixed(1)}%</div>
         </div>
       </div>
+
       <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-black">
         <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">主攻<br />{item.attackCount}</div>
         <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">核心<br />{item.coreCount}</div>
@@ -829,6 +863,25 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
         <div className="rounded-2xl bg-black/30 p-2 text-red-300">失效<br />{item.failCount}</div>
       </div>
     </button>
+  );
+}
+
+function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; sub?: string; children: ReactNode; onClose: () => void; z?: number }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" style={{ zIndex: z }} onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              {sub && <div className="text-xs font-bold text-slate-500">{sub}</div>}
+              <div className="mt-1 text-2xl font-black text-white">{title}</div>
+            </div>
+            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
+          </div>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
   );
 }
 
@@ -896,6 +949,7 @@ function StockCard({
               {mainIndex >= 0 ? `｜第${mainIndex + 1}主線` : ""}
             </div>
           </div>
+
           <div className="text-right">
             <div className={`text-xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
               {formatPercent(stock.changePercent)}
@@ -952,9 +1006,11 @@ function StockCard({
         <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-slate-300">
           加倉：{plan.addText}
         </div>
-         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${riskTone(plan.batchTitle)}`}>
+
+        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${riskTone(plan.batchTitle)}`}>
           分批停利：{plan.batchTitle}
-         </div>
+        </div>
+
         <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
           即時：{directionText(direction)}
           <br />
@@ -973,6 +1029,7 @@ function StockCard({
         >
           {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
         </button>
+
         <button
           onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
           className={`rounded-2xl py-2 text-sm font-black ${
@@ -981,25 +1038,6 @@ function StockCard({
         >
           {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
         </button>
-      </div>
-    </div>
-  );
-}
-
-function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; sub?: string; children: ReactNode; onClose: () => void; z?: number }) {
-  return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" style={{ zIndex: z }} onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              {sub && <div className="text-xs font-bold text-slate-500">{sub}</div>}
-              <div className="mt-1 text-2xl font-black text-white">{title}</div>
-            </div>
-            <button onClick={onClose} className="rounded-2xl bg-slate-800 px-3 py-2 text-lg font-black text-white">×</button>
-          </div>
-        </div>
-        <div className="mt-4">{children}</div>
       </div>
     </div>
   );
@@ -1065,10 +1103,12 @@ function StockQuickModal({
   function saveMyPosition() {
     const buyPrice = Number(buyPriceText);
     const shares = Number(sharesText || 0);
+
     if (!Number.isFinite(buyPrice) || buyPrice <= 0) {
       alert("請輸入正確買進價");
       return;
     }
+
     onSavePosition({
       code: stock.code,
       buyPrice,
@@ -1091,6 +1131,7 @@ function StockQuickModal({
 
       <section className="mt-3 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 p-4">
         <div className="text-lg font-black text-cyan-100">輸入我的持倉</div>
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <input
             value={buyPriceText}
@@ -1107,12 +1148,14 @@ function StockQuickModal({
             className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none"
           />
         </div>
+
         <input
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
           placeholder="備註，可不填"
           className="mt-2 w-full rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-bold text-white outline-none"
         />
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button onClick={saveMyPosition} className="rounded-2xl bg-cyan-500 py-3 text-sm font-black text-white">
             儲存我的買點
@@ -1146,29 +1189,24 @@ function StockQuickModal({
           <DetailRow label="估算損益金額" value={plan.hasPosition && plan.shares > 0 ? formatAmount(plan.pnlAmount) : "--"} tone={plan.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"} />
         </div>
       </section>
+
       <section className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-950/30 p-4">
-  <div className="text-lg font-black text-yellow-100">個人分批停利計畫</div>
+        <div className="text-lg font-black text-yellow-100">個人分批停利計畫</div>
+        <div className={`mt-2 text-2xl font-black ${riskTone(plan.action)}`}>
+          {plan.batchTitle}
+        </div>
 
-  <div className={`mt-2 text-2xl font-black ${riskTone(plan.action)}`}>
-    {plan.batchTitle}
-  </div>
+        <div className="mt-3 space-y-2 text-sm font-bold text-yellow-100">
+          <div className="rounded-2xl bg-black/30 p-3">① {plan.batchStep1}</div>
+          <div className="rounded-2xl bg-black/30 p-3">② {plan.batchStep2}</div>
+          <div className="rounded-2xl bg-black/30 p-3">③ {plan.batchStep3}</div>
+        </div>
 
-  <div className="mt-3 space-y-2 text-sm font-bold text-yellow-100">
-    <div className="rounded-2xl bg-black/30 p-3">
-      ① {plan.batchStep1}
-    </div>
-    <div className="rounded-2xl bg-black/30 p-3">
-      ② {plan.batchStep2}
-    </div>
-    <div className="rounded-2xl bg-black/30 p-3">
-      ③ {plan.batchStep3}
-    </div>
-  </div>
+        <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(plan.dangerText)}`}>
+          {plan.dangerText}
+        </div>
+      </section>
 
-  <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(plan.dangerText)}`}>
-    {plan.dangerText}
-  </div>
-</section>
       <section className="mt-3 rounded-2xl bg-blue-950/30 p-4">
         <div className="text-lg font-black text-blue-100">我的買點在哪</div>
         <div className={`mt-2 text-2xl font-black ${riskTone(pullback)}`}>{pullback}</div>
@@ -1200,13 +1238,13 @@ function StockQuickModal({
         <div className="mt-2 text-sm font-bold text-yellow-100">
           第一停利觀察：{formatPrice(plan.personalTakeProfit1)}
           <br />
-          ATR移動停利線：{formatPrice(plan.personalTakeProfit2)}
+          第二停利觀察：{formatPrice(plan.personalTakeProfit2)}
           <br />
-          今日高點參考：{formatPrice(stock.highPrice)}
+          第三停利觀察：{formatPrice(plan.personalTakeProfit3)}
+          <br />
+          ATR移動停利線：{formatPrice(plan.atrLine)}
           <br />
           目前ATR：{formatPrice(plan.atr)}
-          <br />
-          {stock.price < plan.atrLine ? "已跌破ATR線，獲利要保護。" : "尚未跌破ATR線，續抱觀察。"}
         </div>
       </section>
 
@@ -1314,27 +1352,29 @@ export default function App() {
   const [lockedIndustries, setLockedIndustries] = useState<string[]>([]);
 
   const initedRef = useRef(false);
-
   const contentRef = useRef<HTMLDivElement | null>(null);
 
   function jumpToContent() {
-  setTimeout(() => {
-    contentRef.current?.scrollIntoView({
-      behavior: "smooth",
-      block: "start",
-    });
-  }, 80);
-}
+    setTimeout(() => {
+      contentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
   const floatingMainIndustries = useMemo(() => {
     const map = new Map<string, { industry: string; amount: number; volume: number }>();
+
     top50.forEach((stock) => {
       const item = map.get(stock.industry) || { industry: stock.industry, amount: 0, volume: 0 };
       item.amount += estimatedAmount(stock);
       item.volume += stock.volume;
       map.set(stock.industry, item);
     });
+
     return Array.from(map.values())
       .sort((a, b) => b.amount + b.volume * 10 - (a.amount + a.volume * 10))
       .slice(0, 3)
@@ -1402,11 +1442,14 @@ export default function App() {
 
   const watchStocks = useMemo(() => {
     const map = new Map<string, Stock>();
+
     watchCodes.forEach((code) => {
       const stock = stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code);
       if (stock) map.set(code, stock);
     });
+
     [...coreList, ...pullbackList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
+
     return Array.from(map.values());
   }, [watchCodes, stocks, searchHistory, coreList, pullbackList]);
 
@@ -1427,6 +1470,7 @@ export default function App() {
     const list = Object.values(positions);
     let totalPnl = 0;
     let active = 0;
+
     list.forEach((p) => {
       const stock = stocks.find((s) => s.code === p.code) || searchHistory.find((s) => s.code === p.code);
       if (stock && p.buyPrice > 0 && p.shares > 0) {
@@ -1434,48 +1478,40 @@ export default function App() {
         totalPnl += (stock.price - p.buyPrice) * p.shares * 1000;
       }
     });
+
     return { count: list.length, active, totalPnl };
   }, [positions, stocks, searchHistory]);
+
   const positionRows = useMemo(() => {
-  return Object.values(positions)
-    .map((position) => {
-      const stock =
-        stocks.find((s) => s.code === position.code) ||
-        searchHistory.find((s) => s.code === position.code);
+    return Object.values(positions)
+      .map((position) => {
+        const stock = stocks.find((s) => s.code === position.code) || searchHistory.find((s) => s.code === position.code);
+        if (!stock) return null;
 
-      if (!stock) return null;
+        const plan = positionPlan(stock, position, top50.length > 0 ? top50 : [stock], mainIndustries, settings, stockIndustryStatus(stock));
 
-      const plan = positionPlan(
-        stock,
-        position,
-        top50.length > 0 ? top50 : [stock],
-        mainIndustries,
-        settings,
-        stockIndustryStatus(stock)
-      );
+        return {
+          stock,
+          position,
+          plan,
+          pnlPercent: plan.pnlPercent,
+          pnlAmount: plan.pnlAmount,
+          action: plan.action,
+          danger: plan.dangerText,
+        };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => {
+        const riskWeight = (row: any) => {
+          if (row.action.includes("停損") || row.action.includes("出場")) return 1000;
+          if (row.action.includes("分批")) return 800;
+          if (row.action.includes("持有勿追")) return 600;
+          if (row.action.includes("續抱")) return 400;
+          return 200;
+        };
 
-      return {
-        stock,
-        position,
-        plan,
-        pnlPercent: plan.pnlPercent,
-        pnlAmount: plan.pnlAmount,
-        action: plan.action,
-        danger: plan.dangerText,
-      };
-    })
-    .filter(Boolean)
-    .sort((a: any, b: any) => {
-      const riskWeight = (row: any) => {
-        if (row.action.includes("停損") || row.action.includes("出場")) return 1000;
-        if (row.action.includes("分批")) return 800;
-        if (row.action.includes("持有勿追")) return 600;
-        if (row.action.includes("續抱")) return 400;
-        return 200;
-      };
-
-      return riskWeight(b) - riskWeight(a);
-    }) as {
+        return riskWeight(b) - riskWeight(a);
+      }) as {
       stock: Stock;
       position: Position;
       plan: ReturnType<typeof positionPlan>;
@@ -1484,28 +1520,30 @@ export default function App() {
       action: string;
       danger: string;
     }[];
-}, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking]);
+  }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking]);
 
-const bestPosition = positionRows.length
-  ? [...positionRows].sort((a, b) => b.pnlPercent - a.pnlPercent)[0]
-  : null;
+  const bestPosition = positionRows.length ? [...positionRows].sort((a, b) => b.pnlPercent - a.pnlPercent)[0] : null;
 
-const dangerPosition = positionRows.length
-  ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場")) ||
-    positionRows.find((row) => row.action.includes("分批")) ||
-    positionRows[0]
-  : null;
+  const dangerPosition = positionRows.length
+    ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場")) ||
+      positionRows.find((row) => row.action.includes("分批")) ||
+      positionRows[0]
+    : null;
+
   const riskSummary = useMemo(() => {
     const buyCount = top50.filter((stock) => pullbackRadar(stock, top50, mainIndustries, settings) === "回測買點").length;
     const chaseHighCount = top50.filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高").length;
+
     const exitCount = top50.filter((stock) => {
       const exit = exitAlert(stock, top50, settings, stockIndustryStatus(stock));
       return exit.includes("出場") || exit.includes("跌破");
     }).length;
+
     const addCount = top50.filter((stock) => {
       const plan = positionPlan(stock, positions[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock));
       return plan.action === "可小幅加倉";
     }).length;
+
     return { buyCount, chaseHighCount, exitCount, addCount };
   }, [top50, mainIndustries, settings, industryRanking, positions]);
 
@@ -1518,6 +1556,7 @@ const dangerPosition = positionRows.length
     if (topIndustry.amountShare >= 25 && topIndustry.coreCount >= 2) return "資金集中，主線明確";
     if (industryRanking.slice(0, 3).filter((i) => i.status === "資金分歧").length >= 2) return "資金分歧，只挑核心";
     if (coreList.length >= 3) return "主線續航，看核心股";
+
     return "資金尚未集中";
   }, [topIndustry, failedList, overheatList, industryRanking, coreList, riskSummary]);
 
@@ -1527,9 +1566,10 @@ const dangerPosition = positionRows.length
     if (marketStructure === "出現回測買點，等確認") return `目前有 ${riskSummary.buyCount} 檔接近回測買點，優先看主線內、量價沒轉弱的股票。`;
     if (marketStructure === "資金集中，主線明確") return `資金集中在 ${topIndustry.industry}，優先看主線核心股，過熱股不追。`;
     if (marketStructure === "主線續航，看核心股") return `${topIndustry.industry} 續航中，找量價同步、成交金額靠前的個股。`;
-    if (marketStructure === "資金分歧，只挑核心") return `資金分歧，避開爆量不漲，只挑核心主攻股。`;
-    if (marketStructure === "短線過熱，不追高") return `主線短線過熱，先等回測，不追高。`;
-    if (marketStructure === "主線退潮，先避開") return `主線失效股偏多，降低出手，等資金重新集中。`;
+    if (marketStructure === "資金分歧，只挑核心") return "資金分歧，避開爆量不漲，只挑核心主攻股。";
+    if (marketStructure === "短線過熱，不追高") return "主線短線過熱，先等回測，不追高。";
+    if (marketStructure === "主線退潮，先避開") return "主線失效股偏多，降低出手，等資金重新集中。";
+
     return `目前第一主線是 ${topIndustry.industry}，但資金集中度還要再確認。`;
   }, [topIndustry, marketStructure, riskSummary]);
 
@@ -1539,6 +1579,7 @@ const dangerPosition = positionRows.length
 
     const savedSettings = safeParse(localStorage.getItem(SETTINGS_KEY), defaultSettings);
     const merged = { ...defaultSettings, ...savedSettings };
+
     setSettings(merged);
     setAutoSeconds(merged.refreshSeconds);
 
@@ -1558,6 +1599,7 @@ const dangerPosition = positionRows.length
       cached.stocks.forEach((stock: Stock) => {
         prices[stock.code] = stock.price;
       });
+
       setLastPriceMap(prices);
 
       if (cached.lastSuccessAt) setLastSuccessAt(cached.lastSuccessAt);
@@ -1570,6 +1612,7 @@ const dangerPosition = positionRows.length
 
   useEffect(() => {
     if (settings.refreshSeconds <= 0) return;
+
     const timer = window.setInterval(() => {
       setAutoSeconds((sec) => {
         if (sec <= 1) {
@@ -1579,6 +1622,7 @@ const dangerPosition = positionRows.length
         return sec - 1;
       });
     }, 1000);
+
     return () => window.clearInterval(timer);
   }, [settings.refreshSeconds, lastPriceMap, mainIndustries, signalMap]);
 
@@ -1620,23 +1664,12 @@ const dangerPosition = positionRows.length
     localStorage.setItem(POSITIONS_KEY, JSON.stringify(next));
   }
 
-  function lockCurrentIndustries() {
-    const list = industryRanking.slice(0, 3).map((item) => item.industry);
-    setLockedIndustries(list);
-    localStorage.setItem(LOCKED_INDUSTRY_KEY, JSON.stringify(list));
-  }
-
-  function clearLockedIndustries() {
-    setLockedIndustries([]);
-    localStorage.removeItem(LOCKED_INDUSTRY_KEY);
-  }
-
   function resetSignals() {
     setSignalMap({});
     localStorage.removeItem(SIGNAL_KEY);
   }
 
-  function updateSignals(list: Stock[], oldPrices: Record<string, number>) {
+  function updateSignals(list: Stock[]) {
     const topList = list.slice(0, 50);
     const activeMain = settings.stableIndustryLock && lockedIndustries.length ? lockedIndustries : floatingMainIndustries;
 
@@ -1688,6 +1721,7 @@ const dangerPosition = positionRows.length
       if (!response.ok) throw new Error(`API錯誤：${response.status}`);
 
       const json = await response.json();
+
       const list = Array.isArray(json.rankedStocks)
         ? json.rankedStocks
         : Array.isArray(json.stocks)
@@ -1696,9 +1730,7 @@ const dangerPosition = positionRows.length
             ? json.data
             : [];
 
-      const dataTime =
-        json.updatedAtTaiwan ||
-        (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
+      const dataTime = json.updatedAtTaiwan || (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
 
       const normalized = list
         .map((raw: any) => normalizeStock(raw, dataTime))
@@ -1713,7 +1745,9 @@ const dangerPosition = positionRows.length
 
       normalized.forEach((stock: Stock) => {
         const oldPrice = oldPriceMap[stock.code];
+
         nextPriceMap[stock.code] = stock.price;
+
         if (oldPrice === undefined) nextDirections[stock.code] = "new";
         else if (stock.price > oldPrice) nextDirections[stock.code] = "up";
         else if (stock.price < oldPrice) nextDirections[stock.code] = "down";
@@ -1731,7 +1765,8 @@ const dangerPosition = positionRows.length
       setApiDataTime(dataTime);
       setSource(dataSource);
       setUsingCache(false);
-      updateSignals(normalized, oldPriceMap);
+
+      updateSignals(normalized);
 
       localStorage.setItem(
         CACHE_KEY,
@@ -1753,6 +1788,7 @@ const dangerPosition = positionRows.length
 
   async function searchAnyStock() {
     const q = queryText.trim();
+
     if (!q) {
       setQueryMessage("請先輸入股票代號或名稱。");
       return;
@@ -1771,12 +1807,14 @@ const dangerPosition = positionRows.length
       }
 
       const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
+
       saveSearchHistory([stock, ...searchHistory]);
 
       setPreviousPriceMap((old) => ({ ...old, [stock.code]: old[stock.code] || stock.price }));
       setLastPriceMap((old) => ({ ...old, [stock.code]: stock.price }));
       setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
       setSelectedCode(stock.code);
+
       setQueryMessage(`已查到 ${stock.code} ${stockDisplayName(stock)}`);
     } catch (err: any) {
       setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
@@ -1789,22 +1827,26 @@ const dangerPosition = positionRows.length
     return [...list].sort((a, b) => {
       const ad = getDecision(a, top50, mainIndustries, settings, signalMap[a.code]);
       const bd = getDecision(b, top50, mainIndustries, settings, signalMap[b.code]);
+
       const ar = positionPlan(a, positions[a.code], top50, mainIndustries, settings, stockIndustryStatus(a)).action;
       const br = positionPlan(b, positions[b.code], top50, mainIndustries, settings, stockIndustryStatus(b)).action;
 
       const weight = (d: string, r: string) => {
         let score = 0;
+
         if (d === "主線核心") score += 1000;
         if (d === "資金主攻") score += 800;
         if (d === "等回測") score += 600;
         if (d === "觀察中") score += 300;
         if (d === "過熱不追") score += 100;
+
         if (r === "低風險觀察") score += 350;
         if (r === "可小幅加倉") score += 300;
         if (r === "續抱觀察") score += 250;
         if (r === "不追高") score -= 300;
         if (r === "出場提醒") score -= 600;
         if (r === "個人停損警戒") score -= 800;
+
         return score;
       };
 
@@ -1866,10 +1908,10 @@ const dangerPosition = positionRows.length
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">個人持倉買點輸入版</div>
+              <div className="text-sm font-bold text-slate-400">持倉總表風險雷達版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                可輸入我的買進價、張數，自動算損益、停損、停利、加倉條件。
+                可輸入我的買進價、張數，自動算損益、停損、停利、加倉與持倉總表。
               </p>
             </div>
 
@@ -1968,7 +2010,7 @@ const dangerPosition = positionRows.length
           <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
           <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
           <ActionCard title="設定" sub="確認次數 / 主線鎖定" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
-       </section>
+        </section>
 
         <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950/90 p-3">
           <div className="flex items-center justify-between gap-3">
@@ -1976,7 +2018,7 @@ const dangerPosition = positionRows.length
               <h2 className="text-base font-black text-white">主線快篩</h2>
               <p className="mt-1 text-[11px] font-bold text-slate-500">點一下直接跳出清單。</p>
             </div>
-            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-yellow-300">持倉版</div>
+            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-yellow-300">持倉總表</div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -1988,6 +2030,7 @@ const dangerPosition = positionRows.length
               ["amount", "💰", "資金"],
               ["volume", "📊", "成交量"],
               ["industry", "🏭", "產業"],
+              ["positions", "📒", "持倉"],
             ].map(([key, icon, label]) => (
               <button key={key} onClick={() => setPopup(key as PopupKey)} className="shrink-0 rounded-2xl bg-black/40 px-4 py-3 text-xs font-black text-slate-200 active:scale-95">
                 <div className="text-lg">{icon}</div>
@@ -2021,6 +2064,7 @@ const dangerPosition = positionRows.length
                     看全部
                   </button>
                 </div>
+
                 <div className="mt-3 space-y-3">
                   {industryRanking.slice(0, 3).map((item, index) => (
                     <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
@@ -2042,6 +2086,7 @@ const dangerPosition = positionRows.length
                       目前主線核心尚未明確。
                     </div>
                   )}
+
                   {homeCoreList.map((stock, index) => (
                     <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
                   ))}
@@ -2078,13 +2123,13 @@ const dangerPosition = positionRows.length
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
-             <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
-             <ActionCard title="持倉總表" sub="損益 / 風險集中看" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
-             <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
-             <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
-             <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
-             <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
-             <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
+              <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
+              <ActionCard title="持倉總表" sub="損益 / 風險集中看" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
+              <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+              <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
+              <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
+              <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
+              <ActionCard title="設定" sub="確認次數" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
             </div>
           )}
         </section>
@@ -2096,6 +2141,73 @@ const dangerPosition = positionRows.length
             {popupList(popup).length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前沒有符合條件的股票。</div>}
             {popupList(popup).map((stock, index) => (
               <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+            ))}
+          </div>
+        </ModalShell>
+      )}
+
+      {popup === "positions" && (
+        <ModalShell title="持倉總表風險雷達" sub="你的買進價、損益、停利、停損集中看" onClose={() => setPopup("")}>
+          <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+            <div className="grid grid-cols-2 gap-2">
+              <DetailRow label="持倉檔數" value={`${positionStats.count} 檔`} tone="text-cyan-300" />
+              <DetailRow label="持倉總損益" value={formatAmount(positionStats.totalPnl)} tone={positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"} />
+              <DetailRow label="最賺股票" value={bestPosition ? `${stockDisplayName(bestPosition.stock)} ${formatPercent(bestPosition.pnlPercent)}` : "--"} tone="text-red-300" />
+              <DetailRow label="最高風險" value={dangerPosition ? `${stockDisplayName(dangerPosition.stock)}｜${dangerPosition.action}` : "--"} tone="text-yellow-300" />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {positionRows.length === 0 && (
+              <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
+                目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。
+              </div>
+            )}
+
+            {positionRows.map((row, index) => (
+              <button
+                key={row.stock.code}
+                onClick={() => setSelectedCode(row.stock.code)}
+                className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-bold text-slate-500">
+                      #{index + 1}　{row.stock.code}｜{row.stock.industry}
+                    </div>
+                    <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(row.stock)}</div>
+                    <div className={`mt-1 text-sm font-black ${riskTone(row.action)}`}>{row.action}</div>
+                  </div>
+
+                  <div className="text-right">
+                    <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatPercent(row.pnlPercent)}
+                    </div>
+                    <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatAmount(row.pnlAmount)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
+                  <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
+                    買進價<br />{formatPrice(row.position.buyPrice)}
+                  </div>
+                  <div className="rounded-2xl bg-black/30 p-2 text-white">
+                    現價<br />{formatPrice(row.stock.price)}
+                  </div>
+                  <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
+                    ATR線<br />{formatPrice(row.plan.atrLine)}
+                  </div>
+                  <div className="rounded-2xl bg-black/30 p-2 text-purple-300">
+                    張數<br />{row.position.shares || "--"}
+                  </div>
+                </div>
+
+                <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>
+                  {row.danger}
+                </div>
+              </button>
             ))}
           </div>
         </ModalShell>
@@ -2139,6 +2251,7 @@ const dangerPosition = positionRows.length
                 {queryLoading ? "查詢中" : "查詢"}
               </button>
             </div>
+
             {queryMessage && <div className="mt-3 text-sm font-bold text-yellow-200">{queryMessage}</div>}
           </div>
 
@@ -2205,96 +2318,6 @@ const dangerPosition = positionRows.length
           </div>
         </ModalShell>
       )}
-      {popup === "positions" && (
-  <ModalShell title="持倉總表風險雷達" sub="你的買進價、損益、停利、停損集中看" onClose={() => setPopup("")}>
-    <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
-      <div className="grid grid-cols-2 gap-2">
-        <DetailRow label="持倉檔數" value={`${positionStats.count} 檔`} tone="text-cyan-300" />
-        <DetailRow
-          label="持倉總損益"
-          value={formatAmount(positionStats.totalPnl)}
-          tone={positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}
-        />
-        <DetailRow
-          label="最賺股票"
-          value={bestPosition ? `${stockDisplayName(bestPosition.stock)} ${formatPercent(bestPosition.pnlPercent)}` : "--"}
-          tone="text-red-300"
-        />
-        <DetailRow
-          label="最高風險"
-          value={dangerPosition ? `${stockDisplayName(dangerPosition.stock)}｜${dangerPosition.action}` : "--"}
-          tone="text-yellow-300"
-        />
-      </div>
-    </div>
-
-    <div className="mt-4 space-y-3">
-      {positionRows.length === 0 && (
-        <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">
-          目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。
-        </div>
-      )}
-
-      {positionRows.map((row, index) => (
-        <button
-          key={row.stock.code}
-          onClick={() => setSelectedCode(row.stock.code)}
-          className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-bold text-slate-500">
-                #{index + 1}　{row.stock.code}｜{row.stock.industry}
-              </div>
-              <div className="mt-1 text-2xl font-black text-white">
-                {stockDisplayName(row.stock)}
-              </div>
-              <div className={`mt-1 text-sm font-black ${riskTone(row.action)}`}>
-                {row.action}
-              </div>
-            </div>
-
-            <div className="text-right">
-              <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-                {formatPercent(row.pnlPercent)}
-              </div>
-              <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>
-                {formatAmount(row.pnlAmount)}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-            <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
-              買進價
-              <br />
-              {formatPrice(row.position.buyPrice)}
-            </div>
-            <div className="rounded-2xl bg-black/30 p-2 text-white">
-              現價
-              <br />
-              {formatPrice(row.stock.price)}
-            </div>
-            <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-              ATR線
-              <br />
-              {formatPrice(row.plan.atrLine)}
-            </div>
-            <div className="rounded-2xl bg-black/30 p-2 text-purple-300">
-              張數
-              <br />
-              {row.position.shares || "--"}
-            </div>
-          </div>
-
-          <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>
-            {row.danger}
-          </div>
-        </button>
-      ))}
-    </div>
-  </ModalShell>
-)}
 
       {popup === "data" && (
         <ModalShell title="主線統計" sub="資料健康檢查" onClose={() => setPopup("")}>
@@ -2361,12 +2384,12 @@ const dangerPosition = positionRows.length
             <button
               key={key}
               onClick={() => {
-  setSelectedCode("");
-  setPopup("");
-  setIndustryPopup("");
-  setTab(key as TabKey);
-  jumpToContent();
-}}
+                setSelectedCode("");
+                setPopup("");
+                setIndustryPopup("");
+                setTab(key as TabKey);
+                jumpToContent();
+              }}
               className={`rounded-2xl py-2 text-xs font-black ${tab === key ? "bg-slate-800 text-yellow-300" : "text-slate-400"}`}
             >
               <div className="text-xl">{icon}</div>
