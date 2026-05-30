@@ -33,6 +33,7 @@ type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
 type PopupKey =
   | ""
   | "industry"
+  | "sneaky"
   | "core"
   | "pullback"
   | "overheat"
@@ -56,6 +57,7 @@ type IndustryItem = {
   amountShare: number;
   volumeShare: number;
   coreCount: number;
+  sneakyCount: number;
   failCount: number;
   overheatCount: number;
   score: number;
@@ -73,9 +75,9 @@ const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const SETTINGS_KEY = "taiwan-stock-radar-mainline-strength-settings";
-const CACHE_KEY = "taiwan-stock-radar-mainline-strength-cache";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-mainline-strength-locked";
+const SETTINGS_KEY = "taiwan-stock-radar-sneaky-money-settings";
+const CACHE_KEY = "taiwan-stock-radar-sneaky-money-cache";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-sneaky-money-locked";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -377,6 +379,59 @@ function isMoneyAttack(stock: Stock, list: Stock[], mainIndustries: string[], se
   );
 }
 
+function sneakyMoneyScore(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
+  const amountScore = amountRankPercent(stock, list);
+  const volumeScore = volumeRankPercent(stock, list);
+  const openPower = afterOpenPercent(stock);
+  const mainBonus = mainIndustries.includes(stock.industry) ? 18 : 6;
+  const notTooHotBonus = stock.changePercent >= 0.5 && stock.changePercent <= 5.5 ? 18 : -18;
+  const priceHoldBonus = stock.price >= stock.openPrice && stock.price >= stock.previousClose ? 18 : -25;
+  const volumeBonus = volumeScore >= 60 ? 16 : 0;
+  const amountBonus = amountScore >= 60 ? 16 : 0;
+  const quietBonus = stock.changePercent < 3.5 && amountScore >= 65 ? 12 : 0;
+  const openBonus = openPower >= 0 && openPower <= 2.5 ? 10 : 0;
+  const failPenalty = isFail(stock, list, settings) ? -40 : 0;
+  const hotPenalty = isOverheat(stock, settings) ? -35 : 0;
+
+  return amountBonus + volumeBonus + mainBonus + notTooHotBonus + priceHoldBonus + quietBonus + openBonus + failPenalty + hotPenalty;
+}
+
+function sneakyMoneyReason(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
+  const reasons: string[] = [];
+
+  if (mainIndustries.includes(stock.industry)) reasons.push("主線產業內");
+  else reasons.push("非主線但有資金跡象");
+
+  if (amountRankPercent(stock, list) >= 70) reasons.push("成交金額靠前");
+  else if (amountRankPercent(stock, list) >= 60) reasons.push("成交金額轉強");
+
+  if (volumeRankPercent(stock, list) >= 70) reasons.push("量能明顯增加");
+  else if (volumeRankPercent(stock, list) >= 60) reasons.push("量能開始增強");
+
+  if (stock.price >= stock.openPrice) reasons.push("價格守開盤價");
+  if (stock.changePercent > 0 && stock.changePercent <= 5.5) reasons.push("漲幅未過熱");
+  if (afterOpenPercent(stock) >= 0 && afterOpenPercent(stock) <= 2.5) reasons.push("開盤後溫和墊高");
+  if (!isFail(stock, list, settings)) reasons.push("未轉弱");
+
+  return reasons.slice(0, 5).join("｜") || "資金尚未明確";
+}
+
+function isSneakyMoney(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
+  const score = sneakyMoneyScore(stock, list, mainIndustries, settings);
+
+  return (
+    score >= 55 &&
+    stock.changePercent > 0 &&
+    stock.changePercent <= 5.8 &&
+    stock.price >= stock.openPrice &&
+    stock.price >= stock.previousClose &&
+    amountRankPercent(stock, list) >= 55 &&
+    volumeRankPercent(stock, list) >= 50 &&
+    !isFail(stock, list, settings) &&
+    !isOverheat(stock, settings)
+  );
+}
+
 function pullbackRadar(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings) {
   const main = mainIndustries.includes(stock.industry);
   const openGap = afterOpenPercent(stock);
@@ -424,6 +479,7 @@ function decisionText(stock: Stock, list: Stock[], mainIndustries: string[], set
   if (isFail(stock, list, settings)) return "主線失效";
   if (isOverheat(stock, settings)) return "過熱不追";
   if (isMoneyAttack(stock, list, mainIndustries, settings)) return "主線核心";
+  if (isSneakyMoney(stock, list, mainIndustries, settings)) return "資金偷偷流入";
   if (pullbackRadar(stock, list, mainIndustries, settings) === "回測買點") return "回測買點";
   return "觀察中";
 }
@@ -471,6 +527,7 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
 
   let buyText = "尚未輸入買進價，先看理想買點。";
   if (!hasPosition && pullback === "回測買點") buyText = "可列入低風險觀察區。";
+  if (!hasPosition && isSneakyMoney(stock, list, mainIndustries, settings)) buyText = "資金有偷偷流入跡象，可加入觀察，不追高。";
   if (!hasPosition && pullback === "接近買點") buyText = "接近買點，等量價確認。";
   if (!hasPosition && chase !== "追高風險低") buyText = "追高風險偏高，不追價。";
   if (hasPosition) buyText = `你的買進價 ${formatPrice(buyPrice)}，目前損益 ${formatPercent(pnlPercent)}。`;
@@ -512,6 +569,7 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
   if (hasPosition && pnlPercent <= -3) action = "個人停損警戒";
   if (exit.includes("出場") || exit.includes("跌破")) action = "出場提醒";
   else if (chase === "追高風險高") action = hasPosition ? "持有勿追" : "不追高";
+  else if (!hasPosition && isSneakyMoney(stock, list, mainIndustries, settings)) action = "資金流入觀察";
   else if (!hasPosition && pullback === "回測買點") action = "低風險觀察";
   else if (canAdd) action = "可小幅加倉";
   else if (hasPosition && pnlPercent >= 8) action = "高獲利分批";
@@ -599,7 +657,7 @@ function positionPlan(stock: Stock, position: Position | undefined, list: Stock[
 }
 
 function riskTone(label: string) {
-  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉"].includes(label)) return "text-emerald-300";
+  if (["回測買點", "低風險觀察", "續抱觀察", "追高風險低", "可小幅加倉", "資金偷偷流入", "資金流入觀察"].includes(label)) return "text-emerald-300";
   if (["接近買點", "等確認", "追高風險中", "尚未回測", "觀察", "觀察中", "持有勿追"].includes(label)) return "text-yellow-300";
   if (["過熱等回測", "不追高", "短線過熱，分批停利", "分批停利", "高獲利分批"].includes(label)) return "text-orange-300";
   if (label.includes("出場") || label.includes("跌破") || label.includes("失敗") || label.includes("高") || label.includes("停損") || label.includes("警戒")) return "text-red-300";
@@ -607,7 +665,7 @@ function riskTone(label: string) {
 }
 
 function decisionTone(label: string) {
-  if (["主線核心", "回測買點", "資金主攻", "強勢", "續航"].includes(label)) return "text-emerald-300";
+  if (["主線核心", "回測買點", "資金主攻", "強勢", "續航", "資金偷偷流入"].includes(label)) return "text-emerald-300";
   if (["等回測", "觀察中", "接近買點", "轉強", "分歧"].includes(label)) return "text-yellow-300";
   if (["過熱不追", "分批停利", "短線過熱", "過熱"].includes(label)) return "text-orange-300";
   if (["主線失效", "出場避開", "轉弱退潮", "爆量不漲", "低量假強", "轉弱"].includes(label)) return "text-red-300";
@@ -655,6 +713,7 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
         amountShare: 0,
         volumeShare: 0,
         coreCount: 0,
+        sneakyCount: 0,
         failCount: 0,
         overheatCount: 0,
         score: 0,
@@ -692,11 +751,13 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
   return temp
     .map((item) => {
       let coreCount = 0;
+      let sneakyCount = 0;
       let failCount = 0;
       let overheatCount = 0;
 
       item.stocks.forEach((stock) => {
         if (isMoneyAttack(stock, list, mainIndustries, settings)) coreCount += 1;
+        if (isSneakyMoney(stock, list, mainIndustries, settings)) sneakyCount += 1;
         if (isFail(stock, list, settings)) failCount += 1;
         if (isOverheat(stock, settings)) overheatCount += 1;
       });
@@ -705,7 +766,8 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
         item.amountShare * 3 +
         item.volumeShare * 1.8 +
         Math.max(0, item.avgChange) * 5 +
-        coreCount * 25 -
+        coreCount * 25 +
+        sneakyCount * 15 -
         failCount * 22 -
         overheatCount * 8;
 
@@ -733,7 +795,7 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
         status = "主線續航";
         light = "綠燈";
         strength = "續航";
-      } else if (item.amountShare >= 10 || item.avgChange >= 3) {
+      } else if (sneakyCount >= 2 || item.amountShare >= 10 || item.avgChange >= 3) {
         status = "主線剛轉強";
         light = "黃燈";
         strength = "轉強";
@@ -742,6 +804,7 @@ function getIndustryRanking(list: Stock[], settings: Settings, lockedIndustries:
       const result = {
         ...item,
         coreCount,
+        sneakyCount,
         failCount,
         overheatCount,
         score,
@@ -832,10 +895,10 @@ function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: numbe
       </div>
 
       <div className="mt-3 grid grid-cols-4 gap-2 text-center text-xs font-black">
-        <div className="rounded-2xl bg-black/30 p-2 text-yellow-300">
-          強弱<br />{item.score.toFixed(0)}
-        </div>
         <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
+          偷偷<br />{item.sneakyCount}
+        </div>
+        <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
           核心<br />{item.coreCount}
         </div>
         <div className="rounded-2xl bg-black/30 p-2 text-orange-300">
@@ -896,6 +959,8 @@ function StockCard({
   const pullback = pullbackRadar(stock, top50, mainIndustries, settings);
   const chase = chaseRisk(stock, top50, settings);
   const mainIndex = mainIndustries.indexOf(stock.industry);
+  const sneakyScore = sneakyMoneyScore(stock, top50, mainIndustries, settings);
+  const sneakyReason = sneakyMoneyReason(stock, top50, mainIndustries, settings);
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
@@ -922,14 +987,14 @@ function StockCard({
           <div className={`rounded-2xl bg-black/30 p-2 ${decisionTone(decision)}`}>
             主線判斷<br />{decision}
           </div>
+          <div className="rounded-2xl bg-black/30 p-2 text-emerald-300">
+            偷偷流入<br />{sneakyScore.toFixed(0)}
+          </div>
           <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(plan.action)}`}>
             我的計畫<br />{plan.action}
           </div>
           <div className={`rounded-2xl bg-black/30 p-2 ${plan.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>
             我的損益<br />{plan.hasPosition ? formatPercent(plan.pnlPercent) : "未輸入"}
-          </div>
-          <div className="rounded-2xl bg-black/30 p-2 text-cyan-300">
-            ATR線<br />{formatPrice(plan.atrLine)}
           </div>
         </div>
 
@@ -940,6 +1005,10 @@ function StockCard({
           <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(chase)}`}>
             追高風險<br />{chase.replace("追高風險", "")}
           </div>
+        </div>
+
+        <div className="mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold text-emerald-200">
+          資金原因：{sneakyReason}
         </div>
 
         <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-black">
@@ -1038,6 +1107,8 @@ function StockQuickModal({
   const pullback = pullbackRadar(stock, top50, mainIndustries, settings);
   const chase = chaseRisk(stock, top50, settings);
   const exit = exitAlert(stock, top50, settings, industryStatus);
+  const sneakyScore = sneakyMoneyScore(stock, top50, mainIndustries, settings);
+  const sneakyReason = sneakyMoneyReason(stock, top50, mainIndustries, settings);
 
   function saveMyPosition() {
     const buyPrice = Number(buyPriceText);
@@ -1067,6 +1138,20 @@ function StockQuickModal({
           <div className="text-xl font-black text-white">{formatPrice(stock.price)}</div>
         </div>
       </div>
+
+      <section className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4">
+        <div className="text-lg font-black text-emerald-100">資金偷偷流入判斷</div>
+        <div className={`mt-2 text-3xl font-black ${decisionTone(decision)}`}>
+          {isSneakyMoney(stock, top50, mainIndustries, settings) ? "資金偷偷流入" : "尚未明確流入"}
+        </div>
+        <div className="mt-2 text-sm font-bold text-emerald-100">
+          分數：{sneakyScore.toFixed(0)}
+          <br />
+          原因：{sneakyReason}
+          <br />
+          成交金額排名：#{amountRankIndex(stock, top50)}｜成交量排名：#{volumeRankIndex(stock, top50)}
+        </div>
+      </section>
 
       <section className="mt-3 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 p-4">
         <div className="text-lg font-black text-cyan-100">輸入我的持倉</div>
@@ -1165,31 +1250,6 @@ function StockQuickModal({
         </div>
       </section>
 
-      <section className="mt-3 rounded-2xl bg-yellow-950/30 p-4">
-        <div className="text-lg font-black text-yellow-100">我的停利在哪</div>
-        <div className="mt-2 text-sm font-bold text-yellow-100">
-          第一停利觀察：{formatPrice(plan.personalTakeProfit1)}
-          <br />
-          第二停利觀察：{formatPrice(plan.personalTakeProfit2)}
-          <br />
-          第三停利觀察：{formatPrice(plan.personalTakeProfit3)}
-          <br />
-          ATR移動停利線：{formatPrice(plan.atrLine)}
-          <br />
-          目前ATR：{formatPrice(plan.atr)}
-        </div>
-      </section>
-
-      <section className="mt-3 rounded-2xl bg-purple-950/30 p-4">
-        <div className="text-lg font-black text-purple-100">什麼時候可以加倉</div>
-        <div className={`mt-2 text-xl font-black ${riskTone(plan.action)}`}>{plan.addText}</div>
-        <div className="mt-2 text-sm font-bold text-purple-100">
-          加倉確認價：{formatPrice(plan.addPrice)}
-          <br />
-          條件：已輸入買進價、目前有獲利、主線前三、量價同步、資金排名前段、沒跌破ATR線。
-        </div>
-      </section>
-
       <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${decisionTone(decision)}`}>
         <div className="text-xs font-bold text-slate-400">主線結論</div>
         <div className="mt-1 text-2xl font-black">{decision}</div>
@@ -1234,7 +1294,7 @@ function StockQuickModal({
       </div>
 
       <div className="mt-3 rounded-2xl bg-black/40 p-3 text-xs font-bold text-slate-400">
-        提醒：這是盤中輔助風控，不保證獲利，也不是最低點買最高點賣。
+        提醒：資金偷偷流入只是提前觀察名單，不保證一定上漲。
       </div>
     </ModalShell>
   );
@@ -1321,6 +1381,14 @@ export default function App() {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
 
+  const sneakyList = useMemo(
+    () =>
+      top50
+        .filter((stock) => isSneakyMoney(stock, top50, mainIndustries, settings))
+        .sort((a, b) => sneakyMoneyScore(b, top50, mainIndustries, settings) - sneakyMoneyScore(a, top50, mainIndustries, settings)),
+    [top50, mainIndustries, settings]
+  );
+
   const coreList = useMemo(
     () =>
       top50
@@ -1370,10 +1438,10 @@ export default function App() {
       if (stock) map.set(code, stock);
     });
 
-    [...coreList, ...pullbackList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
+    [...sneakyList, ...coreList, ...pullbackList].slice(0, 20).forEach((stock) => map.set(stock.code, stock));
 
     return Array.from(map.values());
-  }, [watchCodes, stocks, searchHistory, coreList, pullbackList]);
+  }, [watchCodes, stocks, searchHistory, sneakyList, coreList, pullbackList]);
 
   const favoriteStocks = useMemo(
     () =>
@@ -1452,39 +1520,23 @@ export default function App() {
       positionRows[0]
     : null;
 
-  const riskSummary = useMemo(() => {
-    const buyCount = top50.filter((stock) => pullbackRadar(stock, top50, mainIndustries, settings) === "回測買點").length;
-    const chaseHighCount = top50.filter((stock) => chaseRisk(stock, top50, settings) === "追高風險高").length;
-
-    const exitCount = top50.filter((stock) => {
-      const exit = exitAlert(stock, top50, settings, stockIndustryStatus(stock));
-      return exit.includes("出場") || exit.includes("跌破");
-    }).length;
-
-    const addCount = top50.filter((stock) => {
-      const plan = positionPlan(stock, positions[stock.code], top50, mainIndustries, settings, stockIndustryStatus(stock));
-      return plan.action === "可小幅加倉";
-    }).length;
-
-    return { buyCount, chaseHighCount, exitCount, addCount };
-  }, [top50, mainIndustries, settings, industryRanking, positions]);
-
   const marketStructure = useMemo(() => {
     if (!topIndustry) return "等待資料";
+    if (sneakyList.length >= 5) return "資金偷偷流入擴散";
     if (topIndustry.strength === "轉弱") return "主線退潮，先避開";
     if (topIndustry.strength === "過熱") return "短線過熱，不追高";
     if (topIndustry.strength === "強勢") return "主線強勢，盯核心股";
     if (topIndustry.strength === "續航") return "主線續航，看核心股";
     if (topIndustry.strength === "轉強") return "資金剛轉強，等確認";
     if (topIndustry.strength === "分歧") return "資金分歧，只挑核心";
-    if (riskSummary.buyCount >= 3) return "出現回測買點，等確認";
     return "資金尚未集中";
-  }, [topIndustry, riskSummary]);
+  }, [topIndustry, sneakyList]);
 
   const homeSentence = useMemo(() => {
+    if (sneakyList.length >= 5) return `目前有 ${sneakyList.length} 檔出現資金偷偷流入跡象，優先看主線內且沒過熱的股票。`;
     if (!topIndustry) return "目前尚未取得資料。";
     return topIndustry.reason;
-  }, [topIndustry]);
+  }, [topIndustry, sneakyList]);
 
   useEffect(() => {
     if (initedRef.current) return;
@@ -1697,10 +1749,12 @@ export default function App() {
         let score = 0;
 
         if (d === "主線核心") score += 1000;
+        if (d === "資金偷偷流入") score += 850;
         if (d === "回測買點") score += 700;
         if (d === "觀察中") score += 300;
         if (d === "過熱不追") score += 100;
 
+        if (r === "資金流入觀察") score += 450;
         if (r === "低風險觀察") score += 350;
         if (r === "可小幅加倉") score += 300;
         if (r === "續抱觀察") score += 250;
@@ -1716,6 +1770,7 @@ export default function App() {
   }
 
   function popupList(key: PopupKey) {
+    if (key === "sneaky") return sortList(sneakyList);
     if (key === "core") return sortList(coreList);
     if (key === "pullback") return sortList(pullbackList);
     if (key === "overheat") return sortList(overheatList);
@@ -1727,6 +1782,7 @@ export default function App() {
   }
 
   function popupTitle(key: PopupKey) {
+    if (key === "sneaky") return "資金偷偷流入";
     if (key === "core") return "主線核心股";
     if (key === "pullback") return "買點與回測雷達";
     if (key === "overheat") return "追高風險警報";
@@ -1760,7 +1816,7 @@ export default function App() {
     return sortList(top50.filter((stock) => stock.industry === industryPopup));
   }, [industryPopup, top50, mainIndustries, industryRanking, positions]);
 
-  const homeCoreList = useMemo(() => [...coreList, ...pullbackList].slice(0, 8), [coreList, pullbackList]);
+  const homeCoreList = useMemo(() => [...sneakyList, ...coreList, ...pullbackList].slice(0, 8), [sneakyList, coreList, pullbackList]);
 
   return (
     <div className="min-h-screen bg-black text-white">
@@ -1768,10 +1824,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項主線強弱即時排序版</div>
+              <div className="text-sm font-bold text-slate-400">20項資金偷偷流入雷達版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                依資金、成交量、核心股、過熱股、失效股，排序今日主線強弱。
+                找出漲幅還沒過熱，但成交金額、成交量、價格開始轉強的個股。
               </p>
             </div>
 
@@ -1830,6 +1886,22 @@ export default function App() {
           </div>
         </section>
 
+        <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
+          <div className="text-xs font-bold text-emerald-300">資金偷偷流入雷達</div>
+          <div className="mt-1 text-xl font-black text-emerald-100">
+            {sneakyList.length > 0 ? `目前 ${sneakyList.length} 檔出現資金偷偷流入` : "目前尚未明確流入"}
+          </div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            {sneakyList.length > 0
+              ? "優先看：漲幅未過熱、成交金額靠前、量能增強、價格守開盤價。"
+              : "先等資金、量能、價格同時轉強。"}
+          </div>
+
+          <button onClick={() => setPopup("sneaky")} className="mt-3 w-full rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
+            查看資金偷偷流入清單
+          </button>
+        </section>
+
         <section className="mt-4 rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
           <div className="text-xs font-bold text-yellow-300">今日主線強弱排序</div>
           <div className="mt-1 text-xl font-black text-yellow-100">
@@ -1851,15 +1923,15 @@ export default function App() {
 
           <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="盤中型態" value={marketStructure} />
-            <DetailRow label="第一主線強弱" value={topIndustry ? `${topIndustry.strength} ${topIndustry.score.toFixed(0)}` : "--"} tone={topIndustry ? flowTone(topIndustry.strength) : "text-slate-300"} />
+            <DetailRow label="偷偷流入檔數" value={`${sneakyList.length} 檔`} tone="text-emerald-300" />
             <DetailRow label="持倉估算損益" value={formatAmount(positionStats.totalPnl)} tone={positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"} />
             <DetailRow label="資金集中度" value={topIndustry ? `${topIndustry.amountShare.toFixed(1)}%` : "--"} />
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="主線核心股" value={coreList.length} sub="資金+量價同步" tone="text-emerald-300" onClick={() => setPopup("core")} />
-          <MiniCard title="買點雷達" value={pullbackList.length} sub="回測 / 接近買點" tone="text-yellow-300" onClick={() => setPopup("pullback")} />
+          <MiniCard title="資金偷偷流入" value={sneakyList.length} sub="低調吸籌觀察" tone="text-emerald-300" onClick={() => setPopup("sneaky")} />
+          <MiniCard title="主線核心股" value={coreList.length} sub="資金+量價同步" tone="text-cyan-300" onClick={() => setPopup("core")} />
           <MiniCard title="追高風險" value={overheatList.length} sub="過熱不追" tone="text-orange-300" onClick={() => setPopup("overheat")} />
           <MiniCard title="停損出場" value={failedList.length} sub="主線失效" tone="text-red-300" onClick={() => setPopup("failed")} />
         </section>
@@ -1875,14 +1947,15 @@ export default function App() {
         <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950/90 p-3">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h2 className="text-base font-black text-white">主線強弱快篩</h2>
-              <p className="mt-1 text-[11px] font-bold text-slate-500">依資金、量能、核心股、失效股即時排序。</p>
+              <h2 className="text-base font-black text-white">資金快篩</h2>
+              <p className="mt-1 text-[11px] font-bold text-slate-500">找資金開始增加，但還沒過熱的股票。</p>
             </div>
-            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-yellow-300">強弱版</div>
+            <div className="rounded-2xl bg-black/40 px-3 py-2 text-xs font-black text-emerald-300">偷偷流入</div>
           </div>
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
             {[
+              ["sneaky", "🟢", "偷偷"],
               ["industry", "🏭", "強弱"],
               ["core", "💎", "核心"],
               ["pullback", "🎯", "買點"],
@@ -1903,7 +1976,7 @@ export default function App() {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
-              {tab === "home" && "主線強弱快選"}
+              {tab === "home" && "資金偷偷流入快選"}
               {tab === "top50" && "今日50強"}
               {tab === "watch" && "觀察清單"}
               {tab === "favorite" && "自選股"}
@@ -1917,6 +1990,27 @@ export default function App() {
 
           {tab === "home" && (
             <div className="space-y-4">
+              <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-black">資金偷偷流入</h3>
+                  <button onClick={() => setPopup("sneaky")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
+                    看全部
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {sneakyList.length === 0 && (
+                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                      目前沒有明確資金偷偷流入個股。
+                    </div>
+                  )}
+
+                  {sneakyList.slice(0, 8).map((stock, index) => (
+                    <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+                  ))}
+                </div>
+              </section>
+
               <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xl font-black">產業強弱前三名</h3>
@@ -1928,27 +2022,6 @@ export default function App() {
                 <div className="mt-3 space-y-3">
                   {industryRanking.slice(0, 3).map((item, index) => (
                     <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">主線核心快選</h3>
-                  <button onClick={() => setPopup("core")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
-                    核心
-                  </button>
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  {homeCoreList.length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
-                      目前主線核心尚未明確。
-                    </div>
-                  )}
-
-                  {homeCoreList.map((stock, index) => (
-                    <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
                   ))}
                 </div>
               </section>
@@ -1983,10 +2056,10 @@ export default function App() {
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
+              <ActionCard title="資金偷偷流入" sub="低調吸籌觀察" badge={sneakyList.length} tone="text-emerald-300" onClick={() => setPopup("sneaky")} />
               <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
               <ActionCard title="產業強弱排行" sub="主線強弱集中看" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
               <ActionCard title="持倉總表" sub="損益 / 風險集中看" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
-              <ActionCard title="買點雷達" sub="回測 / 接近買點" badge={pullbackList.length} tone="text-yellow-300" onClick={() => setPopup("pullback")} />
               <ActionCard title="追高風險" sub="過熱不追" badge={overheatList.length} tone="text-orange-300" onClick={() => setPopup("overheat")} />
               <ActionCard title="停損出場" sub="主線失效" badge={failedList.length} tone="text-red-300" onClick={() => setPopup("failed")} />
               <ActionCard title="主線統計" sub="資料健康" badge="📡" tone="text-blue-300" onClick={() => setPopup("data")} />
@@ -1996,8 +2069,8 @@ export default function App() {
         </section>
       </div>
 
-      {["core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
-        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票輸入我的買點`} onClose={() => setPopup("")}>
+      {["sneaky", "core", "pullback", "overheat", "failed", "amount", "volume", "top50"].includes(popup) && (
+        <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看資金原因`} onClose={() => setPopup("")}>
           <div className="space-y-3">
             {popupList(popup).length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前沒有符合條件的股票。</div>}
             {popupList(popup).map((stock, index) => (
@@ -2008,7 +2081,7 @@ export default function App() {
       )}
 
       {popup === "industry" && (
-        <ModalShell title="產業主線強弱排行" sub="依資金、量能、核心、過熱、失效排序" onClose={() => setPopup("")}>
+        <ModalShell title="產業主線強弱排行" sub="依資金、量能、核心、偷偷流入排序" onClose={() => setPopup("")}>
           <div className="space-y-3">
             {industryRanking.map((item, index) => (
               <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
@@ -2193,6 +2266,7 @@ export default function App() {
             <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
             <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
             <div>資料來源：{source || "讀取中"}</div>
+            <div>資金偷偷流入：{sneakyList.length} 檔</div>
             <div>持倉檔數：{positionStats.count}</div>
             <div>持倉估算損益：{formatAmount(positionStats.totalPnl)}</div>
             <div>第一主線：{topIndustry ? `${topIndustry.industry}｜強弱 ${topIndustry.score.toFixed(0)}｜${topIndustry.strength}` : "--"}</div>
