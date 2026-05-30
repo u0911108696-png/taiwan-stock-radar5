@@ -1314,6 +1314,16 @@ export default function App() {
 
   const initedRef = useRef(false);
 
+  const contentRef = useRef<HTMLDivElement | null>(null);
+
+  function jumpToContent() {
+  setTimeout(() => {
+    contentRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, 80);
+}
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
   const floatingMainIndustries = useMemo(() => {
@@ -1927,7 +1937,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="mt-4">
+        <section ref={contentRef} className="mt-4 scroll-mt-4">
           <div className="mb-3">
             <h2 className="text-2xl font-black">
               {tab === "home" && "個人交易計畫快選"}
@@ -2200,11 +2210,12 @@ export default function App() {
             <button
               key={key}
               onClick={() => {
-                setSelectedCode("");
-                setPopup("");
-                setIndustryPopup("");
-                setTab(key as TabKey);
-              }}
+  setSelectedCode("");
+  setPopup("");
+  setIndustryPopup("");
+  setTab(key as TabKey);
+  jumpToContent();
+}}
               className={`rounded-2xl py-2 text-xs font-black ${tab === key ? "bg-slate-800 text-yellow-300" : "text-slate-400"}`}
             >
               <div className="text-xl">{icon}</div>
