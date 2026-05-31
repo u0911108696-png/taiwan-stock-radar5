@@ -32,6 +32,7 @@ type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
 
 type PopupKey =
   | ""
+  | "sop"
   | "dashboard"
   | "open910"
   | "snapshot"
@@ -156,6 +157,12 @@ type EntryPlan = {
   atrLine: number;
 };
 
+type SopStep = {
+  title: string;
+  status: "做" | "等" | "禁止";
+  detail: string;
+};
+
 const API_URL = "/api/stocks";
 const SEARCH_API_URL = "/api/search";
 
@@ -163,13 +170,13 @@ const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const SETTINGS_KEY = "taiwan-stock-radar-entry-v35-settings";
-const CACHE_KEY = "taiwan-stock-radar-entry-v35-cache";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-entry-v35-locked";
-const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-entry-v35-sneaky-history";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-entry-v35-money-history";
-const SIGNAL_HISTORY_KEY = "taiwan-stock-radar-entry-v35-signal-history";
-const SNAPSHOT_KEY = "taiwan-stock-radar-entry-v35-snapshot";
+const SETTINGS_KEY = "taiwan-stock-radar-sop-v36-settings";
+const CACHE_KEY = "taiwan-stock-radar-sop-v36-cache";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-sop-v36-locked";
+const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-sop-v36-sneaky-history";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-sop-v36-money-history";
+const SIGNAL_HISTORY_KEY = "taiwan-stock-radar-sop-v36-signal-history";
+const SNAPSHOT_KEY = "taiwan-stock-radar-sop-v36-snapshot";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -336,6 +343,14 @@ function open910Status() {
   if (minutes >= open && minutes < lock) return "9:10前，先觀察不急";
   if (minutes >= lock && minutes <= end) return "9:10後，可進入實戰";
   return "收盤後，僅供檢討";
+}
+
+function sopNowAction(openStatus: string, entryGoodCount: number, snapshot: Open910Snapshot | null) {
+  if (openStatus.includes("開盤前")) return "先等開盤，不先預設股票。";
+  if (openStatus.includes("9:10前")) return "只觀察，不追，不急著買。";
+  if (openStatus.includes("可進入") && !snapshot) return "先鎖定9:10快照，再看可進場觀察。";
+  if (entryGoodCount > 0) return "只看可進場觀察，到買點區間才考慮小部位。";
+  return "沒有低風險候選，今天先不硬做。";
 }
 
 function open910Tone(status: string) {
@@ -751,6 +766,18 @@ function entryTone(level: EntryLevel | string) {
   return "text-slate-300";
 }
 
+function sopTone(status: SopStep["status"]) {
+  if (status === "做") return "text-emerald-300";
+  if (status === "等") return "text-yellow-300";
+  return "text-red-300";
+}
+
+function sopBg(status: SopStep["status"]) {
+  if (status === "做") return "border-emerald-500/40 bg-emerald-950/20";
+  if (status === "等") return "border-yellow-500/40 bg-yellow-950/20";
+  return "border-red-500/40 bg-red-950/20";
+}
+
 function entryPlan(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, sneakyHistory: Record<string, SneakyHistory>, moneyHistory: Record<string, MoneyHistory>, industryStatus?: string): EntryPlan {
   const reasons: string[] = [];
   const warnings: string[] = [];
@@ -1148,6 +1175,44 @@ function snapshotSuccessRate(items: SnapshotStock[], stocks: Stock[], searchHist
   };
 }
 
+function makeSopSteps(openStatus: string, entryGoodCount: number, entryWaitCount: number, snapshot: Open910Snapshot | null): SopStep[] {
+  const before910 = openStatus.includes("開盤前") || openStatus.includes("9:10前");
+  const canTrade = openStatus.includes("可進入");
+
+  return [
+    {
+      title: "9:00～9:10 先等待",
+      status: before910 ? "等" : "做",
+      detail: before910 ? "只看資料有沒有更新，不急著買。" : "已過9:10，開始看實戰候選。",
+    },
+    {
+      title: "9:10後先鎖定快照",
+      status: snapshot ? "做" : canTrade ? "等" : "等",
+      detail: snapshot ? `已鎖定 ${snapshot.createdAt}` : "9:10後按「鎖定目前快照」，保留當下名單。",
+    },
+    {
+      title: "只看可進場觀察",
+      status: entryGoodCount > 0 ? "做" : "等",
+      detail: entryGoodCount > 0 ? `目前有 ${entryGoodCount} 檔可進場觀察。` : "沒有低風險候選就不要硬做。",
+    },
+    {
+      title: "等回測再進不追高",
+      status: entryWaitCount > 0 ? "等" : "做",
+      detail: entryWaitCount > 0 ? `${entryWaitCount} 檔要等回測，不能看到漲就追。` : "目前等待回測名單較少。",
+    },
+    {
+      title: "不建議進場直接排除",
+      status: "禁止",
+      detail: "跌破開盤、追高風險高、爆量不漲、資金減少，都不要碰。",
+    },
+    {
+      title: "進場後照停損與ATR",
+      status: "做",
+      detail: "跌破停損價先退，跌破ATR線保護獲利，到第一停利可分批。",
+    },
+  ];
+}
+
 function positionPlan(
   stock: Stock,
   position: Position | undefined,
@@ -1162,7 +1227,6 @@ function positionPlan(
   const shares = position?.shares || 0;
   const hasPosition = buyPrice > 0;
 
-  const atr = atrValue(stock);
   const atrLine = atrStopLine(stock);
   const pullback = pullbackRadar(stock, list, mainIndustries, settings);
   const chase = chaseRisk(stock, list, settings);
@@ -1179,7 +1243,6 @@ function positionPlan(
   const idealBuyHigh = stock.openPrice * 1.015;
   const noChasePrice = stock.openPrice * 1.03;
   const personalStop1 = hasPosition ? Math.min(buyPrice * 0.98, stock.openPrice) : stock.openPrice;
-  const personalStop2 = atrLine;
   const personalStop3 = stock.previousClose;
   const addPrice = Math.max(stock.highPrice, hasPosition ? buyPrice * 1.03 : stock.openPrice * 1.025);
 
@@ -1198,7 +1261,7 @@ function positionPlan(
   let stopText = "停損以開盤價、ATR線、昨收三層觀察。";
   if (moneyLabel === "資金開始減少") stopText = "資金開始減少，停損線要更嚴格。";
   if (hasPosition && stock.price < personalStop1) stopText = "跌破個人第一停損線，先減碼觀察。";
-  if (stock.price < personalStop2) stopText = "跌破ATR移動停利線，保護獲利或降低風險。";
+  if (stock.price < atrLine) stopText = "跌破ATR移動停利線，保護獲利或降低風險。";
   if (stock.price < personalStop3) stopText = "跌破昨收，主線偏弱，出場避開。";
 
   let profitText = "用ATR移動停利，不猜最高點。";
@@ -1493,6 +1556,16 @@ function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; 
   );
 }
 
+function SopCard({ step }: { step: SopStep }) {
+  return (
+    <div className={`rounded-3xl border p-4 ${sopBg(step.status)}`}>
+      <div className={`text-sm font-black ${sopTone(step.status)}`}>{step.status}</div>
+      <div className="mt-1 text-lg font-black text-white">{step.title}</div>
+      <div className="mt-2 text-sm font-bold text-slate-300">{step.detail}</div>
+    </div>
+  );
+}
+
 function SimpleStockButton({
   stock,
   label,
@@ -1525,15 +1598,7 @@ function SimpleStockButton({
   );
 }
 
-function EntryStockButton({
-  stock,
-  plan,
-  onClick,
-}: {
-  stock: Stock;
-  plan: EntryPlan;
-  onClick: () => void;
-}) {
+function EntryStockButton({ stock, plan, onClick }: { stock: Stock; plan: EntryPlan; onClick: () => void }) {
   return (
     <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
       <div className="flex items-start justify-between gap-3">
@@ -1574,15 +1639,7 @@ function EntryStockButton({
   );
 }
 
-function SnapshotButton({
-  item,
-  current,
-  onClick,
-}: {
-  item: SnapshotStock;
-  current: Stock | null;
-  onClick: () => void;
-}) {
+function SnapshotButton({ item, current, onClick }: { item: SnapshotStock; current: Stock | null; onClick: () => void }) {
   const nowPrice = current?.price || item.snapshotPrice;
   const change = snapshotChangePercent(item.snapshotPrice, nowPrice);
   const result = snapshotResult(item.snapshotType, change);
@@ -1923,6 +1980,7 @@ export default function App() {
   const entryWaitList = useMemo(() => entryRows.filter((row) => row.plan.level === "等回測再進").slice(0, 8), [entryRows]);
   const entryBadList = useMemo(() => entryRows.filter((row) => row.plan.level === "不建議進場").slice(0, 8), [entryRows]);
 
+  const sopSteps = useMemo(() => makeSopSteps(open910Status(), entryGoodList.length, entryWaitList.length, snapshot), [entryGoodList.length, entryWaitList.length, snapshot]);
   const moneyUpList = useMemo(
     () =>
       top50
@@ -2040,6 +2098,7 @@ export default function App() {
   const thirdIndustry = industryRanking[2];
   const totalAmount = top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
   const openStatus = open910Status();
+  const nowAction = sopNowAction(openStatus, entryGoodList.length, snapshot);
 
   const open910PickList = useMemo(() => entryGoodList.map((row) => row.stock).slice(0, 5), [entryGoodList]);
   const open910AvoidList = useMemo(() => entryBadList.map((row) => row.stock).slice(0, 8), [entryBadList]);
@@ -2061,6 +2120,7 @@ export default function App() {
     if (!snapshotAllItems.length) return null;
     return [...snapshotAllItems].sort((a, b) => snapshotItemChange(a, stocks, searchHistory) - snapshotItemChange(b, stocks, searchHistory))[0];
   }, [snapshotAllItems, stocks, searchHistory]);
+
   const marketMode = useMemo(() => {
     if (!topIndustry) return "等待資料";
     if (moneyDownList.length >= 6 || failedList.length >= 6) return "風險偏高";
@@ -2248,7 +2308,6 @@ export default function App() {
       return next;
     });
   }
-
   function updateSignalRecords(list: Stock[]) {
     const dateKey = todayKey();
     const topList = list.slice(0, 50);
@@ -2477,10 +2536,10 @@ export default function App() {
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項低風險進場候選版</div>
+              <div className="text-sm font-bold text-slate-400">20項明日實戰SOP版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                直接顯示低風險進場候選、買點區間、停損與停利。
+                明天照SOP走：先等、鎖快照、只看低風險、守停損。
               </p>
             </div>
 
@@ -2490,18 +2549,33 @@ export default function App() {
           </div>
         </header>
 
-        <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-          <div className="text-xs font-bold text-emerald-300">低風險進場候選</div>
-          <div className={`mt-1 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            不是保證會漲，只是用主線、資金、追高風險、爆量不漲、跌破條件篩出相對安全候選。
-          </div>
+        <section className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
+          <div className="text-xs font-bold text-cyan-300">目前應該做什麼</div>
+          <div className={`mt-1 text-3xl font-black ${open910Tone(openStatus)}`}>{openStatus}</div>
+          <div className="mt-2 text-2xl font-black text-white">{nowAction}</div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <DetailRow label="可進場觀察" value={`${entryGoodList.length} 檔`} tone="text-emerald-300" />
             <DetailRow label="等回測再進" value={`${entryWaitList.length} 檔`} tone="text-yellow-300" />
-            <DetailRow label="不建議進場" value={`${entryBadList.length} 檔`} tone="text-red-300" />
-            <DetailRow label="最強主線" value={topIndustry ? `${topIndustry.industry}｜${topIndustry.strength}` : "--"} tone="text-cyan-300" />
+            <DetailRow label="快照狀態" value={snapshot ? "已鎖定" : "尚未鎖定"} tone={snapshot ? "text-emerald-300" : "text-yellow-300"} />
+            <DetailRow label="市場模式" value={marketMode} tone={marketModeTone} />
+          </div>
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <button onClick={() => setPopup("sop")} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">
+              打開SOP
+            </button>
+            <button onClick={createSnapshot} className="rounded-2xl bg-emerald-500 py-3 text-sm font-black text-white">
+              鎖定快照
+            </button>
+          </div>
+        </section>
+
+        <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
+          <div className="text-xs font-bold text-emerald-300">低風險進場候選</div>
+          <div className={`mt-1 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            只代表條件相對安全，不是保證上漲。進場後一定照停損與ATR。
           </div>
 
           <button onClick={() => setPopup("entry")} className="mt-4 w-full rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
@@ -2509,35 +2583,37 @@ export default function App() {
           </button>
         </section>
 
-        <section className="mt-4 rounded-3xl border border-blue-500/40 bg-blue-950/20 p-4">
-          <div className="text-lg font-black">
-            即時股價狀態：{updating ? "更新中" : error ? "API錯誤" : usingCache ? "使用快取" : "即時正常"}
-          </div>
-          <div className="mt-1 text-xs font-bold text-slate-400">
-            最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
-          </div>
-          <div className="mt-1 text-xs font-bold text-cyan-300">50強估算成交金額：{formatAmount(totalAmount)}</div>
-        </section>
-
         <section className="mt-4 grid grid-cols-2 gap-3">
+          <MiniCard title="SOP步驟" value={sopSteps.length} sub="明天照表操作" tone="text-cyan-300" onClick={() => setPopup("sop")} />
           <MiniCard title="可進場觀察" value={entryGoodList.length} sub="低風險候選" tone="text-emerald-300" onClick={() => setPopup("entry")} />
           <MiniCard title="等回測再進" value={entryWaitList.length} sub="不要急追" tone="text-yellow-300" onClick={() => setPopup("entry")} />
-          <MiniCard title="不建議進場" value={entryBadList.length} sub="風險偏高" tone="text-red-300" onClick={() => setPopup("entry")} />
-          <MiniCard title="快照最強" value={snapshotBest ? snapshotBest.name : "--"} sub={snapshotBest ? formatPercent(snapshotItemChange(snapshotBest, stocks, searchHistory)) : "尚未建立"} tone="text-red-300" onClick={() => setPopup("snapshot")} />
+          <MiniCard title="不建議進場" value={entryBadList.length} sub="直接排除" tone="text-red-300" onClick={() => setPopup("entry")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
+          <ActionCard title="明日實戰SOP" sub="9:00到停利完整流程" badge="📋" tone="text-cyan-300" onClick={() => setPopup("sop")} />
           <ActionCard title="進場候選" sub="買點 / 停損 / 停利" badge={entryGoodList.length} tone="text-emerald-300" onClick={() => setPopup("entry")} />
           <ActionCard title="9:10快照" sub="鎖定 / 驗證準確度" badge="📌" tone="text-emerald-300" onClick={() => setPopup("snapshot")} />
-          <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
           <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
-          <ActionCard title="命中率追蹤" sub="看訊號準不準" badge={signalRecords.length} tone="text-purple-300" onClick={() => setPopup("signal")} />
+          <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
           <ActionCard title="設定" sub="更新頻率 / 重置紀錄" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+              <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-5">
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-xl font-black">今日SOP</h3>
+                  <button onClick={() => setPopup("sop")} className="rounded-2xl bg-cyan-500/20 px-3 py-2 text-xs font-black text-cyan-200">看全部</button>
+                </div>
+                <div className="mt-3 space-y-3">
+                  {sopSteps.slice(0, 3).map((step) => (
+                    <SopCard key={step.title} step={step} />
+                  ))}
+                </div>
+              </section>
+
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
                   <h3 className="text-xl font-black">可進場觀察</h3>
@@ -2547,20 +2623,6 @@ export default function App() {
                 <div className="mt-3 space-y-3">
                   {entryGoodList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有低風險進場候選。</div>}
                   {entryGoodList.slice(0, 5).map((row) => (
-                    <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
-                  ))}
-                </div>
-              </section>
-
-              <section className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
-                <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">等回測再進</h3>
-                  <button onClick={() => setPopup("entry")} className="rounded-2xl bg-yellow-500/20 px-3 py-2 text-xs font-black text-yellow-200">看全部</button>
-                </div>
-
-                <div className="mt-3 space-y-3">
-                  {entryWaitList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有等待回測候選。</div>}
-                  {entryWaitList.slice(0, 5).map((row) => (
                     <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
                   ))}
                 </div>
@@ -2596,10 +2658,10 @@ export default function App() {
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
+              <ActionCard title="明日實戰SOP" sub="開盤流程" badge="📋" tone="text-cyan-300" onClick={() => setPopup("sop")} />
               <ActionCard title="進場候選" sub="低風險買點" badge={entryGoodList.length} tone="text-emerald-300" onClick={() => setPopup("entry")} />
               <ActionCard title="9:10快照" sub="鎖定 / 驗證準確度" badge="📌" tone="text-emerald-300" onClick={() => setPopup("snapshot")} />
               <ActionCard title="資金慢慢增加" sub="個股資金增溫" badge={moneyUpList.length} tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
-              <ActionCard title="資金減少警戒" sub="退潮 / 爆量不漲" badge={moneyDownList.length} tone="text-red-300" onClick={() => setPopup("moneyDown")} />
               <ActionCard title="全個股查詢" sub="不限50強" badge="🔍" tone="text-cyan-300" onClick={() => setPopup("search")} />
               <ActionCard title="產業強弱排行" sub="主線強弱集中看" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
             </div>
@@ -2607,6 +2669,31 @@ export default function App() {
         </section>
       </div>
 
+      {popup === "sop" && (
+        <ModalShell title="明日實戰SOP" sub="照順序做，不追高、不硬買" onClose={() => setPopup("")}>
+          <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+            <div className="text-xs font-bold text-cyan-300">現在動作</div>
+            <div className="mt-1 text-2xl font-black text-white">{nowAction}</div>
+          </section>
+
+          <div className="mt-4 space-y-3">
+            {sopSteps.map((step) => (
+              <SopCard key={step.title} step={step} />
+            ))}
+          </div>
+
+          <section className="mt-4 rounded-3xl border border-red-500/40 bg-red-950/20 p-4">
+            <div className="text-lg font-black text-red-100">禁止動作</div>
+            <div className="mt-2 text-sm font-bold text-red-100">
+              ① 9:10前追高。<br />
+              ② 不在可進場觀察名單硬買。<br />
+              ③ 股價沒到買點區間硬追。<br />
+              ④ 跌破停損價還凹單。<br />
+              ⑤ 沒鎖快照就亂改判斷。
+            </div>
+          </section>
+        </ModalShell>
+      )}
       {popup === "entry" && (
         <ModalShell title="低風險進場候選" sub="可進場觀察 / 等回測 / 不建議" onClose={() => setPopup("")}>
           <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-4">
@@ -2648,6 +2735,7 @@ export default function App() {
           </section>
         </ModalShell>
       )}
+
       {popup === "snapshot" && (
         <ModalShell title="9:10鎖定快照" sub={snapshot ? `${snapshot.dateKey}｜${snapshot.createdAt}` : "尚未建立快照"} onClose={() => setPopup("")}>
           {!snapshot && (
@@ -2723,16 +2811,6 @@ export default function App() {
             <div className="mt-3 space-y-3">
               {entryGoodList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有符合條件。</div>}
               {entryGoodList.slice(0, 5).map((row) => (
-                <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
-              ))}
-            </div>
-          </section>
-
-          <section className="mt-4">
-            <div className="text-lg font-black text-red-100">9:10不要碰清單</div>
-            <div className="mt-3 space-y-3">
-              {entryBadList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有明顯不要碰清單。</div>}
-              {entryBadList.slice(0, 8).map((row) => (
                 <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
               ))}
             </div>
@@ -2862,24 +2940,6 @@ export default function App() {
               重置9:10快照
             </button>
           </div>
-        </ModalShell>
-      )}
-
-      {popup === "data" && (
-        <ModalShell title="主線統計" sub="資料健康檢查" onClose={() => setPopup("")}>
-          <div className="space-y-2 text-sm font-bold text-slate-300">
-            <div>API是否成功：{error ? "失敗" : lastSuccessAt ? "成功" : "尚未成功"}</div>
-            <div>資料筆數：{stocks.length}</div>
-            <div>50強筆數：{top50.length}</div>
-            <div>最新資料時間：{apiDataTime || "讀取中"}</div>
-            <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
-            <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
-            <div>資料來源：{source || "讀取中"}</div>
-            <div>可進場觀察：{entryGoodList.length} 檔</div>
-            <div>等回測再進：{entryWaitList.length} 檔</div>
-            <div>不建議進場：{entryBadList.length} 檔</div>
-          </div>
-          <button onClick={loadStocks} className="mt-4 w-full rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">立即更新</button>
         </ModalShell>
       )}
 
