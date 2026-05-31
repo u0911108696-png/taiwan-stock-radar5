@@ -33,6 +33,7 @@ type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
 type PopupKey =
   | ""
   | "dashboard"
+  | "open910"
   | "industry"
   | "moneyUp"
   | "moneyDown"
@@ -124,12 +125,12 @@ const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
-const SETTINGS_KEY = "taiwan-stock-radar-dashboard-v32-settings";
-const CACHE_KEY = "taiwan-stock-radar-dashboard-v32-cache";
-const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-dashboard-v32-locked";
-const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-dashboard-v32-sneaky-history";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-dashboard-v32-money-history";
-const SIGNAL_HISTORY_KEY = "taiwan-stock-radar-dashboard-v32-signal-history";
+const SETTINGS_KEY = "taiwan-stock-radar-open910-v33-settings";
+const CACHE_KEY = "taiwan-stock-radar-open910-v33-cache";
+const LOCKED_INDUSTRY_KEY = "taiwan-stock-radar-open910-v33-locked";
+const SNEAKY_HISTORY_KEY = "taiwan-stock-radar-open910-v33-sneaky-history";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-open910-v33-money-history";
+const SIGNAL_HISTORY_KEY = "taiwan-stock-radar-open910-v33-signal-history";
 
 const defaultSettings: Settings = {
   refreshSeconds: 30,
@@ -274,6 +275,37 @@ function todayKey() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
 
+function taiwanMinutesNow() {
+  const text = new Date().toLocaleTimeString("zh-TW", {
+    timeZone: "Asia/Taipei",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+  const [hh, mm] = text.split(":").map(Number);
+  return hh * 60 + mm;
+}
+
+function open910Status() {
+  const minutes = taiwanMinutesNow();
+  const open = 9 * 60;
+  const lock = 9 * 60 + 10;
+  const end = 13 * 60 + 30;
+
+  if (minutes < open) return "開盤前，先等待";
+  if (minutes >= open && minutes < lock) return "9:10前，先觀察不急";
+  if (minutes >= lock && minutes <= end) return "9:10後，可進入實戰";
+  return "收盤後，僅供檢討";
+}
+
+function open910Tone(status: string) {
+  if (status.includes("可進入")) return "text-emerald-300";
+  if (status.includes("先觀察")) return "text-yellow-300";
+  if (status.includes("收盤")) return "text-slate-300";
+  return "text-cyan-300";
+}
+
 function cleanCode(value: string) {
   return String(value || "").replace(/\D/g, "").slice(0, 6);
 }
@@ -403,7 +435,6 @@ function atrStopLine(stock: Stock) {
   const atr = atrValue(stock);
   return Math.max(0, stock.highPrice - atr * 1.5);
 }
-
 function stableCount(values: boolean[] | undefined) {
   if (!values || values.length === 0) return 0;
 
@@ -497,6 +528,7 @@ function moneyTrendReason(stock: Stock, moneyHistory: Record<string, MoneyHistor
 
   return `資金變化不大。金額：${amountText}`;
 }
+
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
 
@@ -734,7 +766,6 @@ function strengthReason(item: IndustryItem) {
   if (item.strength === "轉弱") return "失效股偏多，降低出手，避免硬追。";
   return "資金尚未明確集中，先觀察。";
 }
-
 function riskTone(label: string) {
   if (
     [
@@ -749,6 +780,7 @@ function riskTone(label: string) {
       "資金續航觀察",
       "資金增溫觀察",
       "資金放大觀察",
+      "9:10實戰可觀察",
     ].includes(label)
   )
     return "text-emerald-300";
@@ -764,6 +796,7 @@ function riskTone(label: string) {
       "持有勿追",
       "資金初現 1/3",
       "資金持平",
+      "9:10前先等",
     ].includes(label)
   )
     return "text-yellow-300";
@@ -790,7 +823,8 @@ function riskTone(label: string) {
     label.includes("停損") ||
     label.includes("警戒") ||
     label.includes("轉弱") ||
-    label.includes("減少")
+    label.includes("減少") ||
+    label.includes("不要碰")
   )
     return "text-red-300";
 
@@ -827,6 +861,42 @@ function directionText(direction?: PriceDirection) {
   if (direction === "new") return "新資料";
   return "--";
 }
+
+function open910Reason(stock: Stock, list: Stock[], mainIndustries: string[], settings: Settings, sneakyHistory: Record<string, SneakyHistory>, moneyHistory: Record<string, MoneyHistory>) {
+  const reasons: string[] = [];
+  const decision = decisionText(stock, list, mainIndustries, settings, sneakyHistory, moneyHistory);
+  const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+  const pullback = pullbackRadar(stock, list, mainIndustries, settings);
+  const chase = chaseRisk(stock, list, settings);
+  const pv = priceVolumeState(stock, list, settings);
+
+  if (mainIndustries.includes(stock.industry)) reasons.push("前三主線內");
+  if (decision === "主線核心") reasons.push("主線核心");
+  if (moneyLabel === "資金慢慢增加" || moneyLabel === "資金突然放大") reasons.push(moneyLabel);
+  if (sneakyConfirmCount(stock.code, sneakyHistory) >= 3) reasons.push("資金續航3/3");
+  if (pullback === "回測買點") reasons.push("接近回測買點");
+  if (stock.price >= stock.openPrice) reasons.push("守開盤價");
+  if (pv === "量價同步") reasons.push("量價同步");
+  if (chase === "追高風險低") reasons.push("追高風險低");
+
+  return reasons.slice(0, 5).join("｜") || "等待9:10後確認";
+}
+
+function open910RiskReason(stock: Stock, list: Stock[], settings: Settings, industryStatus?: string) {
+  const reasons: string[] = [];
+  const chase = chaseRisk(stock, list, settings);
+  const pv = priceVolumeState(stock, list, settings);
+  const exit = exitAlert(stock, list, settings, industryStatus);
+
+  if (chase === "追高風險高") reasons.push("追高風險高");
+  if (pv === "爆量不漲") reasons.push("爆量不漲");
+  if (stock.price < stock.openPrice) reasons.push("跌破開盤價");
+  if (stock.price < stock.previousClose) reasons.push("跌破昨收");
+  if (exit.includes("出場") || exit.includes("跌破") || exit.includes("減碼")) reasons.push(exit);
+
+  return reasons.slice(0, 4).join("｜") || "暫無明顯風險";
+}
+
 function positionPlan(
   stock: Stock,
   position: Position | undefined,
@@ -1020,7 +1090,6 @@ function positionPlan(
     dangerText,
   };
 }
-
 function getIndustryRanking(
   list: Stock[],
   settings: Settings,
@@ -1091,7 +1160,12 @@ function getIndustryRanking(
         const moneyLabel = moneyTrendLabel(stock, moneyHistory);
 
         if (isMoneyAttack(stock, list, mainIndustries, settings)) coreCount += 1;
-        if (sneakyConfirmCount(stock.code, sneakyHistory) >= 2 || moneyLabel === "資金慢慢增加" || moneyLabel === "資金突然放大") sneakyCount += 1;
+        if (
+          sneakyConfirmCount(stock.code, sneakyHistory) >= 2 ||
+          moneyLabel === "資金慢慢增加" ||
+          moneyLabel === "資金突然放大"
+        )
+          sneakyCount += 1;
         if (isFail(stock, list, settings)) failCount += 1;
         if (isOverheat(stock, settings)) overheatCount += 1;
       });
@@ -1155,6 +1229,7 @@ function getIndustryRanking(
     })
     .sort((a, b) => b.score - a.score);
 }
+
 function MiniCard({ title, value, sub, tone, onClick }: { title: string; value: string | number; sub: string; tone: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-left active:scale-95">
@@ -1207,13 +1282,14 @@ function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; 
   );
 }
 
-function SimpleStockButton({ stock, label, tone, onClick }: { stock: Stock; label: string; tone: string; onClick: () => void }) {
+function SimpleStockButton({ stock, label, tone, reason, onClick }: { stock: Stock; label: string; tone: string; reason?: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="w-full rounded-2xl bg-black/30 p-3 text-left active:scale-95">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
           <div className="mt-1 text-base font-black text-white">{stockDisplayName(stock)}</div>
+          {reason && <div className="mt-1 text-xs font-bold text-slate-400">{reason}</div>}
         </div>
         <div className="text-right">
           <div className={`text-sm font-black ${tone}`}>{label}</div>
@@ -1223,157 +1299,6 @@ function SimpleStockButton({ stock, label, tone, onClick }: { stock: Stock; labe
         </div>
       </div>
     </button>
-  );
-}
-
-function IndustryCard({ item, rank, onClick }: { item: IndustryItem; rank: number; onClick?: () => void }) {
-  return (
-    <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-bold text-slate-500">#{rank} 主線強弱排序</div>
-          <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
-          <div className={`mt-1 text-sm font-black ${flowTone(item.strength)}`}>
-            {item.light}｜{item.status}｜{item.strength}
-          </div>
-          <div className="mt-1 text-xs font-bold text-slate-400">{item.reason}</div>
-        </div>
-        <div className="text-right">
-          <div className="text-xl font-black text-yellow-300">強弱 {item.score.toFixed(0)}</div>
-          <div className="text-xs font-black text-slate-400">資金 {item.amountShare.toFixed(1)}%</div>
-          <div className="text-xs font-black text-slate-400">均漲 {formatPercent(item.avgChange)}</div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-function SignalCard({ record }: { record: SignalRecord }) {
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-xs font-bold text-slate-500">{record.dateKey}｜{record.code}</div>
-          <div className="mt-1 text-lg font-black text-white">{record.name}</div>
-          <div className="mt-1 text-xs font-bold text-slate-400">{record.industry}｜{record.signal}</div>
-        </div>
-        <div className="text-right">
-          <div className={`text-xl font-black ${signalTone(record.result)}`}>{record.result}</div>
-          <div className={record.resultPercent >= 0 ? "text-sm font-black text-red-300" : "text-sm font-black text-emerald-300"}>
-            {formatPercent(record.resultPercent)}
-          </div>
-        </div>
-      </div>
-      <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-xs font-bold ${signalTone(record.result)}`}>
-        {record.reason}
-      </div>
-    </div>
-  );
-}
-
-function StockCard({
-  stock,
-  rank,
-  top50,
-  mainIndustries,
-  settings,
-  sneakyHistory,
-  moneyHistory,
-  signalRecords,
-  industryStatus,
-  position,
-  favoriteCodes,
-  watchCodes,
-  priceDirections,
-  previousPriceMap,
-  lastSuccessAt,
-  onOpen,
-  onAddFavorite,
-  onRemoveFavorite,
-  onAddWatch,
-  onRemoveWatch,
-}: {
-  stock: Stock;
-  rank: number;
-  top50: Stock[];
-  mainIndustries: string[];
-  settings: Settings;
-  sneakyHistory: Record<string, SneakyHistory>;
-  moneyHistory: Record<string, MoneyHistory>;
-  signalRecords: SignalRecord[];
-  industryStatus: string;
-  position?: Position;
-  favoriteCodes: string[];
-  watchCodes: string[];
-  priceDirections: Record<string, PriceDirection>;
-  previousPriceMap: Record<string, number>;
-  lastSuccessAt: string;
-  onOpen: (code: string) => void;
-  onAddFavorite: (code: string) => void;
-  onRemoveFavorite: (code: string) => void;
-  onAddWatch: (code: string) => void;
-  onRemoveWatch: (code: string) => void;
-}) {
-  const decision = decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
-  const plan = positionPlan(stock, position, top50, mainIndustries, settings, industryStatus, sneakyHistory, moneyHistory);
-  const direction = priceDirections[stock.code];
-  const prevPrice = previousPriceMap[stock.code];
-  const isFavorite = favoriteCodes.includes(stock.code);
-  const isWatch = watchCodes.includes(stock.code);
-  const status = sneakyStatus(stock, top50, mainIndustries, settings, sneakyHistory);
-  const confirm = Math.min(3, sneakyConfirmCount(stock.code, sneakyHistory));
-  const moneyLabel = moneyTrendLabel(stock, moneyHistory);
-  const moneyData = moneyTrendChange(stock.code, moneyHistory);
-  const lastSignal = signalRecords.find((r) => r.code === stock.code);
-
-  return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
-      <button onClick={() => onOpen(stock.code)} className="w-full text-left">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-bold text-slate-500">#{rank}　{stock.code}</div>
-            <div className="mt-1 text-lg font-black text-white">{stockDisplayName(stock)}</div>
-            <div className="mt-1 text-xs font-bold text-slate-400">{stock.industry}</div>
-          </div>
-          <div className="text-right">
-            <div className={`text-xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>{formatPercent(stock.changePercent)}</div>
-            <div className="mt-1 text-sm font-black text-white">{formatPrice(stock.price)}</div>
-          </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-2 gap-2 text-xs font-black">
-          <div className={`rounded-2xl bg-black/30 p-2 ${decisionTone(decision)}`}>主線判斷<br />{decision}</div>
-          <div className={`rounded-2xl bg-black/30 p-2 ${moneyTrendTone(moneyLabel)}`}>資金趨勢<br />{moneyLabel.replace("資金", "")}</div>
-          <div className={`rounded-2xl bg-black/30 p-2 ${sneakyStatusTone(status)}`}>續航確認<br />{status}</div>
-          <div className={`rounded-2xl bg-black/30 p-2 ${riskTone(plan.action)}`}>我的計畫<br />{plan.action}</div>
-        </div>
-
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${moneyTrendTone(moneyLabel)}`}>
-          成交金額：{formatAmount(moneyData.prevAmount)} → {formatAmount(moneyData.nowAmount)}｜{formatPercent(moneyData.amountChangePercent)}
-          <br />
-          續航：{"●".repeat(confirm)}{"○".repeat(Math.max(0, 3 - confirm))}
-        </div>
-
-        {lastSignal && (
-          <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${signalTone(lastSignal.result)}`}>
-            最近訊號：{lastSignal.signal}｜{lastSignal.result}｜{formatPercent(lastSignal.resultPercent)}
-          </div>
-        )}
-
-        <div className={`mt-2 rounded-2xl bg-black/30 p-2 text-xs font-bold ${directionTone(direction)}`}>
-          即時：{directionText(direction)}｜{prevPrice ? `${prevPrice.toFixed(2)} → ${stock.price.toFixed(2)}` : "尚無上一筆"}｜更新：{stock.updatedAt || lastSuccessAt || "--"}
-        </div>
-      </button>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
-        <button onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))} className={`rounded-2xl py-2 text-sm font-black ${isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"}`}>
-          {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
-        </button>
-        <button onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))} className={`rounded-2xl py-2 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}>
-          {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
-        </button>
-      </div>
-    </div>
   );
 }
 
@@ -1497,16 +1422,6 @@ function StockQuickModal({
         </div>
       </section>
 
-      <section className="mt-3 rounded-2xl bg-slate-900/80 p-4">
-        <div className="text-lg font-black text-white">我的損益</div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <DetailRow label="我的買進價" value={plan.hasPosition ? formatPrice(plan.buyPrice) : "未輸入"} tone="text-yellow-300" />
-          <DetailRow label="目前損益%" value={plan.hasPosition ? formatPercent(plan.pnlPercent) : "--"} tone={plan.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"} />
-          <DetailRow label="張數" value={plan.shares || "--"} tone="text-cyan-300" />
-          <DetailRow label="估算損益" value={plan.hasPosition && plan.shares > 0 ? formatAmount(plan.pnlAmount) : "--"} tone={plan.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"} />
-        </div>
-      </section>
-
       <section className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4">
         <div className="text-lg font-black text-emerald-100">資金增減趨勢</div>
         <div className={`mt-2 text-2xl font-black ${moneyTrendTone(moneyLabel)}`}>{moneyLabel}</div>
@@ -1514,8 +1429,6 @@ function StockQuickModal({
           成交金額：{formatAmount(moneyData.prevAmount)} → {formatAmount(moneyData.nowAmount)}
           <br />
           金額變化：{formatPercent(moneyData.amountChangePercent)}
-          <br />
-          成交量變化：{formatPercent(moneyData.volumeChangePercent)}
         </div>
         <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${moneyTrendTone(moneyLabel)}`}>{moneyReason}</div>
       </section>
@@ -1577,8 +1490,6 @@ function StockQuickModal({
           <br />
           開盤：{formatPrice(stock.openPrice)}｜昨收：{formatPrice(stock.previousClose)}
           <br />
-          最高：{formatPrice(stock.highPrice)}｜最低：{formatPrice(stock.lowPrice)}
-          <br />
           更新：{stock.updatedAt || lastSuccessAt || "--"}
         </div>
       </section>
@@ -1610,7 +1521,6 @@ export default function App() {
 
   const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
   const [watchCodes, setWatchCodes] = useState<string[]>([]);
-
   const [queryText, setQueryText] = useState("");
   const [queryLoading, setQueryLoading] = useState(false);
   const [queryMessage, setQueryMessage] = useState("");
@@ -1665,7 +1575,10 @@ export default function App() {
     [top50, settings, lockedIndustries, sneakyHistory, moneyHistory]
   );
 
-  const selectedStock = useMemo(() => stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null, [stocks, searchHistory, selectedCode]);
+  const selectedStock = useMemo(
+    () => stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null,
+    [stocks, searchHistory, selectedCode]
+  );
 
   function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
@@ -1688,7 +1601,10 @@ export default function App() {
   );
 
   const sneakyList = useMemo(
-    () => top50.filter((stock) => isSneakyMoney(stock, top50, mainIndustries, settings)).sort((a, b) => sneakyMoneyScore(b, top50, mainIndustries, settings) - sneakyMoneyScore(a, top50, mainIndustries, settings)),
+    () =>
+      top50
+        .filter((stock) => isSneakyMoney(stock, top50, mainIndustries, settings))
+        .sort((a, b) => sneakyMoneyScore(b, top50, mainIndustries, settings) - sneakyMoneyScore(a, top50, mainIndustries, settings)),
     [top50, mainIndustries, settings]
   );
 
@@ -1738,7 +1654,6 @@ export default function App() {
         if (!stock) return null;
 
         const plan = positionPlan(stock, position, top50.length > 0 ? top50 : [stock], mainIndustries, settings, stockIndustryStatus(stock), sneakyHistory, moneyHistory);
-
         return { stock, position, plan, pnlPercent: plan.pnlPercent, pnlAmount: plan.pnlAmount, action: plan.action, danger: plan.dangerText };
       })
       .filter(Boolean) as {
@@ -1756,17 +1671,16 @@ export default function App() {
   const dangerPosition = positionRows.length ? positionRows.find((row) => row.action.includes("停損") || row.action.includes("出場") || row.action.includes("減少")) || positionRows[0] : null;
 
   const positionStats = useMemo(() => {
-    const list = Object.values(positions);
     let totalPnl = 0;
 
-    list.forEach((p) => {
+    Object.values(positions).forEach((p) => {
       const stock = stocks.find((s) => s.code === p.code) || searchHistory.find((s) => s.code === p.code);
       if (stock && p.buyPrice > 0 && p.shares > 0) {
         totalPnl += (stock.price - p.buyPrice) * p.shares * 1000;
       }
     });
 
-    return { count: list.length, totalPnl };
+    return { count: Object.values(positions).length, totalPnl };
   }, [positions, stocks, searchHistory]);
 
   const watchStocks = useMemo(() => {
@@ -1782,39 +1696,59 @@ export default function App() {
     return Array.from(map.values());
   }, [watchCodes, stocks, searchHistory, moneyUpList, sneakyStrongList, sneakyList, coreList, pullbackList]);
 
-  const favoriteStocks = useMemo(() => favoriteCodes.map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code)).filter(Boolean) as Stock[], [favoriteCodes, stocks, searchHistory]);
+  const favoriteStocks = useMemo(
+    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    [favoriteCodes, stocks, searchHistory]
+  );
 
   const topIndustry = industryRanking[0];
   const secondIndustry = industryRanking[1];
   const thirdIndustry = industryRanking[2];
   const totalAmount = top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
+  const openStatus = open910Status();
 
-  const attackList = useMemo(() => {
-    return [...moneyUpList, ...sneakyStrongList, ...coreList, ...pullbackList]
-      .filter((stock, index, arr) => arr.findIndex((item) => item.code === stock.code) === index)
-      .filter((stock) => !isOverheat(stock, settings) && !isFail(stock, top50, settings))
+  const open910PickList = useMemo(() => {
+    return top50
+      .filter((stock) => mainIndustries.includes(stock.industry))
+      .filter((stock) => !isOverheat(stock, settings))
+      .filter((stock) => !isFail(stock, top50, settings))
+      .filter((stock) => stock.price >= stock.openPrice)
+      .filter((stock) => chaseRisk(stock, top50, settings) !== "追高風險高")
+      .filter((stock) => priceVolumeState(stock, top50, settings) !== "爆量不漲")
+      .filter((stock) => {
+        const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+        return (
+          decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory) === "主線核心" ||
+          moneyLabel === "資金慢慢增加" ||
+          moneyLabel === "資金突然放大" ||
+          sneakyConfirmCount(stock.code, sneakyHistory) >= 3 ||
+          pullbackRadar(stock, top50, mainIndustries, settings) === "回測買點"
+        );
+      })
       .slice(0, 5);
-  }, [moneyUpList, sneakyStrongList, coreList, pullbackList, settings, top50]);
+  }, [top50, mainIndustries, settings, sneakyHistory, moneyHistory]);
 
-  const noChaseList = useMemo(() => overheatList.slice(0, 5), [overheatList]);
-  const exitWatchList = useMemo(() => failedList.slice(0, 5), [failedList]);
+  const open910AvoidList = useMemo(() => {
+    return top50
+      .filter((stock) => {
+        const pv = priceVolumeState(stock, top50, settings);
+        const exit = exitAlert(stock, top50, settings, stockIndustryStatus(stock));
+        return chaseRisk(stock, top50, settings) === "追高風險高" || pv === "爆量不漲" || stock.price < stock.openPrice || isFail(stock, top50, settings) || exit.includes("出場") || exit.includes("跌破");
+      })
+      .slice(0, 8);
+  }, [top50, settings, industryRanking]);
 
   const marketMode = useMemo(() => {
     if (!topIndustry) return "等待資料";
     if (moneyDownList.length >= 6 || failedList.length >= 6) return "風險偏高";
+    if (open910PickList.length >= 3 && openStatus.includes("可進入")) return "9:10實戰可觀察";
     if (overheatList.length >= 8) return "只觀察";
     if (moneyUpList.length >= 5 && topIndustry.strength !== "轉弱" && topIndustry.strength !== "過熱") return "可進攻";
     if (sneakyStrongList.length >= 3) return "可進攻";
     return "只觀察";
-  }, [topIndustry, moneyUpList, moneyDownList, failedList, overheatList, sneakyStrongList]);
+  }, [topIndustry, moneyUpList, moneyDownList, failedList, overheatList, sneakyStrongList, open910PickList, openStatus]);
 
-  const marketModeTone = marketMode === "可進攻" ? "text-emerald-300" : marketMode === "風險偏高" ? "text-red-300" : "text-yellow-300";
-
-  const dashboardReason = useMemo(() => {
-    if (marketMode === "可進攻") return "資金有擴散跡象，優先看主線核心與資金續航股，不追高。";
-    if (marketMode === "風險偏高") return "資金減少或出場警戒偏多，先保護持倉，少開新倉。";
-    return "主線尚未完全確認，先觀察資金是否延續。";
-  }, [marketMode]);
+  const marketModeTone = marketMode === "可進攻" || marketMode === "9:10實戰可觀察" ? "text-emerald-300" : marketMode === "風險偏高" ? "text-red-300" : "text-yellow-300";
 
   const industrySelectedList = useMemo(() => {
     if (!industryPopup) return [];
@@ -1830,7 +1764,6 @@ export default function App() {
 
     setSettings(merged);
     setAutoSeconds(merged.refreshSeconds);
-
     setFavoriteCodes(safeParse(localStorage.getItem(FAVORITE_KEY), []));
     setWatchCodes(safeParse(localStorage.getItem(WATCH_KEY), []));
     setSearchHistory(safeParse(localStorage.getItem(SEARCH_HISTORY_KEY), []));
@@ -2107,14 +2040,12 @@ export default function App() {
       }
 
       const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
-
       saveSearchHistory([stock, ...searchHistory]);
 
       setPreviousPriceMap((old) => ({ ...old, [stock.code]: old[stock.code] || stock.price }));
       setLastPriceMap((old) => ({ ...old, [stock.code]: stock.price }));
       setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
       setSelectedCode(stock.code);
-
       setQueryMessage(`已查到 ${stock.code} ${stockDisplayName(stock)}`);
     } catch (err: any) {
       setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
@@ -2179,41 +2110,16 @@ export default function App() {
     return "";
   }
 
-  function cardProps() {
-    return {
-      top50,
-      mainIndustries,
-      settings,
-      sneakyHistory,
-      moneyHistory,
-      signalRecords,
-      favoriteCodes,
-      watchCodes,
-      priceDirections,
-      previousPriceMap,
-      lastSuccessAt,
-      onOpen: (code: string) => setSelectedCode(code),
-      onAddFavorite: (code: string) => saveFavorites([...favoriteCodes, code]),
-      onRemoveFavorite: (code: string) => saveFavorites(favoriteCodes.filter((item) => item !== code)),
-      onAddWatch: (code: string) => saveWatch([...watchCodes, code]),
-      onRemoveWatch: (code: string) => saveWatch(watchCodes.filter((item) => item !== code)),
-    };
-  }
-
-  function openStock(code: string) {
-    setSelectedCode(code);
-  }
-
   return (
     <div className="min-h-screen bg-black text-white">
       <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
         <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項盤中實戰儀表板版</div>
+              <div className="text-sm font-bold text-slate-400">20項開盤9:10實戰模式版</div>
               <h1 className="mt-1 text-3xl font-black tracking-tight">盤中主線雷達</h1>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                首頁集中顯示今天能不能做、主線在哪、哪些可看、哪些不要追。
+                9:10後鎖定前50強、前三主線、排除追高與轉弱股。
               </p>
             </div>
 
@@ -2224,30 +2130,23 @@ export default function App() {
         </header>
 
         <section className="mt-4 rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
-          <div className="text-xs font-bold text-emerald-300">今日盤中實戰判斷</div>
-          <div className={`mt-1 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">{dashboardReason}</div>
+          <div className="text-xs font-bold text-emerald-300">開盤9:10實戰模式</div>
+          <div className={`mt-1 text-3xl font-black ${open910Tone(openStatus)}`}>{openStatus}</div>
+          <div className={`mt-2 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
+          <div className="mt-2 text-sm font-bold text-slate-300">
+            9:10後只看前三主線、資金增加、守開盤價、非過熱、非爆量不漲的股票。
+          </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
+            <DetailRow label="9:10可觀察" value={`${open910PickList.length} 檔`} tone="text-emerald-300" />
+            <DetailRow label="不要碰" value={`${open910AvoidList.length} 檔`} tone="text-red-300" />
             <DetailRow label="最強主線" value={topIndustry ? `${topIndustry.industry}｜${topIndustry.strength}` : "--"} tone="text-yellow-300" />
             <DetailRow label="資金增加" value={`${moneyUpList.length} 檔`} tone="text-emerald-300" />
-            <DetailRow label="不要追高" value={`${overheatList.length} 檔`} tone="text-orange-300" />
-            <DetailRow label="出場警戒" value={`${failedList.length} 檔`} tone="text-red-300" />
           </div>
 
-          <button onClick={() => setPopup("dashboard")} className="mt-4 w-full rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
-            打開實戰儀表板
+          <button onClick={() => setPopup("open910")} className="mt-4 w-full rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200">
+            打開9:10實戰清單
           </button>
-        </section>
-
-        <section className="mt-4 rounded-3xl border border-purple-500/40 bg-purple-950/20 p-5">
-          <div className="text-xs font-bold text-purple-300">訊號命中率摘要</div>
-          <div className="mt-1 text-xl font-black text-purple-100">
-            整體命中率：{signalSummary.all.done > 0 ? `${signalSummary.all.rate.toFixed(0)}%` : "等待累積"}
-          </div>
-          <div className="mt-2 text-sm font-bold text-slate-300">
-            已記錄 {signalSummary.all.total} 筆訊號｜已判斷 {signalSummary.all.done} 筆｜成功 {signalSummary.all.success} 筆
-          </div>
         </section>
 
         <section className="mt-4 rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
@@ -2260,18 +2159,8 @@ export default function App() {
           </div>
 
           <div className="mt-3 flex gap-2">
-            <input
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") searchAnyStock();
-              }}
-              placeholder="輸入股票代號或名稱"
-              className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none"
-            />
-            <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500/80 px-4 py-3 text-sm font-black text-white">
-              {queryLoading ? "查詢中" : "查"}
-            </button>
+            <input value={queryText} onChange={(e) => setQueryText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") searchAnyStock(); }} placeholder="輸入股票代號或名稱" className="min-w-0 flex-1 rounded-2xl border border-slate-700 bg-black/40 px-4 py-3 text-lg font-black text-white outline-none" />
+            <button onClick={searchAnyStock} className="rounded-2xl bg-cyan-500/80 px-4 py-3 text-sm font-black text-white">{queryLoading ? "查詢中" : "查"}</button>
           </div>
 
           {queryMessage && <div className="mt-2 text-sm font-bold text-yellow-200">{queryMessage}</div>}
@@ -2288,24 +2177,23 @@ export default function App() {
               </div>
               <div className="mt-1 text-xs font-bold text-cyan-300">50強估算成交金額：{formatAmount(totalAmount)}</div>
             </div>
-
             <button onClick={() => setPopup("data")} className="rounded-2xl bg-blue-500/20 px-4 py-2 text-sm font-black text-blue-200">主線統計</button>
           </div>
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="優先觀察" value={attackList.length} sub="主線/資金/回測" tone="text-emerald-300" onClick={() => setPopup("dashboard")} />
-          <MiniCard title="不要追高" value={noChaseList.length} sub="過熱警報" tone="text-orange-300" onClick={() => setPopup("overheat")} />
-          <MiniCard title="出場警戒" value={exitWatchList.length} sub="跌破/轉弱" tone="text-red-300" onClick={() => setPopup("failed")} />
+          <MiniCard title="9:10可觀察" value={open910PickList.length} sub="主線/資金/非過熱" tone="text-emerald-300" onClick={() => setPopup("open910")} />
+          <MiniCard title="9:10不要碰" value={open910AvoidList.length} sub="追高/轉弱/爆量不漲" tone="text-red-300" onClick={() => setPopup("open910")} />
+          <MiniCard title="訊號命中率" value={signalSummary.all.done > 0 ? `${signalSummary.all.rate.toFixed(0)}%` : "--"} sub={`${signalSummary.all.total}筆訊號`} tone="text-purple-300" onClick={() => setPopup("signal")} />
           <MiniCard title="持倉風險" value={dangerPosition ? stockDisplayName(dangerPosition.stock) : "--"} sub="點持倉總表" tone="text-cyan-300" onClick={() => setPopup("positions")} />
         </section>
 
         <section className="mt-4 grid grid-cols-2 gap-3">
-          <ActionCard title="實戰儀表板" sub="一眼看今天能不能做" badge="📊" tone="text-emerald-300" onClick={() => setPopup("dashboard")} />
-          <ActionCard title="命中率追蹤" sub="看訊號準不準" badge={signalRecords.length} tone="text-purple-300" onClick={() => setPopup("signal")} />
+          <ActionCard title="9:10實戰模式" sub="開盤後鎖定前5檔" badge="⏰" tone="text-emerald-300" onClick={() => setPopup("open910")} />
           <ActionCard title="產業強弱排行" sub="看資金主線強弱" badge={industryRanking.length} tone="text-yellow-300" onClick={() => setPopup("industry")} />
-          <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
           <ActionCard title="今日50強" sub="漲幅排行" badge={top50.length} tone="text-red-300" onClick={() => setPopup("top50")} />
+          <ActionCard title="持倉總表" sub="損益 / 停利 / 風險" badge={positionStats.count} tone="text-cyan-300" onClick={() => setPopup("positions")} />
+          <ActionCard title="命中率追蹤" sub="看訊號準不準" badge={signalRecords.length} tone="text-purple-300" onClick={() => setPopup("signal")} />
           <ActionCard title="設定" sub="更新頻率 / 重置紀錄" badge="⚙️" tone="text-purple-300" onClick={() => setPopup("settings")} />
         </section>
 
@@ -2314,28 +2202,28 @@ export default function App() {
             <div className="space-y-4">
               <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">今日優先觀察</h3>
-                  <button onClick={() => setPopup("dashboard")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">看全部</button>
+                  <h3 className="text-xl font-black">9:10實戰可觀察</h3>
+                  <button onClick={() => setPopup("open910")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">看全部</button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {attackList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有明確優先觀察股。</div>}
-                  {attackList.map((stock) => (
-                    <SimpleStockButton key={stock.code} stock={stock} label={decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} tone="text-emerald-300" onClick={() => openStock(stock.code)} />
+                  {open910PickList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有符合9:10實戰條件的股票。</div>}
+                  {open910PickList.map((stock) => (
+                    <SimpleStockButton key={stock.code} stock={stock} label="可觀察" tone="text-emerald-300" reason={open910Reason(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} onClick={() => setSelectedCode(stock.code)} />
                   ))}
                 </div>
               </section>
 
-              <section className="rounded-3xl border border-orange-500/40 bg-orange-950/20 p-5">
+              <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">今日不要追高</h3>
-                  <button onClick={() => setPopup("overheat")} className="rounded-2xl bg-orange-500/20 px-3 py-2 text-xs font-black text-orange-200">看全部</button>
+                  <h3 className="text-xl font-black">9:10不要碰</h3>
+                  <button onClick={() => setPopup("open910")} className="rounded-2xl bg-red-500/20 px-3 py-2 text-xs font-black text-red-200">看全部</button>
                 </div>
 
                 <div className="mt-3 space-y-3">
-                  {noChaseList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前追高風險不高。</div>}
-                  {noChaseList.map((stock) => (
-                    <SimpleStockButton key={stock.code} stock={stock} label="不要追高" tone="text-orange-300" onClick={() => openStock(stock.code)} />
+                  {open910AvoidList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有明顯不要碰清單。</div>}
+                  {open910AvoidList.slice(0, 5).map((stock) => (
+                    <SimpleStockButton key={stock.code} stock={stock} label="不要碰" tone="text-red-300" reason={open910RiskReason(stock, top50, settings, stockIndustryStatus(stock))} onClick={() => setSelectedCode(stock.code)} />
                   ))}
                 </div>
               </section>
@@ -2345,7 +2233,7 @@ export default function App() {
           {tab === "top50" && (
             <div className="space-y-3">
               {sortList(top50).map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+                <SimpleStockButton key={stock.code} stock={stock} label={decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} tone={decisionTone(decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory))} onClick={() => setSelectedCode(stock.code)} />
               ))}
             </div>
           )}
@@ -2353,8 +2241,8 @@ export default function App() {
           {tab === "watch" && (
             <div className="space-y-3">
               {watchStocks.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">目前沒有觀察股票。</div>}
-              {watchStocks.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+              {watchStocks.map((stock) => (
+                <SimpleStockButton key={stock.code} stock={stock} label="觀察" tone="text-cyan-300" onClick={() => setSelectedCode(stock.code)} />
               ))}
             </div>
           )}
@@ -2362,15 +2250,15 @@ export default function App() {
           {tab === "favorite" && (
             <div className="space-y-3">
               {favoriteStocks.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">目前沒有自選股。</div>}
-              {favoriteStocks.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+              {favoriteStocks.map((stock) => (
+                <SimpleStockButton key={stock.code} stock={stock} label="自選" tone="text-yellow-300" onClick={() => setSelectedCode(stock.code)} />
               ))}
             </div>
           )}
 
           {tab === "more" && (
             <div className="grid grid-cols-2 gap-3">
-              <ActionCard title="實戰儀表板" sub="盤中一眼判斷" badge="📊" tone="text-emerald-300" onClick={() => setPopup("dashboard")} />
+              <ActionCard title="9:10實戰模式" sub="開盤後鎖定前5檔" badge="⏰" tone="text-emerald-300" onClick={() => setPopup("open910")} />
               <ActionCard title="命中率追蹤" sub="驗證訊號準確度" badge={signalRecords.length} tone="text-purple-300" onClick={() => setPopup("signal")} />
               <ActionCard title="資金慢慢增加" sub="個股資金增溫" badge={moneyUpList.length} tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
               <ActionCard title="資金減少警戒" sub="退潮 / 爆量不漲" badge={moneyDownList.length} tone="text-red-300" onClick={() => setPopup("moneyDown")} />
@@ -2381,49 +2269,37 @@ export default function App() {
         </section>
       </div>
 
-      {popup === "dashboard" && (
-        <ModalShell title="盤中實戰儀表板" sub="今天能不能做、看誰、不追誰" onClose={() => setPopup("")}>
+      {popup === "open910" && (
+        <ModalShell title="開盤9:10實戰模式" sub="鎖定前50強、前三主線、排除高風險" onClose={() => setPopup("")}>
           <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-4">
-            <div className="text-xs font-bold text-emerald-300">今日盤勢</div>
-            <div className={`mt-1 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
-            <div className="mt-2 text-sm font-bold text-slate-300">{dashboardReason}</div>
+            <div className="text-xs font-bold text-emerald-300">目前狀態</div>
+            <div className={`mt-1 text-3xl font-black ${open910Tone(openStatus)}`}>{openStatus}</div>
+            <div className={`mt-2 text-2xl font-black ${marketModeTone}`}>{marketMode}</div>
           </section>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <DetailRow label="最強主線" value={topIndustry ? `${topIndustry.industry}｜${topIndustry.strength}` : "--"} tone="text-yellow-300" />
+            <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="第二主線" value={secondIndustry ? secondIndustry.industry : "--"} tone="text-cyan-300" />
             <DetailRow label="第三主線" value={thirdIndustry ? thirdIndustry.industry : "--"} tone="text-purple-300" />
-            <DetailRow label="命中率" value={signalSummary.all.done > 0 ? `${signalSummary.all.rate.toFixed(0)}%` : "等待"} tone="text-purple-300" />
-            <DetailRow label="持倉最高風險" value={dangerPosition ? stockDisplayName(dangerPosition.stock) : "--"} tone="text-red-300" />
-            <DetailRow label="持倉最高獲利" value={bestPosition ? `${stockDisplayName(bestPosition.stock)} ${formatPercent(bestPosition.pnlPercent)}` : "--"} tone="text-red-300" />
+            <DetailRow label="9:10可觀察" value={`${open910PickList.length} 檔`} tone="text-emerald-300" />
           </div>
 
           <section className="mt-4">
-            <div className="text-lg font-black text-emerald-100">今日優先觀察前5檔</div>
+            <div className="text-lg font-black text-emerald-100">9:10實戰前5檔</div>
             <div className="mt-3 space-y-3">
-              {attackList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有明確優先觀察股。</div>}
-              {attackList.map((stock) => (
-                <SimpleStockButton key={stock.code} stock={stock} label={decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} tone="text-emerald-300" onClick={() => openStock(stock.code)} />
+              {open910PickList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有符合條件。</div>}
+              {open910PickList.map((stock) => (
+                <SimpleStockButton key={stock.code} stock={stock} label="可觀察" tone="text-emerald-300" reason={open910Reason(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} onClick={() => setSelectedCode(stock.code)} />
               ))}
             </div>
           </section>
 
           <section className="mt-4">
-            <div className="text-lg font-black text-orange-100">今日不要追高前5檔</div>
+            <div className="text-lg font-black text-red-100">9:10不要碰清單</div>
             <div className="mt-3 space-y-3">
-              {noChaseList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前追高風險不高。</div>}
-              {noChaseList.map((stock) => (
-                <SimpleStockButton key={stock.code} stock={stock} label="不要追高" tone="text-orange-300" onClick={() => openStock(stock.code)} />
-              ))}
-            </div>
-          </section>
-
-          <section className="mt-4">
-            <div className="text-lg font-black text-red-100">今日出場警戒前5檔</div>
-            <div className="mt-3 space-y-3">
-              {exitWatchList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前出場警戒不高。</div>}
-              {exitWatchList.map((stock) => (
-                <SimpleStockButton key={stock.code} stock={stock} label="出場警戒" tone="text-red-300" onClick={() => openStock(stock.code)} />
+              {open910AvoidList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有明顯不要碰清單。</div>}
+              {open910AvoidList.map((stock) => (
+                <SimpleStockButton key={stock.code} stock={stock} label="不要碰" tone="text-red-300" reason={open910RiskReason(stock, top50, settings, stockIndustryStatus(stock))} onClick={() => setSelectedCode(stock.code)} />
               ))}
             </div>
           </section>
@@ -2436,18 +2312,7 @@ export default function App() {
             <DetailRow label="整體命中率" value={signalSummary.all.done > 0 ? `${signalSummary.all.rate.toFixed(0)}%` : "等待"} tone="text-purple-300" />
             <DetailRow label="已記錄訊號" value={`${signalSummary.all.total} 筆`} tone="text-white" />
             <DetailRow label="資金增加" value={signalSummary.money.done > 0 ? `${signalSummary.money.rate.toFixed(0)}%` : "等待"} tone="text-emerald-300" />
-            <DetailRow label="突然放大" value={signalSummary.bigMoney.done > 0 ? `${signalSummary.bigMoney.rate.toFixed(0)}%` : "等待"} tone="text-emerald-300" />
             <DetailRow label="續航3/3" value={signalSummary.sneaky3.done > 0 ? `${signalSummary.sneaky3.rate.toFixed(0)}%` : "等待"} tone="text-cyan-300" />
-            <DetailRow label="主線核心" value={signalSummary.core.done > 0 ? `${signalSummary.core.rate.toFixed(0)}%` : "等待"} tone="text-yellow-300" />
-            <DetailRow label="回測買點" value={signalSummary.pullback.done > 0 ? `${signalSummary.pullback.rate.toFixed(0)}%` : "等待"} tone="text-blue-300" />
-            <DetailRow label="追高警報" value={signalSummary.chase.done > 0 ? `${signalSummary.chase.rate.toFixed(0)}%` : "等待"} tone="text-orange-300" />
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {signalRecords.length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前尚未累積訊號紀錄，等 App 更新幾次後會開始出現。</div>}
-            {signalRecords.map((record) => (
-              <SignalCard key={record.id} record={record} />
-            ))}
           </div>
         </ModalShell>
       )}
@@ -2456,8 +2321,8 @@ export default function App() {
         <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看詳情`} onClose={() => setPopup("")}>
           <div className="space-y-3">
             {popupList(popup).length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前沒有符合條件的股票。</div>}
-            {popupList(popup).map((stock, index) => (
-              <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+            {popupList(popup).map((stock) => (
+              <SimpleStockButton key={stock.code} stock={stock} label={decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} tone={decisionTone(decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory))} onClick={() => setSelectedCode(stock.code)} />
             ))}
           </div>
         </ModalShell>
@@ -2467,7 +2332,12 @@ export default function App() {
         <ModalShell title="產業主線強弱排行" sub="依資金、量能、核心、資金增加排序" onClose={() => setPopup("")}>
           <div className="space-y-3">
             {industryRanking.map((item, index) => (
-              <IndustryCard key={item.industry} item={item} rank={index + 1} onClick={() => setIndustryPopup(item.industry)} />
+              <button key={item.industry} onClick={() => setIndustryPopup(item.industry)} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
+                <div className="text-xs font-bold text-slate-500">#{index + 1} 主線強弱排序</div>
+                <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
+                <div className={`mt-1 text-sm font-black ${flowTone(item.strength)}`}>{item.light}｜{item.status}｜{item.strength}</div>
+                <div className="mt-1 text-xs font-bold text-slate-400">{item.reason}</div>
+              </button>
             ))}
           </div>
         </ModalShell>
@@ -2485,22 +2355,9 @@ export default function App() {
           </div>
 
           <div className="mt-4 space-y-3">
-            {positionRows.length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前還沒有輸入買進價。點股票後輸入「我的買進價」就會出現在這裡。</div>}
-            {positionRows.map((row, index) => (
-              <button key={row.stock.code} onClick={() => setSelectedCode(row.stock.code)} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-bold text-slate-500">#{index + 1}　{row.stock.code}｜{row.stock.industry}</div>
-                    <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(row.stock)}</div>
-                    <div className={`mt-1 text-sm font-black ${riskTone(row.action)}`}>{row.action}</div>
-                  </div>
-                  <div className="text-right">
-                    <div className={`text-xl font-black ${row.pnlPercent >= 0 ? "text-red-300" : "text-emerald-300"}`}>{formatPercent(row.pnlPercent)}</div>
-                    <div className={`text-xs font-black ${row.pnlAmount >= 0 ? "text-red-300" : "text-emerald-300"}`}>{formatAmount(row.pnlAmount)}</div>
-                  </div>
-                </div>
-                <div className={`mt-3 rounded-2xl bg-black/40 p-3 text-sm font-black ${riskTone(row.danger)}`}>{row.danger}</div>
-              </button>
+            {positionRows.length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前還沒有輸入買進價。</div>}
+            {positionRows.map((row) => (
+              <SimpleStockButton key={row.stock.code} stock={row.stock} label={row.action} tone={riskTone(row.action)} reason={row.danger} onClick={() => setSelectedCode(row.stock.code)} />
             ))}
           </div>
         </ModalShell>
@@ -2510,8 +2367,8 @@ export default function App() {
         <ModalShell title={`${industryPopup} 主線個股`} sub="該產業內資金排序" onClose={() => setIndustryPopup("")} z={110}>
           <div className="space-y-3">
             {industrySelectedList.length === 0 && <div className="rounded-2xl bg-black/30 p-6 text-center text-sm font-bold text-slate-400">目前沒有該產業股票。</div>}
-            {industrySelectedList.map((stock, index) => (
-              <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
+            {industrySelectedList.map((stock) => (
+              <SimpleStockButton key={stock.code} stock={stock} label={decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory)} tone={decisionTone(decisionText(stock, top50, mainIndustries, settings, sneakyHistory, moneyHistory))} onClick={() => setSelectedCode(stock.code)} />
             ))}
           </div>
         </ModalShell>
@@ -2527,14 +2384,11 @@ export default function App() {
             {queryMessage && <div className="mt-3 text-sm font-bold text-yellow-200">{queryMessage}</div>}
           </div>
 
-          <div className="mt-4">
-            <div className="text-lg font-black">最近查詢</div>
-            <div className="mt-3 space-y-3">
-              {searchHistory.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">尚無查詢紀錄。</div>}
-              {searchHistory.map((stock, index) => (
-                <StockCard key={stock.code} stock={stock} rank={index + 1} industryStatus={stockIndustryStatus(stock)} position={positions[stock.code]} {...cardProps()} />
-              ))}
-            </div>
+          <div className="mt-4 space-y-3">
+            {searchHistory.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">尚無查詢紀錄。</div>}
+            {searchHistory.map((stock) => (
+              <SimpleStockButton key={stock.code} stock={stock} label="查詢紀錄" tone="text-cyan-300" onClick={() => setSelectedCode(stock.code)} />
+            ))}
           </div>
         </ModalShell>
       )}
@@ -2583,15 +2437,10 @@ export default function App() {
             <div>最後嘗試更新：{lastAttemptAt || "--"}</div>
             <div>最後成功更新：{lastSuccessAt || "尚未成功"}</div>
             <div>資料來源：{source || "讀取中"}</div>
-            <div>資金增加：{moneyUpList.length} 檔</div>
-            <div>資金減少警戒：{moneyDownList.length} 檔</div>
-            <div>訊號紀錄：{signalRecords.length} 筆</div>
-            <div>整體命中率：{signalSummary.all.done > 0 ? `${signalSummary.all.rate.toFixed(0)}%` : "等待"}</div>
+            <div>9:10可觀察：{open910PickList.length} 檔</div>
+            <div>9:10不要碰：{open910AvoidList.length} 檔</div>
           </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <button onClick={loadStocks} className="rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">立即更新</button>
-          </div>
+          <button onClick={loadStocks} className="mt-4 w-full rounded-2xl bg-cyan-500/20 py-3 text-sm font-black text-cyan-200">立即更新</button>
         </ModalShell>
       )}
 
