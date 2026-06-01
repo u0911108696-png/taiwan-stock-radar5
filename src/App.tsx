@@ -2088,8 +2088,22 @@ export default function App() {
     return Array.from(map.values());
   }, [watchCodes, stocks, searchHistory, entryGoodList, moneyUpList, sneakyStrongList, sneakyList, coreList, pullbackList]);
 
-  const favoriteStocks = useMemo(
-    () => favoriteCodes.map((code) => stocks.find((s) => s.code === code) || searchHistory.find((s) => s.code === code)).filter(Boolean) as Stock[],
+    const favoriteStocks = useMemo(
+    () =>
+      favoriteCodes
+        .map((code) => {
+          const fromStocks = stocks.find((s) => s.code === code);
+          const fromSearch = searchHistory.find((s) => s.code === code);
+
+          if (fromStocks && fromSearch) {
+            const stocksTime = String(fromStocks.updatedAt || "");
+            const searchTime = String(fromSearch.updatedAt || "");
+            return searchTime >= stocksTime ? fromSearch : fromStocks;
+          }
+
+          return fromStocks || fromSearch;
+        })
+        .filter(Boolean) as Stock[],
     [favoriteCodes, stocks, searchHistory]
   );
 
@@ -2546,6 +2560,21 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [selectedCode]);
+  useEffect(() => {
+    if (favoriteCodes.length === 0) return;
+
+    favoriteCodes.forEach((code) => {
+      refreshOneStock(code, true);
+    });
+
+    const timer = window.setInterval(() => {
+      favoriteCodes.forEach((code) => {
+        refreshOneStock(code, true);
+      });
+    }, 15000);
+
+    return () => window.clearInterval(timer);
+  }, [favoriteCodes.join(",")]);
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
