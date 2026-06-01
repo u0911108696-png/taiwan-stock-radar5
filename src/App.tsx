@@ -1756,6 +1756,73 @@ export default function App() {
       setAutoSeconds(settings.refreshSeconds);
     }
   }
+  async function refreshOneStock(code: string) {
+    const q = cleanCode(code);
+    if (!q) return null;
+
+    try {
+      const response = await fetch(`${SEARCH_API_URL}?q=${encodeURIComponent(q)}&t=${Date.now()}`, {
+        cache: "no-store",
+      });
+
+      const json = await response.json();
+
+      if (!json.ok || !json.stock) return null;
+
+      const stock = normalizeStock(json.stock, json.stock.updatedAt || json.updatedAtTaiwan || nowText());
+
+      setStocks((old) => {
+        const exists = old.some((item) => item.code === stock.code);
+
+        const next = exists
+          ? old.map((item) => (item.code === stock.code ? { ...item, ...stock } : item))
+          : [stock, ...old];
+
+        return next.sort((a, b) => b.changePercent - a.changePercent);
+      });
+
+      setSearchHistory((old) => {
+        const next = Array.from(
+          new Map([{ ...stock, name: stockDisplayName(stock) }, ...old].map((item) => [item.code, item])).values()
+        ).slice(0, 20);
+
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+
+      setPreviousPriceMap((old) => ({
+        ...old,
+        [stock.code]: lastPriceMap[stock.code] || stock.price,
+      }));
+
+      setLastPriceMap((old) => {
+        const oldPrice = old[stock.code];
+
+        setPriceDirections((directionOld) => ({
+          ...directionOld,
+          [stock.code]:
+            oldPrice === undefined
+              ? "new"
+              : stock.price > oldPrice
+                ? "up"
+                : stock.price < oldPrice
+                  ? "down"
+                  : "same",
+        }));
+
+        return {
+          ...old,
+          [stock.code]: stock.price,
+        };
+      });
+
+      setLastSuccessAt(nowText());
+
+      return stock;
+    } catch {
+      return null;
+    }
+  }
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -1898,13 +1965,17 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [settings.refreshSeconds, lastPriceMap, moneyHistory]);
 
-  useEffect(() => {
+    useEffect(() => {
     if (favoriteCodes.length === 0) return;
 
-    loadStocks();
+    favoriteCodes.forEach((code) => {
+      refreshOneStock(code);
+    });
 
     const timer = window.setInterval(() => {
-      loadStocks();
+      favoriteCodes.forEach((code) => {
+        refreshOneStock(code);
+      });
     }, 15000);
 
     return () => window.clearInterval(timer);
