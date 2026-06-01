@@ -120,7 +120,7 @@ type SopStep = {
   detail: string;
 };
 
-const API_URL = "/api/stocks";
+const API_URL = "/api/realtime";
 const SEARCH_API_URL = "/api/search";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
