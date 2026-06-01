@@ -1736,9 +1736,48 @@ export default function App() {
       const successTime = nowText();
       const dataSource = json.source || "TWSE / Yahoo fallback";
 
-      setStocks(normalized);
+            setStocks((old) => {
+        const realtimeMap = new Map(old.map((stock) => [stock.code, stock]));
+
+        const merged = normalized.map((stock: Stock) => {
+          const oldStock = realtimeMap.get(stock.code);
+
+          if (!oldStock) return stock;
+
+          const oldTime = String(oldStock.updatedAt || "");
+          const newTime = String(stock.updatedAt || "");
+
+          if (oldTime > newTime) {
+            return oldStock;
+          }
+
+          return stock;
+        });
+
+        old.forEach((stock) => {
+          if (!merged.some((item) => item.code === stock.code)) {
+            merged.push(stock);
+          }
+        });
+
+        return merged.sort((a, b) => b.changePercent - a.changePercent);
+      });
       setPreviousPriceMap(oldPriceMap);
-      setLastPriceMap(nextPriceMap);
+            setLastPriceMap((old) => {
+        const merged = { ...old };
+
+        normalized.forEach((stock: Stock) => {
+          const oldStock = stocks.find((item) => item.code === stock.code);
+          const oldTime = String(oldStock?.updatedAt || "");
+          const newTime = String(stock.updatedAt || "");
+
+          if (!oldStock || newTime >= oldTime) {
+            merged[stock.code] = stock.price;
+          }
+        });
+
+        return merged;
+      });
       setPriceDirections(nextDirections);
       setLastSuccessAt(successTime);
       setApiDataTime(dataTime);
