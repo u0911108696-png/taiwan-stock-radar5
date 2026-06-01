@@ -1,4 +1,6 @@
-const codeToChineseName: Record<string, string> = {
+const https = require("https");
+
+const codeToChineseName = {
   "2330": "台積電",
   "2303": "聯電",
   "2317": "鴻海",
@@ -8,14 +10,11 @@ const codeToChineseName: Record<string, string> = {
   "2337": "旺宏",
   "3481": "群創",
   "2409": "友達",
-  "2382": "廣達",
-  "3231": "緯創",
-  "6669": "緯穎",
   "6770": "力積電",
   "3042": "晶技",
 };
 
-const industryMap: Record<string, string> = {
+const industryMap = {
   "2330": "半導體",
   "2303": "半導體",
   "2454": "半導體",
@@ -24,19 +23,16 @@ const industryMap: Record<string, string> = {
   "2337": "記憶體",
   "3481": "面板",
   "2409": "面板",
-  "2382": "AI伺服器",
-  "3231": "AI伺服器",
-  "6669": "AI伺服器",
   "6770": "半導體",
   "3042": "其他",
 };
 
-function n(value: any, fallback = 0) {
+function n(value, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 }
 
-function cleanCode(value: any) {
+function cleanCode(value) {
   return String(value || "").replace(/\D/g, "").slice(0, 6);
 }
 
@@ -47,7 +43,47 @@ function taiwanNowText() {
   });
 }
 
-function makeStock(raw: any) {
+function httpsJson(url) {
+  return new Promise((resolve) => {
+    const req = https.get(
+      url,
+      {
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Cache-Control": "no-cache",
+          Pragma: "no-cache",
+        },
+        timeout: 7000,
+      },
+      (res) => {
+        let body = "";
+
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+
+        res.on("end", () => {
+          try {
+            resolve(JSON.parse(body));
+          } catch {
+            resolve(null);
+          }
+        });
+      }
+    );
+
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(null);
+    });
+
+    req.on("error", () => {
+      resolve(null);
+    });
+  });
+}
+
+function makeStock(raw) {
   const code = cleanCode(raw.code);
   const price = n(raw.price);
   const previousClose = n(raw.previousClose);
@@ -80,86 +116,69 @@ function makeStock(raw: any) {
   };
 }
 
-async function fetchYahoo(code: string, suffix: "TW" | "TWO") {
+async function fetchYahoo(code, suffix) {
   const symbol = `${code}.${suffix}`;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d&t=${Date.now()}`;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6000);
+  const json = await httpsJson(url);
+  const result = json && json.chart && json.chart.result && json.chart.result[0];
+  const meta = result && result.meta;
+  const quote = result && result.indicators && result.indicators.quote && result.indicators.quote[0];
 
-  try {
-    const response = await fetch(url, {
-      signal: controller.signal,
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-      },
-    });
+  if (!meta || !quote) return null;
 
-    if (!response.ok) return null;
+  const closes = Array.isArray(quote.close)
+    ? quote.close.filter((v) => Number.isFinite(Number(v)))
+    : [];
 
-    const json: any = await response.json();
-    const result = json?.chart?.result?.[0];
-    const meta = result?.meta;
-    const quote = result?.indicators?.quote?.[0];
+  const opens = Array.isArray(quote.open)
+    ? quote.open.filter((v) => Number.isFinite(Number(v)))
+    : [];
 
-    if (!meta || !quote) return null;
+  const highs = Array.isArray(quote.high)
+    ? quote.high.filter((v) => Number.isFinite(Number(v)))
+    : [];
 
-    const closes = Array.isArray(quote.close)
-      ? quote.close.filter((v: any) => Number.isFinite(Number(v)))
-      : [];
+  const lows = Array.isArray(quote.low)
+    ? quote.low.filter((v) => Number.isFinite(Number(v)))
+    : [];
 
-    const opens = Array.isArray(quote.open)
-      ? quote.open.filter((v: any) => Number.isFinite(Number(v)))
-      : [];
+  const volumes = Array.isArray(quote.volume)
+    ? quote.volume.filter((v) => Number.isFinite(Number(v)))
+    : [];
 
-    const highs = Array.isArray(quote.high)
-      ? quote.high.filter((v: any) => Number.isFinite(Number(v)))
-      : [];
+  const price = n(meta.regularMarketPrice || closes[closes.length - 1]);
+  const previousClose = n(meta.previousClose || meta.chartPreviousClose);
+  const openPrice = n(meta.regularMarketOpen || opens[0] || price);
+  const highPrice = highs.length ? Math.max(...highs, price) : price;
+  const lowPrice = lows.length ? Math.min(...lows, price) : price;
+  const volume = n(
+    meta.regularMarketVolume ||
+      volumes.reduce((sum, v) => sum + Number(v), 0)
+  );
 
-    const lows = Array.isArray(quote.low)
-      ? quote.low.filter((v: any) => Number.isFinite(Number(v)))
-      : [];
+  if (!price || !previousClose) return null;
 
-    const volumes = Array.isArray(quote.volume)
-      ? quote.volume.filter((v: any) => Number.isFinite(Number(v)))
-      : [];
-
-    const price = n(meta.regularMarketPrice || closes[closes.length - 1]);
-    const previousClose = n(meta.previousClose || meta.chartPreviousClose);
-    const openPrice = n(meta.regularMarketOpen || opens[0] || price);
-    const highPrice = highs.length ? Math.max(...highs, price) : price;
-    const lowPrice = lows.length ? Math.min(...lows, price) : price;
-    const volume = n(meta.regularMarketVolume || volumes.reduce((sum: number, v: number) => sum + Number(v), 0));
-
-    if (!price || !previousClose) return null;
-
-    return makeStock({
-      code,
-      name: codeToChineseName[code],
-      price,
-      previousClose,
-      openPrice,
-      highPrice,
-      lowPrice,
-      volume,
-      updatedAt: taiwanNowText(),
-    });
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timer);
-  }
+  return makeStock({
+    code,
+    name: codeToChineseName[code],
+    price,
+    previousClose,
+    openPrice,
+    highPrice,
+    lowPrice,
+    volume,
+    updatedAt: taiwanNowText(),
+  });
 }
 
-export default async function handler(req: any, res: any) {
+module.exports = async function handler(req, res) {
   try {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
 
-    const q = cleanCode(req.query?.q);
+    const q = cleanCode(req.query && req.query.q);
 
     if (!q) {
       return res.status(200).json({
@@ -178,7 +197,7 @@ export default async function handler(req: any, res: any) {
     if (!stock) {
       return res.status(200).json({
         ok: false,
-        message: "即時資料暫時無法取得",
+        message: "即時資料暫時無法取得，但 API 沒有崩潰",
         code: q,
         updatedAtTaiwan: taiwanNowText(),
       });
@@ -186,16 +205,16 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({
       ok: true,
-      source: "Yahoo realtime safe",
+      source: "Yahoo realtime stable JS",
       updatedAtTaiwan: taiwanNowText(),
       stock,
     });
-  } catch (err: any) {
+  } catch (err) {
     return res.status(200).json({
       ok: false,
-      message: "API安全模式：資料暫時無法取得",
-      error: err?.message || String(err),
+      message: "API安全模式：資料暫時無法取得，但沒有崩潰",
+      error: err && err.message ? err.message : String(err),
       updatedAtTaiwan: taiwanNowText(),
     });
   }
-}
+};
