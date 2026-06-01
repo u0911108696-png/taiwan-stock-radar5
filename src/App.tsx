@@ -159,10 +159,10 @@ const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
 
-const SETTINGS_KEY = "taiwan-stock-radar-v57-settings";
-const CACHE_KEY = "taiwan-stock-radar-v57-cache";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-v57-money-history";
-const SNAPSHOT_KEY = "taiwan-stock-radar-v57-snapshot";
+const SETTINGS_KEY = "taiwan-stock-radar-v58-settings";
+const CACHE_KEY = "taiwan-stock-radar-v58-cache";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-v58-money-history";
+const SNAPSHOT_KEY = "taiwan-stock-radar-v58-snapshot";
 
 const defaultSettings: Settings = {
   refreshSeconds: 15,
@@ -641,9 +641,13 @@ function alertTone(level: AlertLevel) {
 }
 
 function alertBg(level: AlertLevel) {
-  if (level === "紅燈") return "border-red-500/40 bg-red-950/20";
-  if (level === "黃燈") return "border-yellow-500/40 bg-yellow-950/20";
-  return "border-emerald-500/40 bg-emerald-950/20";
+  if (level === "紅燈") return "border-red-500/40 bg-red-950/20 shadow-[0_0_30px_rgba(239,68,68,0.18)]";
+  if (level === "黃燈") return "border-yellow-500/40 bg-yellow-950/20 shadow-[0_0_30px_rgba(234,179,8,0.14)]";
+  return "border-emerald-500/40 bg-emerald-950/20 shadow-[0_0_30px_rgba(16,185,129,0.14)]";
+}
+
+function neonPanel(extra = "") {
+  return `rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 shadow-[0_0_35px_rgba(34,211,238,0.12)] ${extra}`;
 }
 
 function directionTone(direction?: PriceDirection) {
@@ -965,7 +969,6 @@ function homeActionText(redCount: number, entryGoodCount: number, avoidCount: nu
   if (avoidCount > 0) return "警報偏多，今天先保守。";
   return "沒有明確主線，先等下一次更新。";
 }
-
 function snapshotChangePercent(snapshotPrice: number, nowPrice: number) {
   if (!Number.isFinite(snapshotPrice) || snapshotPrice <= 0) return 0;
   return ((nowPrice - snapshotPrice) / snapshotPrice) * 100;
@@ -1033,6 +1036,7 @@ function snapshotSuccessRate(items: SnapshotStock[], stocks: Stock[], searchHist
     rate: done.length > 0 ? (success.length / done.length) * 100 : 0,
   };
 }
+
 function makeSopSteps(openStatus: string, entryGoodCount: number, alertRedCount: number, entryWaitCount: number, snapshot: Open910Snapshot | null): SopStep[] {
   const before910 = openStatus.includes("開盤前") || openStatus.includes("9:10前");
   const canTrade = openStatus.includes("可進入");
@@ -1196,29 +1200,13 @@ function positionPlan(
   else if (hasPosition && pnlPercent >= 5) action = "分批停利";
   else if (hasPosition && pnlPercent > 0 && stock.price > atrLine) action = "續抱觀察";
 
-  let batchTitle = "尚未進入分批停利";
-  let batchStep1 = "先守停損，不急著加碼。";
-  let batchStep2 = `守 ATR 線 ${formatPrice(atrLine)}。`;
-  let batchStep3 = "跌破開盤價、ATR線或昨收，降低持股。";
   let dangerText = "目前無明顯持倉危險。";
 
   if (!hasPosition) {
-    batchTitle = "尚未輸入持倉";
-    batchStep1 = "請先輸入買進價。";
-    batchStep2 = "輸入後會自動計算分批停利。";
-    batchStep3 = "張數可填可不填。";
     dangerText = "尚未建立個人風控。";
   } else if (pnlPercent < 0) {
-    batchTitle = "虧損中，先不要加倉";
-    batchStep1 = "第一步：守個人停損線。";
-    batchStep2 = `跌破 ${formatPrice(Math.min(buyPrice * 0.98, stock.openPrice))} 先減碼觀察。`;
-    batchStep3 = `跌破昨收 ${formatPrice(stock.previousClose)} 主線偏弱。`;
     dangerText = "成本以下不建議攤平加倉。";
   } else if (pnlPercent >= 5) {
-    batchTitle = "獲利 5%+，可分批停利";
-    batchStep1 = "第一段：可先停利 1/3。";
-    batchStep2 = `第二段：跌破 ATR 線 ${formatPrice(atrLine)} 再出 1/3。`;
-    batchStep3 = "最後一段：跌破開盤價或主線失效再出。";
     dangerText = "已進入保護獲利區。";
   }
 
@@ -1232,10 +1220,6 @@ function positionPlan(
     pnlAmount,
     atrLine,
     action,
-    batchTitle,
-    batchStep1,
-    batchStep2,
-    batchStep3,
     dangerText,
     buyText: hasPosition ? `你的買進價 ${formatPrice(buyPrice)}，目前損益 ${formatPercent(pnlPercent)}。` : "尚未輸入買進價，先看理想買點。",
     stopText: exit,
@@ -1244,11 +1228,21 @@ function positionPlan(
   };
 }
 
+function NeonPanel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return <section className={neonPanel(`p-4 ${className}`)}>{children}</section>;
+}
+
 function MiniCard({ title, value, sub, tone, onClick }: { title: string; value: string | number; sub: string; tone: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="rounded-2xl border border-slate-800 bg-slate-950 p-3 text-left active:scale-95">
+    <button onClick={onClick} className="rounded-[1.5rem] border border-cyan-400/20 bg-slate-950/80 p-3 text-left shadow-[0_0_25px_rgba(34,211,238,0.08)] active:scale-95">
       <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className={`mt-1 text-2xl font-black ${tone}`}>{value}</div>
+      <div className={`mt-1 text-3xl font-black ${tone}`}>{value}</div>
       <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
     </button>
   );
@@ -1256,13 +1250,13 @@ function MiniCard({ title, value, sub, tone, onClick }: { title: string; value: 
 
 function ActionCard({ title, sub, badge, tone, onClick }: { title: string; sub: string; badge: string | number; tone: string; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
+    <button onClick={onClick} className="rounded-[1.6rem] border border-slate-700/80 bg-slate-950/90 p-4 text-left shadow-[0_0_22px_rgba(15,23,42,0.8)] active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-lg font-black text-white">{title}</div>
-          <div className="mt-1 text-sm font-bold text-slate-400">{sub}</div>
+          <div className="text-base font-black text-white">{title}</div>
+          <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
         </div>
-        <div className={`rounded-2xl bg-black/40 px-3 py-2 text-lg font-black ${tone}`}>{badge}</div>
+        <div className={`rounded-2xl border border-white/10 bg-black/40 px-3 py-2 text-lg font-black ${tone}`}>{badge}</div>
       </div>
     </button>
   );
@@ -1270,7 +1264,7 @@ function ActionCard({ title, sub, badge, tone, onClick }: { title: string; sub: 
 
 function DetailRow({ label, value, tone = "text-white" }: { label: string; value: string | number; tone?: string }) {
   return (
-    <div className="rounded-2xl bg-black/30 p-3">
+    <div className="rounded-2xl border border-white/5 bg-black/35 p-3">
       <div className="text-xs font-bold text-slate-500">{label}</div>
       <div className={`mt-1 text-sm font-black ${tone}`}>{value}</div>
     </div>
@@ -1279,9 +1273,9 @@ function DetailRow({ label, value, tone = "text-white" }: { label: string; value
 
 function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; sub?: string; children: ReactNode; onClose: () => void; z?: number }) {
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/80 px-3 py-6 backdrop-blur-sm" style={{ zIndex: z }} onClick={onClose}>
-      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-3xl border border-slate-700 bg-slate-950 p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-3xl border-b border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+    <div className="fixed inset-0 flex items-center justify-center bg-black/85 px-3 py-6 backdrop-blur-sm" style={{ zIndex: z }} onClick={onClose}>
+      <div className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-[2rem] border border-cyan-400/30 bg-slate-950 p-4 shadow-[0_0_45px_rgba(34,211,238,0.18)]" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-4 -mt-4 rounded-t-[2rem] border-b border-cyan-400/20 bg-slate-950/95 px-4 py-3 backdrop-blur">
           <div className="flex items-start justify-between gap-3">
             <div>
               {sub && <div className="text-xs font-bold text-slate-500">{sub}</div>}
@@ -1297,10 +1291,15 @@ function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; 
 }
 function SopCard({ step }: { step: SopStep }) {
   const tone = step.status === "做" ? "text-emerald-300" : step.status === "等" ? "text-yellow-300" : "text-red-300";
-  const bg = step.status === "做" ? "border-emerald-500/40 bg-emerald-950/20" : step.status === "等" ? "border-yellow-500/40 bg-yellow-950/20" : "border-red-500/40 bg-red-950/20";
+  const bg =
+    step.status === "做"
+      ? "border-emerald-500/40 bg-emerald-950/20"
+      : step.status === "等"
+        ? "border-yellow-500/40 bg-yellow-950/20"
+        : "border-red-500/40 bg-red-950/20";
 
   return (
-    <div className={`rounded-3xl border p-4 ${bg}`}>
+    <div className={`rounded-[1.6rem] border p-4 ${bg}`}>
       <div className={`text-sm font-black ${tone}`}>{step.status}</div>
       <div className="mt-1 text-lg font-black text-white">{step.title}</div>
       <div className="mt-2 text-sm font-bold text-slate-300">{step.detail}</div>
@@ -1310,7 +1309,7 @@ function SopCard({ step }: { step: SopStep }) {
 
 function AlertButton({ alert, onClick }: { alert: AlertItem; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`w-full rounded-3xl border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
+    <button onClick={onClick} className={`w-full rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className={`text-sm font-black ${alertTone(alert.level)}`}>{alert.level}｜{alert.type}</div>
@@ -1341,7 +1340,7 @@ function SimpleStockButton({
   onClick: () => void;
 }) {
   return (
-    <button onClick={onClick} className="w-full rounded-2xl bg-black/30 p-3 text-left active:scale-95">
+    <button onClick={onClick} className="w-full rounded-[1.4rem] border border-slate-800 bg-black/35 p-3 text-left active:scale-95">
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
@@ -1362,7 +1361,7 @@ function SimpleStockButton({
 
 function EntryStockButton({ stock, plan, onClick }: { stock: Stock; plan: EntryPlan; onClick: () => void }) {
   return (
-    <button onClick={onClick} className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95">
+    <button onClick={onClick} className="w-full rounded-[1.7rem] border border-cyan-400/20 bg-slate-950/90 p-4 text-left shadow-[0_0_20px_rgba(34,211,238,0.08)] active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
@@ -1407,7 +1406,7 @@ function SnapshotButton({ item, current, onClick }: { item: SnapshotStock; curre
   const result = snapshotResult(item.snapshotType, change);
 
   return (
-    <button onClick={onClick} className="w-full rounded-2xl bg-black/30 p-3 text-left active:scale-95">
+    <button onClick={onClick} className="w-full rounded-[1.4rem] border border-slate-800 bg-black/35 p-3 text-left active:scale-95">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-bold text-slate-500">{item.code}｜{item.industry}｜{item.snapshotType}</div>
@@ -1448,10 +1447,13 @@ function FocusStockCard({
   onClick: () => void;
 }) {
   return (
-    <button onClick={onClick} className="w-full rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-4 text-left active:scale-95">
+    <button
+      onClick={onClick}
+      className="w-full rounded-[1.8rem] border border-emerald-400/40 bg-gradient-to-br from-emerald-950/40 to-slate-950 p-4 text-left shadow-[0_0_35px_rgba(16,185,129,0.16)] active:scale-95"
+    >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-black text-emerald-300">今日只看 #{rank}</div>
+          <div className="text-xs font-black text-emerald-300">FOCUS #{rank}</div>
           <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(stock)}</div>
           <div className="mt-1 text-xs font-bold text-slate-400">{stock.code}｜{stock.industry}</div>
         </div>
@@ -1464,10 +1466,15 @@ function FocusStockCard({
         </div>
       </div>
 
-      <div className="mt-3 rounded-2xl bg-black/30 p-3">
-        <div className={`text-sm font-black ${entryTone(plan.level)}`}>{plan.level}｜分數 {plan.score}</div>
-        <div className="mt-1 text-xs font-bold text-slate-300">
-          買點 {formatPrice(plan.buyLow)}～{formatPrice(plan.buyHigh)}｜停損 {formatPrice(plan.stopPrice)}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-black">
+        <div className="rounded-2xl border border-emerald-400/20 bg-black/30 p-2 text-emerald-200">
+          判斷<br />{plan.level}
+        </div>
+        <div className="rounded-2xl border border-cyan-400/20 bg-black/30 p-2 text-cyan-200">
+          買點<br />{formatPrice(plan.buyLow)}
+        </div>
+        <div className="rounded-2xl border border-red-400/20 bg-black/30 p-2 text-red-200">
+          停損<br />{formatPrice(plan.stopPrice)}
         </div>
       </div>
 
@@ -1483,10 +1490,10 @@ function FocusStockCard({
 
 function AvoidStockCard({ alert, onClick }: { alert: AlertItem; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`w-full rounded-3xl border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
+    <button onClick={onClick} className={`w-full rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-xs font-black text-red-300">不要碰</div>
+          <div className="text-xs font-black text-red-300">AVOID｜不要碰</div>
           <div className="mt-1 text-xl font-black text-white">{alert.name}</div>
           <div className="mt-1 text-xs font-bold text-slate-400">{alert.code}｜{alert.industry}</div>
         </div>
@@ -1500,6 +1507,25 @@ function AvoidStockCard({ alert, onClick }: { alert: AlertItem; onClick: () => v
   );
 }
 
+function QuickActionButton({
+  title,
+  sub,
+  onClick,
+}: {
+  title: string;
+  sub: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-[1.4rem] border border-cyan-400/20 bg-cyan-950/20 p-3 text-left shadow-[0_0_22px_rgba(34,211,238,0.08)] active:scale-95"
+    >
+      <div className="text-sm font-black text-cyan-100">{title}</div>
+      <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
+    </button>
+  );
+}
 function StockQuickModal({
   stock,
   top50,
@@ -1576,19 +1602,23 @@ function StockQuickModal({
 
   return (
     <ModalShell title={stockDisplayName(stock)} sub={`${stock.code}｜${stock.industry}`} onClose={onClose} z={120}>
-      <div className="flex items-center justify-between rounded-2xl bg-black/30 p-4">
-        <div className={`text-3xl font-black ${stock.changePercent >= 0 ? "text-red-400" : "text-emerald-400"}`}>
-          {formatPercent(stock.changePercent)}
-        </div>
-        <div className="text-right">
-          <div className="text-xs font-bold text-slate-500">即時現價</div>
-          <div className="text-xl font-black text-white">{formatPrice(stock.price)}</div>
-          <div className="text-xs font-bold text-cyan-300">{stock.updatedAt || lastSuccessAt || "--"}</div>
+      <div className="rounded-[1.8rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 to-cyan-950/30 p-4 shadow-[0_0_32px_rgba(34,211,238,0.15)]">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-bold text-cyan-300">REALTIME PRICE</div>
+            <div className="mt-1 text-4xl font-black text-white">{formatPrice(stock.price)}</div>
+          </div>
+          <div className="text-right">
+            <div className={stock.changePercent >= 0 ? "text-3xl font-black text-red-300" : "text-3xl font-black text-emerald-300"}>
+              {formatPercent(stock.changePercent)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">{stock.updatedAt || lastSuccessAt || "--"}</div>
+          </div>
         </div>
       </div>
 
       {alerts.length > 0 && (
-        <section className="mt-3 rounded-2xl border border-red-500/40 bg-red-950/20 p-4">
+        <section className="mt-3 rounded-[1.6rem] border border-red-500/40 bg-red-950/20 p-4 shadow-[0_0_30px_rgba(239,68,68,0.16)]">
           <div className="text-lg font-black text-red-100">這檔警報</div>
           <div className="mt-3 space-y-2">
             {alerts.slice(0, 5).map((item) => (
@@ -1600,7 +1630,8 @@ function StockQuickModal({
           </div>
         </section>
       )}
-      <section className={`mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4 ${entryTone(entry.level)}`}>
+
+      <section className={`mt-3 rounded-[1.6rem] border border-emerald-500/40 bg-emerald-950/20 p-4 ${entryTone(entry.level)}`}>
         <div className="text-xs font-bold text-slate-400">低風險進場判斷</div>
         <div className="mt-1 text-3xl font-black">{entry.level}</div>
         <div className="mt-2 text-sm font-bold text-slate-300">
@@ -1610,6 +1641,7 @@ function StockQuickModal({
           <br />
           警訊：{entry.warning}
         </div>
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <DetailRow label="買點區間" value={`${formatPrice(entry.buyLow)}～${formatPrice(entry.buyHigh)}`} tone="text-blue-300" />
           <DetailRow label="停損價" value={formatPrice(entry.stopPrice)} tone="text-red-300" />
@@ -1618,7 +1650,7 @@ function StockQuickModal({
         </div>
       </section>
 
-      <section className="mt-3 rounded-2xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+      <section className="mt-3 rounded-[1.6rem] border border-cyan-500/40 bg-cyan-950/20 p-4">
         <div className="text-lg font-black text-cyan-100">輸入我的持倉</div>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <input
@@ -1636,12 +1668,14 @@ function StockQuickModal({
             className="rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-black text-white outline-none"
           />
         </div>
+
         <input
           value={noteText}
           onChange={(e) => setNoteText(e.target.value)}
           placeholder="備註，可不填"
           className="mt-2 w-full rounded-2xl border border-slate-700 bg-black/40 px-3 py-3 text-base font-bold text-white outline-none"
         />
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button onClick={saveMyPosition} className="rounded-2xl bg-cyan-500 py-3 text-sm font-black text-white">
             儲存我的買點
@@ -1651,8 +1685,7 @@ function StockQuickModal({
           </button>
         </div>
       </section>
-
-      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${riskTone(plan.action)}`}>
+      <section className={`mt-3 rounded-[1.6rem] bg-black/30 p-4 ${riskTone(plan.action)}`}>
         <div className="text-xs font-bold text-slate-400">我的交易計畫</div>
         <div className="mt-1 text-3xl font-black">{plan.action}</div>
         <div className="mt-2 text-sm font-bold text-slate-300">
@@ -1666,7 +1699,7 @@ function StockQuickModal({
         </div>
       </section>
 
-      <section className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-950/20 p-4">
+      <section className="mt-3 rounded-[1.6rem] border border-emerald-500/40 bg-emerald-950/20 p-4">
         <div className="text-lg font-black text-emerald-100">資金增減趨勢</div>
         <div className={`mt-2 text-2xl font-black ${moneyTrendTone(moneyLabel)}`}>{moneyLabel}</div>
         <div className="mt-2 text-sm font-bold text-emerald-100">
@@ -1676,7 +1709,7 @@ function StockQuickModal({
         </div>
       </section>
 
-      <section className={`mt-3 rounded-2xl bg-black/30 p-4 ${directionTone(direction)}`}>
+      <section className={`mt-3 rounded-[1.6rem] bg-black/30 p-4 ${directionTone(direction)}`}>
         <div className="text-xs font-bold text-slate-400">即時股價</div>
         <div className="mt-1 text-xl font-black">{directionText(direction)}</div>
         <div className="mt-2 text-sm font-bold text-slate-300">
@@ -1695,6 +1728,7 @@ function StockQuickModal({
         >
           {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
         </button>
+
         <button
           onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
           className={`rounded-2xl py-3 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}
@@ -1827,7 +1861,6 @@ export default function App() {
         .sort((a, b) => moneyTrendChange(b.code, moneyHistory).amountChangePercent - moneyTrendChange(a.code, moneyHistory).amountChangePercent),
     [top50, moneyHistory]
   );
-
   const moneyDownList = useMemo(
     () =>
       top50
@@ -1870,6 +1903,7 @@ export default function App() {
     () => makeSopSteps(openStatus, entryGoodList.length, redAlerts.length, entryWaitList.length, snapshot),
     [openStatus, entryGoodList.length, redAlerts.length, entryWaitList.length, snapshot]
   );
+
   const nowAction = homeAction;
 
   const watchStocks = useMemo(() => {
@@ -1920,7 +1954,6 @@ export default function App() {
       danger: string;
     }[];
   }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking, moneyHistory]);
-
   const positionStats = useMemo(() => {
     let totalPnl = 0;
 
@@ -1938,8 +1971,15 @@ export default function App() {
   const topIndustry = industryRanking[0];
   const totalAmount = top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
 
-  const snapshotPickRate = useMemo(() => (snapshot ? snapshotSuccessRate(snapshot.picks, stocks, searchHistory, "可觀察") : { total: 0, done: 0, success: 0, rate: 0 }), [snapshot, stocks, searchHistory]);
-  const snapshotAvoidRate = useMemo(() => (snapshot ? snapshotSuccessRate(snapshot.avoids, stocks, searchHistory, "不要碰") : { total: 0, done: 0, success: 0, rate: 0 }), [snapshot, stocks, searchHistory]);
+  const snapshotPickRate = useMemo(
+    () => (snapshot ? snapshotSuccessRate(snapshot.picks, stocks, searchHistory, "可觀察") : { total: 0, done: 0, success: 0, rate: 0 }),
+    [snapshot, stocks, searchHistory]
+  );
+
+  const snapshotAvoidRate = useMemo(
+    () => (snapshot ? snapshotSuccessRate(snapshot.avoids, stocks, searchHistory, "不要碰") : { total: 0, done: 0, success: 0, rate: 0 }),
+    [snapshot, stocks, searchHistory]
+  );
 
   function saveSettings(next: Settings) {
     setSettings(next);
@@ -1978,6 +2018,7 @@ export default function App() {
     setPositions(next);
     localStorage.setItem(POSITIONS_KEY, JSON.stringify(next));
   }
+
   function updateMoneyHistory(list: Stock[]) {
     const topList = list.slice(0, 50);
 
@@ -2025,7 +2066,6 @@ export default function App() {
     setSnapshot(null);
     localStorage.removeItem(SNAPSHOT_KEY);
   }
-
   async function loadStocks() {
     try {
       setUpdating(true);
@@ -2082,7 +2122,15 @@ export default function App() {
 
       updateMoneyHistory(normalized);
 
-      localStorage.setItem(CACHE_KEY, JSON.stringify({ stocks: normalized, lastSuccessAt: successTime, apiDataTime: dataTime, source: dataSource }));
+      localStorage.setItem(
+        CACHE_KEY,
+        JSON.stringify({
+          stocks: normalized,
+          lastSuccessAt: successTime,
+          apiDataTime: dataTime,
+          source: dataSource,
+        })
+      );
     } catch (err: any) {
       setUsingCache(true);
       setError(err?.message || "資料更新失敗，已保留上次成功資料");
@@ -2111,7 +2159,10 @@ export default function App() {
       });
 
       setSearchHistory((old) => {
-        const next = Array.from(new Map([{ ...stock, name: stockDisplayName(stock) }, ...old].map((item) => [item.code, item])).values()).slice(0, 20);
+        const next = Array.from(
+          new Map([{ ...stock, name: stockDisplayName(stock) }, ...old].map((item) => [item.code, item])).values()
+        ).slice(0, 20);
+
         localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
         return next;
       });
@@ -2148,6 +2199,7 @@ export default function App() {
       return null;
     }
   }
+
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -2175,7 +2227,6 @@ export default function App() {
       setQueryLoading(false);
     }
   }
-
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, moneyHistory);
@@ -2287,89 +2338,116 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
   return (
-    <div className="min-h-screen bg-black text-white">
-      <div className="mx-auto max-w-3xl px-4 pb-36 pt-14">
-        <header className="rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-950 to-slate-900 p-5 shadow-2xl">
+    <div className="min-h-screen overflow-x-hidden bg-black text-white">
+      <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_90%_15%,rgba(239,68,68,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.12),transparent_30%)]" />
+
+      <div className="relative z-10 mx-auto max-w-3xl px-4 pb-36 pt-10">
+        <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-sm font-bold text-slate-400">20項開盤重點儀表板整理版</div>
-              <h1 className="mt-1 text-3xl font-black tracking-tight">開盤作戰面板</h1>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                一開盤只看重點：今日結論、紅綠燈、可看股票、不要碰清單。
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v58</div>
+              <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
+              <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
+                開盤重點儀表板｜只看結論、警報、可看、不要碰
               </p>
             </div>
 
-            <button onClick={() => loadStocks()} className="shrink-0 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white shadow-lg active:scale-95">
+            <button
+              onClick={() => loadStocks()}
+              className="shrink-0 rounded-[1.4rem] border border-red-400/40 bg-red-500/20 px-4 py-3 text-sm font-black text-red-100 shadow-[0_0_25px_rgba(239,68,68,0.25)] active:scale-95"
+            >
               {updating ? "更新中" : "立即"}<br />更新
             </button>
           </div>
         </header>
 
-        <section className={`mt-4 rounded-3xl border p-5 ${marketMode === "風險偏高" ? "border-red-500/40 bg-red-950/20" : marketMode === "只觀察" ? "border-yellow-500/40 bg-yellow-950/20" : "border-emerald-500/40 bg-emerald-950/20"}`}>
-          <div className="text-xs font-bold text-slate-300">今日作戰結論</div>
-          <div className={`mt-1 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
-          <div className="mt-2 text-2xl font-black text-white">{homeDecision}</div>
-          <div className="mt-2 text-sm font-bold text-slate-300">{homeAction}</div>
+        <section className="mt-4 rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-5 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-black tracking-[0.2em] text-cyan-300">MAIN DECISION</div>
+              <div className={`mt-2 text-5xl font-black ${marketModeTone}`}>{marketMode}</div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-right">
+              <div className="text-xs font-bold text-slate-500">狀態</div>
+              <div className={`mt-1 text-sm font-black ${open910Tone(openStatus)}`}>{openStatus}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[1.5rem] border border-cyan-400/20 bg-black/35 p-4">
+            <div className="text-xs font-bold text-slate-500">現在動作</div>
+            <div className="mt-1 text-2xl font-black text-white">{homeDecision}</div>
+            <div className="mt-2 text-sm font-bold text-slate-300">{homeAction}</div>
+          </div>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <DetailRow label="現在狀態" value={openStatus} tone={open910Tone(openStatus)} />
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="今日只看" value={`${focusRows.length} 檔`} tone="text-emerald-300" />
             <DetailRow label="不要碰" value={`${avoidAlerts.length} 檔`} tone="text-red-300" />
+            <DetailRow label="自選即時" value={`${favoriteStocks.length} 檔`} tone="text-cyan-300" />
           </div>
         </section>
 
-        <section className="mt-4 rounded-3xl border border-slate-800 bg-slate-950 p-4">
+        <section className="mt-4 grid grid-cols-3 gap-2">
+          <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-red-400/40 bg-red-950/25 p-4 text-left shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+            <div className="text-xs font-black text-red-300">RED</div>
+            <div className="mt-1 text-4xl font-black text-red-200">{redAlerts.length}</div>
+            <div className="mt-1 text-xs font-bold text-slate-400">先避開</div>
+          </button>
+
+          <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-yellow-400/40 bg-yellow-950/20 p-4 text-left shadow-[0_0_30px_rgba(234,179,8,0.12)]">
+            <div className="text-xs font-black text-yellow-300">YELLOW</div>
+            <div className="mt-1 text-4xl font-black text-yellow-200">{yellowAlerts.length}</div>
+            <div className="mt-1 text-xs font-bold text-slate-400">等確認</div>
+          </button>
+
+          <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-emerald-400/40 bg-emerald-950/20 p-4 text-left shadow-[0_0_30px_rgba(16,185,129,0.12)]">
+            <div className="text-xs font-black text-emerald-300">GREEN</div>
+            <div className="mt-1 text-4xl font-black text-emerald-200">{greenAlerts.length}</div>
+            <div className="mt-1 text-xs font-bold text-slate-400">可觀察</div>
+          </button>
+        </section>
+
+        <section className="mt-4 rounded-[1.8rem] border border-blue-400/30 bg-blue-950/20 p-4 shadow-[0_0_28px_rgba(59,130,246,0.12)]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-bold text-slate-500">紅黃綠燈總覽</div>
-              <div className="mt-1 text-xl font-black text-white">先避開紅燈，再看綠燈</div>
+              <div className="text-sm font-black text-blue-100">
+                即時狀態：{updating ? "更新中" : error ? "API錯誤" : usingCache ? "使用快取" : "即時正常"}
+              </div>
+              <div className="mt-1 text-xs font-bold text-slate-400">
+                最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
+              </div>
             </div>
-            <button onClick={() => setPopup("alerts")} className="rounded-2xl bg-red-500/20 px-3 py-2 text-xs font-black text-red-200">
-              看警報
-            </button>
-          </div>
-
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            <DetailRow label="紅燈" value={`${redAlerts.length}`} tone="text-red-300" />
-            <DetailRow label="黃燈" value={`${yellowAlerts.length}`} tone="text-yellow-300" />
-            <DetailRow label="綠燈" value={`${greenAlerts.length}`} tone="text-emerald-300" />
+            <div className="text-right text-xs font-bold text-cyan-300">
+              {source || "api/realtime"}<br />
+              {formatAmount(totalAmount)}
+            </div>
           </div>
         </section>
-
-        <section className="mt-4 rounded-3xl border border-blue-500/40 bg-blue-950/20 p-4">
-          <div className="text-lg font-black">
-            即時股價狀態：{updating ? "更新中" : error ? "API錯誤" : usingCache ? "使用快取" : "即時正常"}
-          </div>
-          <div className="mt-1 text-xs font-bold text-slate-400">
-            最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
-          </div>
-          <div className="mt-1 text-xs font-bold text-cyan-300">
-            資料源：{source || "api/realtime"}｜50強估算成交金額：{formatAmount(totalAmount)}
-          </div>
-        </section>
-
-        <section className="mt-4 grid grid-cols-2 gap-3">
-          <MiniCard title="今日只看" value={focusRows.length} sub="重點候選" tone="text-emerald-300" onClick={() => setPopup("entry")} />
-          <MiniCard title="不要碰" value={avoidAlerts.length} sub="先避開" tone="text-red-300" onClick={() => setPopup("avoid")} />
-          <MiniCard title="紅燈警報" value={redAlerts.length} sub="先處理風險" tone="text-red-300" onClick={() => setPopup("alerts")} />
-          <MiniCard title="自選即時" value={favoriteStocks.length} sub="每15秒更新" tone="text-cyan-300" onClick={() => setTab("favorite")} />
+        <section className="mt-4 grid grid-cols-4 gap-2">
+          <QuickActionButton title="快照" sub="9:10鎖定" onClick={createSnapshot} />
+          <QuickActionButton title="SOP" sub="開盤流程" onClick={() => setPopup("sop")} />
+          <QuickActionButton title="進場" sub="候選清單" onClick={() => setPopup("entry")} />
+          <QuickActionButton title="查詢" sub="全個股" onClick={() => setPopup("search")} />
         </section>
 
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
-              <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-5">
+              <NeonPanel className="border-emerald-400/35 shadow-[0_0_38px_rgba(16,185,129,0.16)]">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">今日只看這幾檔</h3>
-                  <button onClick={() => setPopup("entry")} className="rounded-2xl bg-emerald-500/20 px-3 py-2 text-xs font-black text-emerald-200">
+                  <div>
+                    <div className="text-xs font-black tracking-[0.18em] text-emerald-300">FOCUS LIST</div>
+                    <h3 className="mt-1 text-2xl font-black text-white">今日只看這幾檔</h3>
+                  </div>
+                  <button onClick={() => setPopup("entry")} className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200">
                     看全部
                   </button>
                 </div>
 
-                <div className="mt-3 space-y-3">
+                <div className="mt-4 space-y-3">
                   {focusRows.length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                    <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
                       目前沒有明確重點候選，先不要硬做。
                     </div>
                   )}
@@ -2388,19 +2466,22 @@ export default function App() {
                     );
                   })}
                 </div>
-              </section>
+              </NeonPanel>
 
-              <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-5">
+              <NeonPanel className="border-red-400/35 shadow-[0_0_38px_rgba(239,68,68,0.16)]">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-xl font-black">不要碰清單</h3>
-                  <button onClick={() => setPopup("avoid")} className="rounded-2xl bg-red-500/20 px-3 py-2 text-xs font-black text-red-200">
+                  <div>
+                    <div className="text-xs font-black tracking-[0.18em] text-red-300">AVOID LIST</div>
+                    <h3 className="mt-1 text-2xl font-black text-white">不要碰清單</h3>
+                  </div>
+                  <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
                     看全部
                   </button>
                 </div>
 
-                <div className="mt-3 space-y-3">
+                <div className="mt-4 space-y-3">
                   {avoidAlerts.length === 0 && (
-                    <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">
+                    <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
                       目前沒有明顯不要碰清單。
                     </div>
                   )}
@@ -2409,7 +2490,19 @@ export default function App() {
                     <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
                   ))}
                 </div>
-              </section>
+              </NeonPanel>
+
+              <NeonPanel>
+                <div className="text-xs font-black tracking-[0.18em] text-cyan-300">MORE TOOLS</div>
+                <h3 className="mt-1 text-2xl font-black text-white">快速功能</h3>
+
+                <div className="mt-4 grid grid-cols-2 gap-3">
+                  <MiniCard title="今日50強" value={top50.length} sub="完整排行" tone="text-red-300" onClick={() => setPopup("top50")} />
+                  <MiniCard title="主線產業" value={industryRanking.length} sub="產業強弱" tone="text-yellow-300" onClick={() => setPopup("industry")} />
+                  <MiniCard title="資金增加" value={moneyUpList.length} sub="資金流入" tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
+                  <MiniCard title="持倉" value={positionStats.count} sub="停利停損" tone="text-cyan-300" onClick={() => setPopup("positions")} />
+                </div>
+              </NeonPanel>
             </div>
           )}
           {tab === "top50" && (
@@ -2422,7 +2515,12 @@ export default function App() {
 
           {tab === "watch" && (
             <div className="space-y-3">
-              {watchStocks.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">目前沒有觀察股票。</div>}
+              {watchStocks.length === 0 && (
+                <div className="rounded-[1.6rem] border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                  目前沒有觀察股票。
+                </div>
+              )}
+
               {watchStocks.map((stock) => (
                 <SimpleStockButton
                   key={stock.code}
@@ -2438,7 +2536,12 @@ export default function App() {
 
           {tab === "favorite" && (
             <div className="space-y-3">
-              {favoriteStocks.length === 0 && <div className="rounded-2xl border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">目前沒有自選股。</div>}
+              {favoriteStocks.length === 0 && (
+                <div className="rounded-[1.6rem] border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
+                  目前沒有自選股。
+                </div>
+              )}
+
               {favoriteStocks.map((stock) => {
                 const firstAlert = allAlerts.find((alert) => alert.code === stock.code);
 
@@ -2474,10 +2577,9 @@ export default function App() {
           )}
         </section>
       </div>
-
       {popup === "alerts" && (
         <ModalShell title="盤中實戰警報中心" sub="紅燈先處理，綠燈只代表觀察機會" onClose={() => setPopup("")}>
-          <section className={`rounded-3xl border p-4 ${redAlerts.length > 0 ? "border-red-500/40 bg-red-950/20" : "border-emerald-500/40 bg-emerald-950/20"}`}>
+          <section className={`rounded-[1.8rem] border p-4 ${redAlerts.length > 0 ? "border-red-500/40 bg-red-950/20" : "border-emerald-500/40 bg-emerald-950/20"}`}>
             <div className="text-xs font-bold text-slate-300">警報摘要</div>
             <div className={`mt-1 text-2xl font-black ${redAlerts.length > 0 ? "text-red-300" : "text-emerald-300"}`}>
               {alertSummaryText(allAlerts)}
@@ -2523,7 +2625,7 @@ export default function App() {
 
       {popup === "avoid" && (
         <ModalShell title="不要碰清單" sub="跌破開盤、追高風險、爆量不漲、資金減少" onClose={() => setPopup("")}>
-          <section className="rounded-3xl border border-red-500/40 bg-red-950/20 p-4">
+          <section className="rounded-[1.8rem] border border-red-500/40 bg-red-950/20 p-4 shadow-[0_0_32px_rgba(239,68,68,0.16)]">
             <div className="text-xs font-bold text-red-300">先避開</div>
             <div className="mt-1 text-2xl font-black text-red-100">這些不是進場名單</div>
             <div className="mt-2 text-sm font-bold text-slate-300">出現紅燈時先保護本金，不要因為漲幅排行就追進去。</div>
@@ -2537,9 +2639,10 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+
       {popup === "sop" && (
         <ModalShell title="明日實戰SOP" sub="照順序做，不追高、不硬買" onClose={() => setPopup("")}>
-          <section className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <section className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4">
             <div className="text-xs font-bold text-cyan-300">現在動作</div>
             <div className="mt-1 text-2xl font-black text-white">{nowAction}</div>
           </section>
@@ -2554,7 +2657,7 @@ export default function App() {
 
       {popup === "entry" && (
         <ModalShell title="低風險進場候選" sub="可進場觀察 / 等回測 / 不建議" onClose={() => setPopup("")}>
-          <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-4">
+          <section className="rounded-[1.8rem] border border-emerald-500/40 bg-emerald-950/20 p-4">
             <div className="text-xs font-bold text-emerald-300">提醒</div>
             <div className="mt-1 text-2xl font-black text-emerald-100">這不是保證買進</div>
             <div className="mt-2 text-sm font-bold text-slate-300">
@@ -2581,23 +2684,12 @@ export default function App() {
               ))}
             </div>
           </section>
-
-          <section className="mt-4">
-            <div className="text-lg font-black text-red-100">不建議進場</div>
-            <div className="mt-3 space-y-3">
-              {entryBadList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有不建議進場清單。</div>}
-              {entryBadList.map((row) => (
-                <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
-              ))}
-            </div>
-          </section>
         </ModalShell>
       )}
-
       {popup === "snapshot" && (
         <ModalShell title="9:10鎖定快照" sub={snapshot ? `${snapshot.dateKey}｜${snapshot.createdAt}` : "尚未建立快照"} onClose={() => setPopup("")}>
           {!snapshot && (
-            <div className="rounded-3xl border border-yellow-500/40 bg-yellow-950/20 p-5">
+            <div className="rounded-[1.8rem] border border-yellow-500/40 bg-yellow-950/20 p-5">
               <div className="text-2xl font-black text-yellow-100">尚未鎖定快照</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
                 按下「鎖定快照」後，會保存目前前50強與進場候選清單。
@@ -2610,7 +2702,7 @@ export default function App() {
 
           {snapshot && (
             <>
-              <section className="rounded-3xl border border-emerald-500/40 bg-emerald-950/20 p-4">
+              <section className="rounded-[1.8rem] border border-emerald-500/40 bg-emerald-950/20 p-4">
                 <div className="grid grid-cols-2 gap-2">
                   <DetailRow label="可觀察成功率" value={`${snapshotPickRate.rate.toFixed(0)}%`} tone="text-emerald-300" />
                   <DetailRow label="不要碰警報率" value={`${snapshotAvoidRate.rate.toFixed(0)}%`} tone="text-red-300" />
@@ -2644,6 +2736,7 @@ export default function App() {
           )}
         </ModalShell>
       )}
+
       {["moneyUp", "moneyDown", "failed", "amount", "volume", "top50"].includes(popup) && (
         <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看詳情`} onClose={() => setPopup("")}>
           <div className="space-y-3">
@@ -2685,7 +2778,7 @@ export default function App() {
               <button
                 key={item.industry}
                 onClick={() => setIndustryPopup(item.industry)}
-                className="w-full rounded-3xl border border-slate-800 bg-slate-950 p-4 text-left active:scale-95"
+                className="w-full rounded-[1.7rem] border border-cyan-400/20 bg-slate-950/90 p-4 text-left shadow-[0_0_20px_rgba(34,211,238,0.08)] active:scale-95"
               >
                 <div className="text-xs font-bold text-slate-500">#{index + 1} 主線強弱排序</div>
                 <div className="mt-1 text-2xl font-black text-white">{item.industry}</div>
@@ -2698,7 +2791,6 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-
       {industryPopup && (
         <ModalShell title={`${industryPopup} 主線個股`} sub="該產業內資金排序" onClose={() => setIndustryPopup("")} z={110}>
           <div className="space-y-3">
@@ -2728,7 +2820,7 @@ export default function App() {
 
       {popup === "positions" && (
         <ModalShell title="持倉總表風險雷達" sub="你的買進價、損益、停利、停損集中看" onClose={() => setPopup("")}>
-          <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <div className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
             <div className="grid grid-cols-2 gap-2">
               <DetailRow label="持倉檔數" value={`${positionStats.count} 檔`} tone="text-cyan-300" />
               <DetailRow
@@ -2773,9 +2865,10 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+
       {popup === "search" && (
         <ModalShell title="全個股查詢" sub="輸入代號或中文名稱" onClose={() => setPopup("")}>
-          <div className="rounded-3xl border border-cyan-500/40 bg-cyan-950/20 p-4">
+          <div className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
             <div className="flex gap-2">
               <input
                 value={queryText}
@@ -2814,7 +2907,6 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-
       {popup === "settings" && (
         <ModalShell title="設定" sub="主線確認與更新頻率" onClose={() => setPopup("")}>
           <div className="space-y-4">
@@ -2831,7 +2923,7 @@ export default function App() {
                     key={String(value)}
                     onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })}
                     className={`rounded-2xl py-3 text-sm font-black ${
-                      settings.refreshSeconds === Number(value) ? "bg-purple-500 text-white" : "bg-black/30 text-slate-300"
+                      settings.refreshSeconds === Number(value) ? "bg-cyan-500 text-white shadow-[0_0_24px_rgba(34,211,238,0.28)]" : "bg-black/30 text-slate-300"
                     }`}
                   >
                     {label}
@@ -2859,7 +2951,7 @@ export default function App() {
 
       {selectedStock && (
         <>
-          <div className="fixed right-4 top-24 z-[140] rounded-2xl bg-black/80 px-3 py-2 text-xs font-black text-cyan-200">
+          <div className="fixed right-4 top-24 z-[140] rounded-2xl border border-cyan-400/30 bg-black/80 px-3 py-2 text-xs font-black text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
             個股即時資料
           </div>
 
@@ -2888,7 +2980,7 @@ export default function App() {
         </>
       )}
 
-      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-slate-800 bg-black/90 px-3 pb-8 pt-3 backdrop-blur">
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-cyan-400/20 bg-black/90 px-3 pb-8 pt-3 backdrop-blur">
         <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1 text-center">
           {[
             ["home", "📊", "首頁"],
@@ -2906,7 +2998,11 @@ export default function App() {
                 setTab(key as TabKey);
                 jumpToContent();
               }}
-              className={`rounded-2xl py-2 text-xs font-black ${tab === key ? "bg-slate-800 text-yellow-300" : "text-slate-400"}`}
+              className={`rounded-2xl py-2 text-xs font-black ${
+                tab === key
+                  ? "border border-cyan-400/30 bg-cyan-500/15 text-cyan-200 shadow-[0_0_18px_rgba(34,211,238,0.18)]"
+                  : "text-slate-400"
+              }`}
             >
               <div className="text-xl">{icon}</div>
               {label}
