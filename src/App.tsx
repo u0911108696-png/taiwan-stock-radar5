@@ -2439,6 +2439,80 @@ export default function App() {
     }
   }
 
+    async function refreshOneStock(code: string, silent = true) {
+    const clean = cleanCode(code);
+    if (!clean) return null;
+
+    try {
+      const response = await fetch(`${SEARCH_API_URL}?q=${encodeURIComponent(clean)}&t=${Date.now()}`, { cache: "no-store" });
+      const json = await response.json();
+
+      if (!json.ok || !json.stock) {
+        if (!silent) setQueryMessage(json.message || "查無資料，請確認代號或名稱。");
+        return null;
+      }
+
+      const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
+
+      setStocks((old) => {
+        const exists = old.some((item) => item.code === stock.code);
+
+        if (!exists) return old;
+
+        return old
+          .map((item) => (item.code === stock.code ? { ...item, ...stock } : item))
+          .sort((a, b) => b.changePercent - a.changePercent);
+      });
+
+      setSearchHistory((old) => {
+        const next = Array.from(
+          new Map([{ ...stock, name: stockDisplayName(stock) }, ...old].map((item) => [item.code, item])).values()
+        ).slice(0, 20);
+
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+        return next;
+      });
+
+      setPreviousPriceMap((old) => ({
+        ...old,
+        [stock.code]: lastPriceMap[stock.code] || stock.price,
+      }));
+
+      setLastPriceMap((old) => {
+        const oldPrice = old[stock.code];
+
+        setPriceDirections((directionOld) => ({
+          ...directionOld,
+          [stock.code]:
+            oldPrice === undefined
+              ? "new"
+              : stock.price > oldPrice
+                ? "up"
+                : stock.price < oldPrice
+                  ? "down"
+                  : "same",
+        }));
+
+        return {
+          ...old,
+          [stock.code]: stock.price,
+        };
+      });
+
+      setLastSuccessAt(nowText());
+
+      if (!silent) {
+        setSelectedCode(stock.code);
+        setQueryMessage(`已更新 ${stock.code} ${stockDisplayName(stock)}`);
+      }
+
+      return stock;
+    } catch (err: any) {
+      if (!silent) setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
+      return null;
+    }
+  }
+
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -2451,29 +2525,27 @@ export default function App() {
       setQueryLoading(true);
       setQueryMessage("");
 
-      const response = await fetch(`${SEARCH_API_URL}?q=${encodeURIComponent(q)}&t=${Date.now()}`, { cache: "no-store" });
-      const json = await response.json();
+      const stock = await refreshOneStock(q, false);
 
-      if (!json.ok || !json.stock) {
-        setQueryMessage(json.message || "查無資料，請確認代號或名稱。");
+      if (!stock) {
+        setQueryMessage("查無資料，請確認代號或名稱。");
         return;
       }
-
-      const stock = normalizeStock(json.stock, json.stock.updatedAt || nowText());
-      saveSearchHistory([stock, ...searchHistory]);
-
-      setPreviousPriceMap((old) => ({ ...old, [stock.code]: old[stock.code] || stock.price }));
-      setLastPriceMap((old) => ({ ...old, [stock.code]: stock.price }));
-      setPriceDirections((old) => ({ ...old, [stock.code]: "new" }));
-      setSelectedCode(stock.code);
-      setQueryMessage(`已查到 ${stock.code} ${stockDisplayName(stock)}`);
-    } catch (err: any) {
-      setQueryMessage(err?.message || "查詢失敗，請稍後再試。");
     } finally {
       setQueryLoading(false);
     }
   }
+  useEffect(() => {
+    if (!selectedCode) return;
 
+    refreshOneStock(selectedCode, true);
+
+    const timer = window.setInterval(() => {
+      refreshOneStock(selectedCode, true);
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [selectedCode]);
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, sneakyHistory, moneyHistory);
