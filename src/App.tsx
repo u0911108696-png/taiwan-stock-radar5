@@ -2337,6 +2337,27 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
+  useEffect(() => {
+    if (!selectedCode) return;
+
+    let cancelled = false;
+
+    const run = async () => {
+      if (cancelled) return;
+      await refreshOneStock(selectedCode);
+    };
+
+    run();
+
+    const timer = window.setInterval(() => {
+      run();
+    }, 5000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [selectedCode]);
   return (
     <div className="min-h-screen overflow-x-hidden bg-black text-white">
       <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_90%_15%,rgba(239,68,68,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.12),transparent_30%)]" />
