@@ -1849,6 +1849,16 @@ function StockQuickModal({
 
         <button
           onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
+                <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => openStockKline(stock.code)}
+          className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200"
+        >
+          📈 K線資料
+        </button>
+
+        <button
+          onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
           className={`rounded-2xl py-3 text-sm font-black ${isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"}`}
         >
           {isWatch ? "📌 移除觀察" : "📌 加入觀察"}
