@@ -349,7 +349,13 @@ function cleanCode(value: string) {
 function stockDisplayName(stock: { code: string; name?: string }) {
   return codeToChineseName[stock.code] || stock.name || stock.code;
 }
+function stockKlineUrl(code: string) {
+  return `https://tw.stock.yahoo.com/quote/${code}.TW`;
+}
 
+function openStockKline(code: string) {
+  window.open(stockKlineUrl(code), "_blank", "noopener,noreferrer");
+}
 function formatPrice(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toFixed(2);
@@ -1833,6 +1839,14 @@ function StockQuickModal({
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => openStockKline(stock.code)}
+          className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200"
+        >
+          📈 K線資料
+        </button>
+
         <button
           onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
           className={`rounded-2xl py-3 text-sm font-black ${isWatch ? "bg-cyan-500/20 text-cyan-300" : "bg-slate-800 text-slate-200"}`}
@@ -1842,7 +1856,7 @@ function StockQuickModal({
 
         <button
           onClick={() => (isFavorite ? onRemoveFavorite(stock.code) : onAddFavorite(stock.code))}
-          className={`rounded-2xl py-3 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}
+          className={`col-span-2 rounded-2xl py-3 text-sm font-black ${isFavorite ? "bg-yellow-500/20 text-yellow-300" : "bg-slate-800 text-slate-200"}`}
         >
           {isFavorite ? "★ 移除自選" : "☆ 加入自選"}
         </button>
