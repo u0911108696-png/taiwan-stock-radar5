@@ -17,6 +17,15 @@ type Stock = {
   stableNote?: string;
 };
 
+type KlineCandle = {
+  time: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+};
+
 type Position = {
   code: string;
   buyPrice: number;
@@ -155,16 +164,17 @@ type AlertItem = {
 
 const API_URL = "/api/realtime";
 const SEARCH_API_URL = "/api/search";
+const KLINE_API_URL = "/api/kline";
 
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
 
-const SETTINGS_KEY = "taiwan-stock-radar-v64-settings";
-const CACHE_KEY = "taiwan-stock-radar-v64-cache";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-v64-money-history";
-const SNAPSHOT_KEY = "taiwan-stock-radar-v64-snapshot";
+const SETTINGS_KEY = "taiwan-stock-radar-v65-settings";
+const CACHE_KEY = "taiwan-stock-radar-v65-cache";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-v65-money-history";
+const SNAPSHOT_KEY = "taiwan-stock-radar-v65-snapshot";
 
 const defaultSettings: Settings = {
   refreshSeconds: 15,
@@ -223,6 +233,7 @@ const codeToChineseName: Record<string, string> = {
   "2615": "萬海",
   "2618": "長榮航",
   "3042": "晶技",
+  "2327": "國巨",
 };
 
 const industryMap: Record<string, string> = {
@@ -247,6 +258,7 @@ const industryMap: Record<string, string> = {
   "2409": "面板",
 
   "3042": "其他",
+  "2327": "被動元件",
 
   "2382": "AI伺服器",
   "3231": "AI伺服器",
@@ -349,13 +361,7 @@ function cleanCode(value: string) {
 function stockDisplayName(stock: { code: string; name?: string }) {
   return codeToChineseName[stock.code] || stock.name || stock.code;
 }
-function stockKlineUrl(code: string) {
-  return `https://tw.stock.yahoo.com/quote/${code}.TW`;
-}
 
-function openStockKline(code: string) {
-  window.open(stockKlineUrl(code), "_blank", "noopener,noreferrer");
-}
 function formatPrice(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "--";
   return value.toFixed(2);
@@ -486,7 +492,6 @@ function stableMergeStock(next: Stock, old?: Stock): Stock {
 
 function stableMergeList(nextList: Stock[], oldList: Stock[]) {
   const oldMap = new Map(oldList.map((stock) => [stock.code, stock]));
-
   return nextList.map((next) => stableMergeStock(next, oldMap.get(next.code)));
 }
 function openingPremium(stock: Stock) {
@@ -608,6 +613,7 @@ function moneyTrendTone(label: MoneyTrend | string) {
   if (label === "資金開始減少") return "text-red-300";
   return "text-slate-300";
 }
+
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
 
@@ -622,7 +628,6 @@ function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
 function isOverheat(stock: Stock, settings: Settings) {
   return stock.changePercent >= settings.hotPercent || openingPremium(stock) >= 6 || afterOpenPercent(stock) >= 4;
 }
-
 function isFail(stock: Stock, list: Stock[], settings: Settings) {
   const pv = priceVolumeState(stock, list, settings);
   return pv === "轉弱退潮" || pv === "爆量不漲" || stock.price < stock.openPrice || stock.changePercent < 0;
@@ -1140,7 +1145,7 @@ function makeSopSteps(openStatus: string, entryGoodCount: number, alertRedCount:
     {
       title: "9:10後先鎖定快照",
       status: snapshot ? "做" : canTrade ? "等" : "等",
-      detail: snapshot ? `已鎖定 ${snapshot.createdAt}` : "9:10後按「鎖定快照」，保留當下名單。",
+      detail: snapshot ? `已鎖定 ${snapshot.createdAt}` : "9:10後會自動快照，也可以手動鎖定。",
     },
     {
       title: "只看今日重點股票",
@@ -1633,6 +1638,192 @@ function QuickActionButton({
     </button>
   );
 }
+function KlineModal({
+  stock,
+  onClose,
+}: {
+  stock: Stock;
+  onClose: () => void;
+}) {
+  const [candles, setCandles] = useState<KlineCandle[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function loadKline() {
+    try {
+      setLoading(true);
+      setMessage("");
+
+      const response = await fetch(`${KLINE_API_URL}?code=${encodeURIComponent(stock.code)}&t=${Date.now()}`, {
+        cache: "no-store",
+      });
+
+      const json = await response.json();
+
+      if (!json.ok || !Array.isArray(json.candles) || json.candles.length === 0) {
+        throw new Error(json.message || "K線資料不足");
+      }
+
+      setCandles(json.candles);
+    } catch (err: any) {
+      setMessage(err?.message || "K線載入失敗");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadKline();
+  }, [stock.code]);
+
+  const chartData = candles.slice(-40);
+  const last = chartData[chartData.length - 1];
+  const prev = chartData[chartData.length - 2];
+
+  const maxHigh = chartData.length ? Math.max(...chartData.map((c) => c.high), stock.price) : stock.price;
+  const minLow = chartData.length ? Math.min(...chartData.map((c) => c.low), stock.price) : stock.price;
+  const maxVolume = chartData.length ? Math.max(...chartData.map((c) => c.volume), 1) : 1;
+
+  const width = 340;
+  const height = 230;
+  const priceTop = 16;
+  const priceHeight = 150;
+  const volumeTop = 180;
+  const volumeHeight = 38;
+  const gap = Math.max(6, width / Math.max(chartData.length, 1));
+  const candleWidth = Math.max(3, Math.min(8, gap * 0.55));
+
+  function yPrice(price: number) {
+    if (maxHigh === minLow) return priceTop + priceHeight / 2;
+    return priceTop + ((maxHigh - price) / (maxHigh - minLow)) * priceHeight;
+  }
+
+  function yVolume(volume: number) {
+    return volumeTop + volumeHeight - (volume / maxVolume) * volumeHeight;
+  }
+
+  const ma5 = chartData.map((_, index) => {
+    const part = chartData.slice(Math.max(0, index - 4), index + 1);
+    return part.reduce((sum, item) => sum + item.close, 0) / part.length;
+  });
+
+  const ma10 = chartData.map((_, index) => {
+    const part = chartData.slice(Math.max(0, index - 9), index + 1);
+    return part.reduce((sum, item) => sum + item.close, 0) / part.length;
+  });
+
+  const ma5Path = ma5
+    .map((value, index) => {
+      const x = index * gap + gap / 2;
+      const y = yPrice(value);
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  const ma10Path = ma10
+    .map((value, index) => {
+      const x = index * gap + gap / 2;
+      const y = yPrice(value);
+      return `${index === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
+    })
+    .join(" ");
+
+  const change = last && prev ? ((last.close - prev.close) / prev.close) * 100 : 0;
+  const trend = last && last.close >= last.open ? "日K收紅" : last ? "日K收黑" : "等待資料";
+
+  return (
+    <ModalShell title={`${stockDisplayName(stock)} K線圖`} sub={`${stock.code}｜內建日K線`} onClose={onClose} z={150}>
+      <section className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-black text-cyan-300">KLINE CHART</div>
+            <div className="mt-1 text-3xl font-black text-white">{formatPrice(stock.price)}</div>
+          </div>
+
+          <div className="text-right">
+            <div className={stock.changePercent >= 0 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-emerald-300"}>
+              {formatPercent(stock.changePercent)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">{sourceLabel(stock.priceSource)}</div>
+          </div>
+        </div>
+
+        <DataBadge stock={stock} />
+      </section>
+
+      <section className="mt-4 rounded-[1.8rem] border border-slate-700 bg-black/40 p-3">
+        {loading && <div className="p-8 text-center text-sm font-black text-cyan-300">K線載入中...</div>}
+
+        {!loading && message && (
+          <div className="p-8 text-center">
+            <div className="text-lg font-black text-red-300">{message}</div>
+            <button onClick={loadKline} className="mt-4 rounded-2xl bg-cyan-500 px-5 py-3 text-sm font-black text-white">
+              重新載入
+            </button>
+          </div>
+        )}
+
+        {!loading && !message && chartData.length > 0 && (
+          <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full">
+            <line x1="0" y1={yPrice(maxHigh)} x2={width} y2={yPrice(maxHigh)} stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
+            <line x1="0" y1={yPrice(minLow)} x2={width} y2={yPrice(minLow)} stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
+            <line x1="0" y1={volumeTop} x2={width} y2={volumeTop} stroke="rgba(148,163,184,0.2)" strokeWidth="1" />
+
+            {chartData.map((candle, index) => {
+              const x = index * gap + gap / 2;
+              const openY = yPrice(candle.open);
+              const closeY = yPrice(candle.close);
+              const highY = yPrice(candle.high);
+              const lowY = yPrice(candle.low);
+              const isUp = candle.close >= candle.open;
+              const bodyY = Math.min(openY, closeY);
+              const bodyH = Math.max(2, Math.abs(closeY - openY));
+              const stroke = isUp ? "#fca5a5" : "#6ee7b7";
+              const fill = isUp ? "rgba(248,113,113,0.45)" : "rgba(52,211,153,0.45)";
+              const volumeY = yVolume(candle.volume);
+              const volumeH = volumeTop + volumeHeight - volumeY;
+
+              return (
+                <g key={`${candle.time}-${index}`}>
+                  <line x1={x} y1={highY} x2={x} y2={lowY} stroke={stroke} strokeWidth="1.5" />
+                  <rect x={x - candleWidth / 2} y={bodyY} width={candleWidth} height={bodyH} rx="1" fill={fill} stroke={stroke} strokeWidth="1" />
+                  <rect x={x - candleWidth / 2} y={volumeY} width={candleWidth} height={Math.max(1, volumeH)} fill={fill} />
+                </g>
+              );
+            })}
+
+            {ma5Path && <path d={ma5Path} fill="none" stroke="#fde047" strokeWidth="1.6" />}
+            {ma10Path && <path d={ma10Path} fill="none" stroke="#38bdf8" strokeWidth="1.6" />}
+
+            <text x="4" y="12" fill="#94a3b8" fontSize="10">
+              高 {formatPrice(maxHigh)}
+            </text>
+            <text x="4" y={priceTop + priceHeight + 12} fill="#94a3b8" fontSize="10">
+              低 {formatPrice(minLow)}
+            </text>
+          </svg>
+        )}
+      </section>
+
+      <section className="mt-4 grid grid-cols-2 gap-2">
+        <DetailRow label="K線狀態" value={trend} tone={last && last.close >= last.open ? "text-red-300" : "text-emerald-300"} />
+        <DetailRow label="日漲跌" value={formatPercent(change)} tone={change >= 0 ? "text-red-300" : "text-emerald-300"} />
+        <DetailRow label="MA5" value={ma5.length ? formatPrice(ma5[ma5.length - 1]) : "--"} tone="text-yellow-300" />
+        <DetailRow label="MA10" value={ma10.length ? formatPrice(ma10[ma10.length - 1]) : "--"} tone="text-cyan-300" />
+      </section>
+
+      <section className="mt-4 rounded-[1.6rem] border border-yellow-500/30 bg-yellow-950/20 p-4">
+        <div className="text-lg font-black text-yellow-100">實戰看法</div>
+        <div className="mt-2 text-sm font-bold leading-6 text-slate-300">
+          1. 紅K站上 MA5 / MA10，短線偏強。<br />
+          2. 長紅離均線太遠，不追高，等回測。<br />
+          3. 跌破 MA5 且量縮，先降低部位。<br />
+          4. 跌破 MA10 或 ATR 線，優先保護本金。
+        </div>
+      </section>
+    </ModalShell>
+  );
+}
 function StockQuickModal({
   stock,
   top50,
@@ -1654,6 +1845,7 @@ function StockQuickModal({
   onRemoveFavorite,
   onAddWatch,
   onRemoveWatch,
+  onOpenKline,
 }: {
   stock: Stock;
   top50: Stock[];
@@ -1675,6 +1867,7 @@ function StockQuickModal({
   onRemoveFavorite: (code: string) => void;
   onAddWatch: (code: string) => void;
   onRemoveWatch: (code: string) => void;
+  onOpenKline: (code: string) => void;
 }) {
   const [buyPriceText, setBuyPriceText] = useState(position?.buyPrice ? String(position.buyPrice) : "");
   const [sharesText, setSharesText] = useState(position?.shares ? String(position.shares) : "");
@@ -1839,16 +2032,14 @@ function StockQuickModal({
       </section>
 
       <div className="mt-4 grid grid-cols-2 gap-2">
-              <div className="mt-4 grid grid-cols-2 gap-2">
-
         <button
-          onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
-                <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          onClick={() => openStockKline(stock.code)}
+          onClick={() => {
+            onClose();
+            setTimeout(() => onOpenKline(stock.code), 80);
+          }}
           className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200"
         >
-          📈 K線資料
+          📈 內建K線
         </button>
 
         <button
@@ -1879,6 +2070,7 @@ export default function App() {
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
+  const [selectedKlineCode, setSelectedKlineCode] = useState("");
   const [industryPopup, setIndustryPopup] = useState("");
 
   const [favoriteCodes, setFavoriteCodes] = useState<string[]>([]);
@@ -1935,6 +2127,11 @@ export default function App() {
   const selectedStock = useMemo(
     () => stocks.find((s) => s.code === selectedCode) || searchHistory.find((s) => s.code === selectedCode) || null,
     [stocks, searchHistory, selectedCode]
+  );
+
+  const selectedKlineStock = useMemo(
+    () => stocks.find((s) => s.code === selectedKlineCode) || searchHistory.find((s) => s.code === selectedKlineCode) || null,
+    [stocks, searchHistory, selectedKlineCode]
   );
 
   const entryRows = useMemo(() => {
@@ -2173,6 +2370,7 @@ export default function App() {
       return next;
     });
   }
+
   function createSnapshot() {
     if (top50.length === 0) {
       alert("目前沒有資料，請先更新。");
@@ -2198,7 +2396,6 @@ export default function App() {
     setSnapshot(null);
     localStorage.removeItem(SNAPSHOT_KEY);
   }
-
   async function loadStocks() {
     try {
       setUpdating(true);
@@ -2276,7 +2473,7 @@ export default function App() {
     }
   }
 
-    async function refreshOneStock(code: string) {
+  async function refreshOneStock(code: string) {
     const raw = String(code || "").trim();
     const onlyCode = cleanCode(raw);
     const q = onlyCode || raw;
@@ -2342,6 +2539,7 @@ export default function App() {
       return null;
     }
   }
+
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -2369,7 +2567,6 @@ export default function App() {
       setQueryLoading(false);
     }
   }
-
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, moneyHistory);
@@ -2480,6 +2677,7 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
+
   useEffect(() => {
     if (!selectedCode) return;
 
@@ -2501,7 +2699,6 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, [selectedCode]);
-
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = new Date();
@@ -2544,10 +2741,10 @@ export default function App() {
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v64</div>
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v65</div>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
-                即時資料穩定保護｜防跳價｜來源標示｜自選5秒刷新
+                內建K線圖｜MA5 / MA10｜成交量｜即時資料穩定保護
               </p>
             </div>
 
@@ -2768,7 +2965,6 @@ export default function App() {
           )}
         </section>
       </div>
-
       {popup === "alerts" && (
         <ModalShell title="盤中實戰警報中心" sub="紅燈先處理，綠燈只代表觀察機會" onClose={() => setPopup("")}>
           <section className={`rounded-[1.8rem] border p-4 ${redAlerts.length > 0 ? "border-red-500/40 bg-red-950/20" : "border-emerald-500/40 bg-emerald-950/20"}`}>
@@ -2814,6 +3010,7 @@ export default function App() {
           </section>
         </ModalShell>
       )}
+
       {popup === "avoid" && (
         <ModalShell title="不要碰清單" sub="跌破開盤、追高風險、爆量不漲、資金減少" onClose={() => setPopup("")}>
           <section className="rounded-[1.8rem] border border-red-500/40 bg-red-950/20 p-4 shadow-[0_0_32px_rgba(239,68,68,0.16)]">
@@ -2845,7 +3042,6 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-
       {popup === "entry" && (
         <ModalShell title="低風險進場候選" sub="可進場觀察 / 等回測 / 不建議" onClose={() => setPopup("")}>
           <section className="rounded-[1.8rem] border border-emerald-500/40 bg-emerald-950/20 p-4">
@@ -2894,7 +3090,7 @@ export default function App() {
             <div className="rounded-[1.8rem] border border-yellow-500/40 bg-yellow-950/20 p-5">
               <div className="text-2xl font-black text-yellow-100">尚未鎖定快照</div>
               <div className="mt-2 text-sm font-bold text-slate-300">
-                按下「鎖定快照」後，會保存目前前50強與進場候選清單。
+                每天 09:10 會自動保存，也可以手動按下鎖定。
               </div>
               <button onClick={createSnapshot} className="mt-4 w-full rounded-2xl bg-emerald-500 py-3 text-sm font-black text-white">
                 鎖定快照
@@ -3152,6 +3348,13 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+      {selectedKlineStock && (
+        <KlineModal
+          stock={selectedKlineStock}
+          onClose={() => setSelectedKlineCode("")}
+        />
+      )}
+
       {selectedStock && (
         <>
           <div className="fixed right-4 top-24 z-[140] rounded-2xl border border-cyan-400/30 bg-black/80 px-3 py-2 text-xs font-black text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
@@ -3179,6 +3382,10 @@ export default function App() {
             onRemoveFavorite={(code) => saveFavorites(favoriteCodes.filter((item) => item !== code))}
             onAddWatch={(code) => saveWatch([...watchCodes, code])}
             onRemoveWatch={(code) => saveWatch(watchCodes.filter((item) => item !== code))}
+            onOpenKline={(code) => {
+              setSelectedCode("");
+              setSelectedKlineCode(code);
+            }}
           />
         </>
       )}
@@ -3196,6 +3403,7 @@ export default function App() {
               key={key}
               onClick={() => {
                 setSelectedCode("");
+                setSelectedKlineCode("");
                 setPopup("");
                 setIndustryPopup("");
                 setTab(key as TabKey);
