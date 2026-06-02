@@ -52,14 +52,6 @@ const industryMap = {
   "2330": "半導體",
   "2303": "半導體",
   "2454": "半導體",
-  "3034": "半導體",
-  "3035": "半導體",
-  "3443": "半導體",
-  "3661": "半導體",
-  "2379": "半導體",
-  "6415": "半導體",
-  "6770": "半導體",
-  "3711": "半導體",
   "8299": "半導體",
 
   "2344": "記憶體",
@@ -178,6 +170,7 @@ function normalizeTwseRow(row) {
     highPrice,
     lowPrice,
     updatedAt: twseDateTime(row),
+    priceSource: "TWSE z",
   };
 }
 
@@ -236,6 +229,113 @@ async function fetchTwseBatch(codes) {
   return Array.from(map.values());
 }
 
+async function fetchYahooOne(code) {
+  const symbol = `${code}.TW`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1m&range=1d&_=${Date.now()}`;
+
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Cache-Control": "no-cache",
+      "Pragma": "no-cache",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Yahoo HTTP ${response.status}`);
+  }
+
+  const json = await response.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) {
+    throw new Error("Yahoo 查無資料");
+  }
+
+  const meta = result.meta || {};
+  const quote = result.indicators?.quote?.[0] || {};
+  const closes = quote.close || [];
+  const opens = quote.open || [];
+  const highs = quote.high || [];
+  const lows = quote.low || [];
+  const volumes = quote.volume || [];
+  const timestamps = result.timestamp || [];
+
+  let idx = closes.length - 1;
+
+  while (
+    idx >= 0 &&
+    (!Number.isFinite(Number(closes[idx])) || Number(closes[idx]) <= 0)
+  ) {
+    idx -= 1;
+  }
+
+  if (idx < 0) {
+    throw new Error("Yahoo 無有效收盤價");
+  }
+
+  const price = Number(closes[idx]);
+  const previousClose = toNumber(
+    meta.chartPreviousClose ||
+      meta.previousClose ||
+      meta.regularMarketPreviousClose
+  );
+
+  const firstOpen = opens.find((x) => Number(x) > 0);
+  const openPrice = Number(firstOpen) || price;
+
+  const validHighs = highs.filter((x) => Number(x) > 0).map(Number);
+  const validLows = lows.filter((x) => Number(x) > 0).map(Number);
+
+  const highPrice = validHighs.length
+    ? Math.max(price, ...validHighs)
+    : Math.max(price, openPrice, previousClose || price);
+
+  const lowPrice = validLows.length
+    ? Math.min(price, ...validLows)
+    : Math.min(price, openPrice || price, previousClose || price);
+
+  const volume = Number(volumes[idx] || 0);
+
+  const updatedAt = timestamps[idx]
+    ? new Date(timestamps[idx] * 1000).toLocaleString("sv-SE", {
+        timeZone: "Asia/Taipei",
+        hour12: false,
+      })
+    : taiwanNowText();
+
+  return {
+    code,
+    name: codeToChineseName[code] || code,
+    price,
+    changePercent:
+      previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0,
+    volume,
+    openPrice,
+    previousClose,
+    openPremiumPercent:
+      previousClose > 0 && openPrice > 0
+        ? ((openPrice - previousClose) / previousClose) * 100
+        : null,
+    industry: industryMap[code] || "其他",
+    highPrice,
+    lowPrice,
+    updatedAt,
+    priceSource: "Yahoo 1m close",
+  };
+}
+
+async function fetchYahooMissing(codes, existsMap) {
+  const missing = codes.filter((code) => !existsMap.has(code));
+
+  const results = await Promise.allSettled(
+    missing.map((code) => fetchYahooOne(code))
+  );
+
+  return results
+    .filter((item) => item.status === "fulfilled" && item.value?.price > 0)
+    .map((item) => item.value);
+}
+
 function safeTop50(list) {
   return list
     .filter((stock) => stock.code && stock.price > 0 && Number.isFinite(stock.changePercent))
@@ -255,18 +355,35 @@ export default async function handler(req, res) {
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 
   try {
-    const stocks = await fetchTwseBatch(watchCodes);
-    const rankedStocks = safeTop50(stocks);
+    const twseStocks = await fetchTwseBatch(watchCodes);
+    const map = new Map();
+
+    twseStocks.forEach((stock) => {
+      map.set(stock.code, stock);
+    });
+
+    const yahooFallbackStocks = await fetchYahooMissing(watchCodes, map);
+
+    yahooFallbackStocks.forEach((stock) => {
+      if (!map.has(stock.code)) {
+        map.set(stock.code, stock);
+      }
+    });
+
+    const allStocks = Array.from(map.values());
+    const rankedStocks = safeTop50(allStocks);
 
     if (rankedStocks.length === 0) {
-      throw new Error("TWSE MIS 回傳空資料或沒有 z 即時成交價");
+      throw new Error("TWSE / Yahoo 都沒有有效即時資料");
     }
 
     return res.status(200).json({
       ok: true,
-      source: "TWSE MIS realtime batch z-only v62",
+      source: "TWSE z + Yahoo 1m safe fallback v63",
       updatedAtTaiwan: taiwanNowText(),
       count: rankedStocks.length,
+      twseCount: twseStocks.length,
+      yahooFallbackCount: yahooFallbackStocks.length,
       rankedStocks,
       stocks: rankedStocks,
       data: rankedStocks,
@@ -274,8 +391,8 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(200).json({
       ok: false,
-      source: "realtime v62 failed",
-      message: "TWSE MIS 即時批次資料取得失敗",
+      source: "realtime v63 failed",
+      message: "即時批次資料取得失敗",
       error: err?.message || String(err),
       updatedAtTaiwan: taiwanNowText(),
       count: 0,
