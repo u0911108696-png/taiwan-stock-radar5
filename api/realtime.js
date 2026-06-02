@@ -142,13 +142,11 @@ function twseDateTime(row) {
 
 function normalizeTwseRow(row) {
   const code = String(row.c || "").trim();
+  const price = toNumber(row.z);
 
-  const price =
-    toNumber(row.z) ||
-    toNumber(row.a?.split("_")?.[0]) ||
-    toNumber(row.b?.split("_")?.[0]) ||
-    toNumber(row.o) ||
-    toNumber(row.y);
+  if (!code || !price || price <= 0) {
+    return null;
+  }
 
   const previousClose = toNumber(row.y);
   const openPrice = toNumber(row.o) || price;
@@ -220,20 +218,18 @@ async function fetchTwseBatch(codes) {
   const map = new Map();
 
   allRows.forEach((row) => {
-    const code = String(row.c || "").trim();
     const stock = normalizeTwseRow(row);
+    if (!stock) return;
 
-    if (!code || !stock.price || stock.price <= 0) return;
-
-    const old = map.get(code);
+    const old = map.get(stock.code);
 
     if (!old) {
-      map.set(code, stock);
+      map.set(stock.code, stock);
       return;
     }
 
     if (stock.volume >= old.volume || stock.updatedAt >= old.updatedAt) {
-      map.set(code, stock);
+      map.set(stock.code, stock);
     }
   });
 
@@ -251,7 +247,10 @@ function safeTop50(list) {
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.setHeader("CDN-Cache-Control", "no-store");
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 
@@ -260,12 +259,12 @@ export default async function handler(req, res) {
     const rankedStocks = safeTop50(stocks);
 
     if (rankedStocks.length === 0) {
-      throw new Error("TWSE MIS 回傳空資料");
+      throw new Error("TWSE MIS 回傳空資料或沒有 z 即時成交價");
     }
 
     return res.status(200).json({
       ok: true,
-      source: "TWSE MIS realtime batch v60",
+      source: "TWSE MIS realtime batch z-only v62",
       updatedAtTaiwan: taiwanNowText(),
       count: rankedStocks.length,
       rankedStocks,
@@ -275,7 +274,7 @@ export default async function handler(req, res) {
   } catch (err) {
     return res.status(200).json({
       ok: false,
-      source: "realtime v60 failed",
+      source: "realtime v62 failed",
       message: "TWSE MIS 即時批次資料取得失敗",
       error: err?.message || String(err),
       updatedAtTaiwan: taiwanNowText(),
