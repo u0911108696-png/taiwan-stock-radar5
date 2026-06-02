@@ -5,12 +5,6 @@ function taiwanNowText() {
   });
 }
 
-function todayKeyTaiwan() {
-  return new Date().toLocaleDateString("sv-SE", {
-    timeZone: "Asia/Taipei",
-  });
-}
-
 function toNumber(value, fallback = 0) {
   if (value === undefined || value === null) return fallback;
   const text = String(value).replace(/,/g, "").trim();
@@ -144,12 +138,11 @@ function twseDateTime(row) {
 }
 
 function normalizeTwseRow(row, code) {
-  const price =
-    toNumber(row.z) ||
-    toNumber(row.a?.split("_")?.[0]) ||
-    toNumber(row.b?.split("_")?.[0]) ||
-    toNumber(row.o) ||
-    toNumber(row.y);
+  const price = toNumber(row.z);
+
+  if (!price || price <= 0) {
+    throw new Error("TWSE MIS 沒有即時成交價 z");
+  }
 
   const previousClose = toNumber(row.y);
   const openPrice = toNumber(row.o) || price;
@@ -207,21 +200,15 @@ async function fetchTwseRealtime(code) {
   const json = JSON.parse(text);
   const rows = Array.isArray(json.msgArray) ? json.msgArray : [];
 
-  const row =
-    rows.find((item) => String(item.c || "") === code && toNumber(item.z) > 0) ||
-    rows.find((item) => String(item.c || "") === code);
+  const row = rows.find(
+    (item) => String(item.c || "") === code && toNumber(item.z) > 0
+  );
 
   if (!row) {
-    throw new Error("TWSE MIS 查無即時資料");
+    throw new Error("TWSE MIS 查無即時成交價");
   }
 
-  const stock = normalizeTwseRow(row, code);
-
-  if (!stock.price || stock.price <= 0) {
-    throw new Error("TWSE MIS 即時價格無效");
-  }
-
-  return stock;
+  return normalizeTwseRow(row, code);
 }
 
 async function fetchYahooFallback(code) {
@@ -251,10 +238,16 @@ async function fetchYahooFallback(code) {
   const quote = result.indicators?.quote?.[0] || {};
   const closes = quote.close || [];
   const volumes = quote.volume || [];
+  const highs = quote.high || [];
+  const lows = quote.low || [];
+  const opens = quote.open || [];
   const timestamps = result.timestamp || [];
 
   let idx = closes.length - 1;
-  while (idx >= 0 && (!Number.isFinite(Number(closes[idx])) || Number(closes[idx]) <= 0)) {
+  while (
+    idx >= 0 &&
+    (!Number.isFinite(Number(closes[idx])) || Number(closes[idx]) <= 0)
+  ) {
     idx -= 1;
   }
 
@@ -263,24 +256,45 @@ async function fetchYahooFallback(code) {
   }
 
   const price = Number(closes[idx]);
-  const previousClose = toNumber(meta.chartPreviousClose || meta.previousClose || meta.regularMarketPreviousClose);
-  const openPrice = toNumber(meta.regularMarketPrice) || price;
+  const previousClose = toNumber(
+    meta.chartPreviousClose ||
+      meta.previousClose ||
+      meta.regularMarketPreviousClose
+  );
+  const openPrice = Number(opens.find((x) => Number(x) > 0)) || price;
   const volume = Number(volumes[idx] || 0);
-  const updatedAt =
-    timestamps[idx] ? new Date(timestamps[idx] * 1000).toLocaleString("sv-SE", { timeZone: "Asia/Taipei", hour12: false }) : taiwanNowText();
+  const highPrice = Math.max(
+    price,
+    openPrice,
+    previousClose,
+    ...highs.filter((x) => Number(x) > 0).map(Number)
+  );
+  const lowValues = lows.filter((x) => Number(x) > 0).map(Number);
+  const lowPrice = lowValues.length
+    ? Math.min(price, previousClose || price, ...lowValues)
+    : Math.min(price, openPrice || price, previousClose || price);
+
+  const updatedAt = timestamps[idx]
+    ? new Date(timestamps[idx] * 1000).toLocaleString("sv-SE", {
+        timeZone: "Asia/Taipei",
+        hour12: false,
+      })
+    : taiwanNowText();
 
   return {
     code,
     name: codeToChineseName[code] || code,
     price,
-    changePercent: previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0,
+    changePercent:
+      previousClose > 0 ? ((price - previousClose) / previousClose) * 100 : 0,
     volume,
     openPrice,
     previousClose,
-    openPremiumPercent: previousClose > 0 ? ((openPrice - previousClose) / previousClose) * 100 : null,
+    openPremiumPercent:
+      previousClose > 0 ? ((openPrice - previousClose) / previousClose) * 100 : null,
     industry: industryMap[code] || "其他",
-    highPrice: Math.max(price, openPrice, previousClose),
-    lowPrice: Math.min(price, openPrice || price, previousClose || price),
+    highPrice,
+    lowPrice,
     updatedAt,
   };
 }
@@ -296,12 +310,18 @@ function resolveQuery(q) {
   const direct = nameToCode[raw];
   if (direct) return direct;
 
-  const found = Object.entries(nameToCode).find(([name]) => name.includes(raw) || raw.includes(name));
+  const found = Object.entries(nameToCode).find(
+    ([name]) => name.includes(raw) || raw.includes(name)
+  );
+
   return found ? found[1] : "";
 }
 
 export default async function handler(req, res) {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader(
+    "Cache-Control",
+    "no-store, no-cache, must-revalidate, proxy-revalidate"
+  );
   res.setHeader("CDN-Cache-Control", "no-store");
   res.setHeader("Vercel-CDN-Cache-Control", "no-store");
 
@@ -311,7 +331,7 @@ export default async function handler(req, res) {
   if (!code) {
     return res.status(200).json({
       ok: false,
-      source: "search v60",
+      source: "search v62",
       message: "請輸入股票代號或名稱",
       updatedAtTaiwan: taiwanNowText(),
     });
@@ -322,7 +342,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       ok: true,
-      source: "TWSE MIS realtime v60",
+      source: "TWSE MIS realtime z-only v62",
       updatedAtTaiwan: taiwanNowText(),
       stock,
     });
@@ -332,7 +352,7 @@ export default async function handler(req, res) {
 
       return res.status(200).json({
         ok: true,
-        source: "Yahoo fallback v60",
+        source: "Yahoo fallback v62",
         twseError: twseError?.message || String(twseError),
         updatedAtTaiwan: taiwanNowText(),
         stock,
@@ -340,7 +360,7 @@ export default async function handler(req, res) {
     } catch (yahooError) {
       return res.status(200).json({
         ok: false,
-        source: "search v60 failed",
+        source: "search v62 failed",
         message: "即時資料取得失敗",
         twseError: twseError?.message || String(twseError),
         yahooError: yahooError?.message || String(yahooError),
