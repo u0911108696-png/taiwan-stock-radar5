@@ -13,6 +13,8 @@ type Stock = {
   highPrice: number;
   lowPrice: number;
   updatedAt?: string;
+  priceSource?: string;
+  stableNote?: string;
 };
 
 type Position = {
@@ -48,7 +50,7 @@ type PopupKey =
   | "volume"
   | "avoid";
 
-type PriceDirection = "up" | "down" | "same" | "new";
+type PriceDirection = "up" | "down" | "same" | "new" | "hold";
 
 type MoneyHistory = {
   code: string;
@@ -159,10 +161,10 @@ const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
 
-const SETTINGS_KEY = "taiwan-stock-radar-v58-settings";
-const CACHE_KEY = "taiwan-stock-radar-v58-cache";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-v58-money-history";
-const SNAPSHOT_KEY = "taiwan-stock-radar-v58-snapshot";
+const SETTINGS_KEY = "taiwan-stock-radar-v64-settings";
+const CACHE_KEY = "taiwan-stock-radar-v64-cache";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-v64-money-history";
+const SNAPSHOT_KEY = "taiwan-stock-radar-v64-snapshot";
 
 const defaultSettings: Settings = {
   refreshSeconds: 15,
@@ -368,6 +370,39 @@ function formatAmount(value: number) {
   return `${sign}${abs.toFixed(0)}`;
 }
 
+function parseTimeMs(text?: string) {
+  if (!text) return 0;
+  const time = new Date(String(text).replace(" ", "T")).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function dataAgeSeconds(updatedAt?: string) {
+  const ms = parseTimeMs(updatedAt);
+  if (!ms) return 9999;
+  return Math.max(0, Math.floor((Date.now() - ms) / 1000));
+}
+
+function dataFreshTone(updatedAt?: string) {
+  const age = dataAgeSeconds(updatedAt);
+  if (age <= 30) return "text-emerald-300";
+  if (age <= 60) return "text-yellow-300";
+  return "text-red-300";
+}
+
+function dataFreshText(updatedAt?: string) {
+  const age = dataAgeSeconds(updatedAt);
+  if (age <= 30) return "新鮮";
+  if (age <= 60) return "稍慢";
+  return "偏舊";
+}
+
+function sourceLabel(source?: string) {
+  if (!source) return "資料源 --";
+  if (source.includes("TWSE")) return "TWSE即時成交";
+  if (source.includes("Yahoo")) return "Yahoo 1分K";
+  return source;
+}
+
 function normalizeStock(raw: any, updateTime: string): Stock {
   const code = String(raw.code ?? raw.symbol ?? raw.stockNo ?? "")
     .replace(".TW", "")
@@ -412,9 +447,42 @@ function normalizeStock(raw: any, updateTime: string): Stock {
     highPrice,
     lowPrice,
     updatedAt: String(raw.updatedAt ?? raw.time ?? raw.updateTime ?? updateTime),
+    priceSource: String(raw.priceSource ?? raw.source ?? ""),
+    stableNote: String(raw.stableNote ?? ""),
   };
 }
 
+function stableMergeStock(next: Stock, old?: Stock): Stock {
+  if (!old || !old.price || old.price <= 0) return next;
+  if (!next.price || next.price <= 0) return { ...old, stableNote: "新資料無效，保留上一筆" };
+
+  const priceGap = Math.abs(next.price - old.price) / old.price;
+  const oldTime = parseTimeMs(old.updatedAt);
+  const nextTime = parseTimeMs(next.updatedAt);
+
+  if (nextTime && oldTime && nextTime + 30000 < oldTime) {
+    return { ...old, stableNote: "新資料時間較舊，保留上一筆" };
+  }
+
+  if (priceGap >= 0.08 && next.price === next.openPrice && old.price !== old.openPrice) {
+    return { ...old, stableNote: "疑似跳回開盤價，保留上一筆" };
+  }
+
+  if (priceGap >= 0.12) {
+    return { ...old, stableNote: "價格跳動過大，保留上一筆" };
+  }
+
+  return {
+    ...next,
+    stableNote: next.stableNote || "正常更新",
+  };
+}
+
+function stableMergeList(nextList: Stock[], oldList: Stock[]) {
+  const oldMap = new Map(oldList.map((stock) => [stock.code, stock]));
+
+  return nextList.map((next) => stableMergeStock(next, oldMap.get(next.code)));
+}
 function openingPremium(stock: Stock) {
   return stock.openPremiumPercent ?? 0;
 }
@@ -469,6 +537,7 @@ function atrStopLine(stock: Stock) {
   const atr = atrValue(stock);
   return Math.max(0, stock.highPrice - atr * 1.5);
 }
+
 function latestNumber(values: number[] | undefined) {
   if (!values || values.length === 0) return 0;
   return values[values.length - 1] || 0;
@@ -533,7 +602,6 @@ function moneyTrendTone(label: MoneyTrend | string) {
   if (label === "資金開始減少") return "text-red-300";
   return "text-slate-300";
 }
-
 function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
   const vol = volumeState(stock, list);
 
@@ -619,6 +687,7 @@ function decisionText(stock: Stock, list: Stock[], mainIndustries: string[], set
 
   return "觀察中";
 }
+
 function entryTone(level: EntryLevel | string) {
   if (level === "可進場觀察") return "text-emerald-300";
   if (level === "等回測再進") return "text-yellow-300";
@@ -654,6 +723,7 @@ function directionTone(direction?: PriceDirection) {
   if (direction === "up") return "text-red-300";
   if (direction === "down") return "text-emerald-300";
   if (direction === "same") return "text-slate-300";
+  if (direction === "hold") return "text-yellow-300";
   return "text-cyan-300";
 }
 
@@ -661,10 +731,10 @@ function directionText(direction?: PriceDirection) {
   if (direction === "up") return "↑ 股價上升";
   if (direction === "down") return "↓ 股價下降";
   if (direction === "same") return "→ 股價持平";
+  if (direction === "hold") return "⚠ 保留上一筆";
   if (direction === "new") return "新資料";
   return "--";
 }
-
 function entryPlan(
   stock: Stock,
   list: Stock[],
@@ -783,6 +853,11 @@ function entryPlan(
     warnings.push(exit);
   }
 
+  if (stock.stableNote && stock.stableNote !== "正常更新") {
+    score -= 10;
+    warnings.push(stock.stableNote);
+  }
+
   const baseOpen = stock.openPrice > 0 ? stock.openPrice : stock.price;
   const safeAtrLine = atrLine > 0 && atrLine < stock.price * 1.08 ? atrLine : stock.price * 0.985;
 
@@ -837,6 +912,7 @@ function entryPlan(
     atrLine: safeAtrLine,
   };
 }
+
 function makeAlert(
   stock: Stock,
   level: AlertLevel,
@@ -857,7 +933,6 @@ function makeAlert(
     updatedAt: stock.updatedAt || nowText(),
   };
 }
-
 function buildStockAlerts(
   stock: Stock,
   list: Stock[],
@@ -928,6 +1003,10 @@ function buildStockAlerts(
 
   if (isFavorite && (stock.price < stock.openPrice || stock.price < atrLine || moneyLabel === "資金開始減少")) {
     alerts.push(makeAlert(stock, "紅燈", "自選警報", "自選股出現轉弱警訊，請檢查。", 89));
+  }
+
+  if (stock.stableNote && stock.stableNote !== "正常更新") {
+    alerts.push(makeAlert(stock, "黃燈", "自選警報", `資料保護：${stock.stableNote}`, 66));
   }
 
   if (position?.buyPrice && position.buyPrice > 0) {
@@ -1211,6 +1290,7 @@ function positionPlan(
   }
 
   if (exit.includes("跌破") || exit.includes("出場")) dangerText = `警戒：${exit}`;
+  if (stock.stableNote && stock.stableNote !== "正常更新") dangerText = `資料保護：${stock.stableNote}`;
 
   return {
     hasPosition,
@@ -1267,6 +1347,24 @@ function DetailRow({ label, value, tone = "text-white" }: { label: string; value
     <div className="rounded-2xl border border-white/5 bg-black/35 p-3">
       <div className="text-xs font-bold text-slate-500">{label}</div>
       <div className={`mt-1 text-sm font-black ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+function DataBadge({ stock }: { stock: Stock }) {
+  return (
+    <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
+      <span className="rounded-full border border-cyan-400/20 bg-cyan-950/30 px-2 py-1 text-cyan-200">
+        {sourceLabel(stock.priceSource)}
+      </span>
+      <span className={`rounded-full border border-white/10 bg-black/30 px-2 py-1 ${dataFreshTone(stock.updatedAt)}`}>
+        {dataFreshText(stock.updatedAt)}｜{stock.updatedAt || "--"}
+      </span>
+      {stock.stableNote && stock.stableNote !== "正常更新" && (
+        <span className="rounded-full border border-yellow-400/30 bg-yellow-950/30 px-2 py-1 text-yellow-200">
+          {stock.stableNote}
+        </span>
+      )}
     </div>
   );
 }
@@ -1346,6 +1444,7 @@ function SimpleStockButton({
           <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
           <div className="mt-1 text-base font-black text-white">{stockDisplayName(stock)}</div>
           {reason && <div className="mt-1 text-xs font-bold text-slate-400">{reason}</div>}
+          <DataBadge stock={stock} />
         </div>
         <div className="text-right">
           <div className={`text-sm font-black ${tone}`}>{label}</div>
@@ -1367,6 +1466,7 @@ function EntryStockButton({ stock, plan, onClick }: { stock: Stock; plan: EntryP
           <div className="text-xs font-bold text-slate-500">{stock.code}｜{stock.industry}</div>
           <div className="mt-1 text-xl font-black text-white">{stockDisplayName(stock)}</div>
           <div className={`mt-1 text-sm font-black ${entryTone(plan.level)}`}>{plan.level}｜分數 {plan.score}</div>
+          <DataBadge stock={stock} />
         </div>
         <div className="text-right">
           <div className={stock.changePercent >= 0 ? "text-xl font-black text-red-300" : "text-xl font-black text-emerald-300"}>
@@ -1456,6 +1556,7 @@ function FocusStockCard({
           <div className="text-xs font-black text-emerald-300">FOCUS #{rank}</div>
           <div className="mt-1 text-2xl font-black text-white">{stockDisplayName(stock)}</div>
           <div className="mt-1 text-xs font-bold text-slate-400">{stock.code}｜{stock.industry}</div>
+          <DataBadge stock={stock} />
         </div>
 
         <div className="text-right">
@@ -1608,13 +1709,18 @@ function StockQuickModal({
             <div className="text-xs font-bold text-cyan-300">REALTIME PRICE</div>
             <div className="mt-1 text-4xl font-black text-white">{formatPrice(stock.price)}</div>
           </div>
+
           <div className="text-right">
             <div className={stock.changePercent >= 0 ? "text-3xl font-black text-red-300" : "text-3xl font-black text-emerald-300"}>
               {formatPercent(stock.changePercent)}
             </div>
-            <div className="mt-1 text-xs font-bold text-slate-400">{stock.updatedAt || lastSuccessAt || "--"}</div>
+            <div className={`mt-1 text-xs font-bold ${dataFreshTone(stock.updatedAt)}`}>
+              {dataFreshText(stock.updatedAt)}｜{stock.updatedAt || lastSuccessAt || "--"}
+            </div>
           </div>
         </div>
+
+        <DataBadge stock={stock} />
       </div>
 
       {alerts.length > 0 && (
@@ -1652,6 +1758,7 @@ function StockQuickModal({
 
       <section className="mt-3 rounded-[1.6rem] border border-cyan-500/40 bg-cyan-950/20 p-4">
         <div className="text-lg font-black text-cyan-100">輸入我的持倉</div>
+
         <div className="mt-3 grid grid-cols-2 gap-2">
           <input
             value={buyPriceText}
@@ -1710,12 +1817,16 @@ function StockQuickModal({
       </section>
 
       <section className={`mt-3 rounded-[1.6rem] bg-black/30 p-4 ${directionTone(direction)}`}>
-        <div className="text-xs font-bold text-slate-400">即時股價</div>
+        <div className="text-xs font-bold text-slate-400">即時股價穩定狀態</div>
         <div className="mt-1 text-xl font-black">{directionText(direction)}</div>
         <div className="mt-2 text-sm font-bold text-slate-300">
           {prevPrice ? `上一筆 ${prevPrice.toFixed(2)} → 現在 ${stock.price.toFixed(2)}` : "尚無上一筆"}
           <br />
           主線結論：{decision}
+          <br />
+          資料來源：{sourceLabel(stock.priceSource)}
+          <br />
+          穩定保護：{stock.stableNote || "正常更新"}
           <br />
           更新：{stock.updatedAt || lastSuccessAt || "--"}
         </div>
@@ -1842,7 +1953,6 @@ export default function App() {
   const redAlerts = useMemo(() => allAlerts.filter((a) => a.level === "紅燈"), [allAlerts]);
   const yellowAlerts = useMemo(() => allAlerts.filter((a) => a.level === "黃燈"), [allAlerts]);
   const greenAlerts = useMemo(() => allAlerts.filter((a) => a.level === "綠燈"), [allAlerts]);
-
   const avoidAlerts = useMemo(
     () =>
       allAlerts
@@ -1861,6 +1971,7 @@ export default function App() {
         .sort((a, b) => moneyTrendChange(b.code, moneyHistory).amountChangePercent - moneyTrendChange(a.code, moneyHistory).amountChangePercent),
     [top50, moneyHistory]
   );
+
   const moneyDownList = useMemo(
     () =>
       top50
@@ -1971,6 +2082,10 @@ export default function App() {
   const topIndustry = industryRanking[0];
   const totalAmount = top50.reduce((sum, stock) => sum + estimatedAmount(stock), 0);
 
+  const protectedCount = useMemo(() => stocks.filter((stock) => stock.stableNote && stock.stableNote !== "正常更新").length, [stocks]);
+  const twseCount = useMemo(() => stocks.filter((stock) => stock.priceSource?.includes("TWSE")).length, [stocks]);
+  const yahooCount = useMemo(() => stocks.filter((stock) => stock.priceSource?.includes("Yahoo")).length, [stocks]);
+
   const snapshotPickRate = useMemo(
     () => (snapshot ? snapshotSuccessRate(snapshot.picks, stocks, searchHistory, "可觀察") : { total: 0, done: 0, success: 0, rate: 0 }),
     [snapshot, stocks, searchHistory]
@@ -2040,7 +2155,6 @@ export default function App() {
       return next;
     });
   }
-
   function createSnapshot() {
     if (top50.length === 0) {
       alert("目前沒有資料，請先更新。");
@@ -2066,6 +2180,7 @@ export default function App() {
     setSnapshot(null);
     localStorage.removeItem(SNAPSHOT_KEY);
   }
+
   async function loadStocks() {
     try {
       setUpdating(true);
@@ -2087,12 +2202,14 @@ export default function App() {
 
       const dataTime = json.updatedAtTaiwan || (json.updatedAt ? new Date(json.updatedAt).toLocaleString("zh-TW") : nowText());
 
-      const normalized = list
+      const normalizedRaw = list
         .map((raw: any) => normalizeStock(raw, dataTime))
         .filter((stock: Stock) => stock.code && stock.name && Number.isFinite(stock.changePercent))
         .sort((a: Stock, b: Stock) => b.changePercent - a.changePercent);
 
-      if (normalized.length === 0) throw new Error("API回傳空資料");
+      if (normalizedRaw.length === 0) throw new Error("API回傳空資料");
+
+      const normalized = stableMergeList(normalizedRaw, stocks).sort((a: Stock, b: Stock) => b.changePercent - a.changePercent);
 
       const oldPriceMap = { ...lastPriceMap };
       const nextPriceMap: Record<string, number> = {};
@@ -2102,7 +2219,8 @@ export default function App() {
         const oldPrice = oldPriceMap[stock.code];
         nextPriceMap[stock.code] = stock.price;
 
-        if (oldPrice === undefined) nextDirections[stock.code] = "new";
+        if (stock.stableNote && stock.stableNote !== "正常更新") nextDirections[stock.code] = "hold";
+        else if (oldPrice === undefined) nextDirections[stock.code] = "new";
         else if (stock.price > oldPrice) nextDirections[stock.code] = "up";
         else if (stock.price < oldPrice) nextDirections[stock.code] = "down";
         else nextDirections[stock.code] = "same";
@@ -2150,7 +2268,9 @@ export default function App() {
 
       if (!json.ok || !json.stock) return null;
 
-      const stock = normalizeStock(json.stock, json.stock.updatedAt || json.updatedAtTaiwan || nowText());
+      const rawStock = normalizeStock(json.stock, json.stock.updatedAt || json.updatedAtTaiwan || nowText());
+      const oldStock = stocks.find((item) => item.code === rawStock.code) || searchHistory.find((item) => item.code === rawStock.code);
+      const stock = stableMergeStock(rawStock, oldStock);
 
       setStocks((old) => {
         const exists = old.some((item) => item.code === stock.code);
@@ -2178,13 +2298,15 @@ export default function App() {
         setPriceDirections((directionOld) => ({
           ...directionOld,
           [stock.code]:
-            oldPrice === undefined
-              ? "new"
-              : stock.price > oldPrice
-                ? "up"
-                : stock.price < oldPrice
-                  ? "down"
-                  : "same",
+            stock.stableNote && stock.stableNote !== "正常更新"
+              ? "hold"
+              : oldPrice === undefined
+                ? "new"
+                : stock.price > oldPrice
+                  ? "up"
+                  : stock.price < oldPrice
+                    ? "down"
+                    : "same",
         }));
 
         return {
@@ -2199,7 +2321,6 @@ export default function App() {
       return null;
     }
   }
-
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -2227,6 +2348,7 @@ export default function App() {
       setQueryLoading(false);
     }
   }
+
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, moneyHistory);
@@ -2333,53 +2455,10 @@ export default function App() {
       favoriteCodes.forEach((code) => {
         refreshOneStock(code);
       });
-    }, 15000);
+    }, 5000);
 
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      const now = new Date();
-      const taiwan = new Date(
-        now.toLocaleString("en-US", { timeZone: "Asia/Taipei" })
-      );
-
-      const hh = taiwan.getHours();
-      const mm = taiwan.getMinutes();
-      const today = todayKey();
-      const autoKey = `auto-snapshot-${today}`;
-
-      const alreadyDone = localStorage.getItem(autoKey);
-
-      if (hh === 9 && mm === 10 && !alreadyDone && top50.length > 0) {
-        const next: Open910Snapshot = {
-          id: `${today}-${Date.now()}`,
-          dateKey: today,
-          createdAt: nowText(),
-          topIndustries: mainIndustries.slice(0, 3),
-          top50: top50.map((stock) =>
-            toSnapshotStock(
-              stock,
-              "前50",
-              decisionText(stock, top50, mainIndustries, settings, moneyHistory)
-            )
-          ),
-          picks: entryGoodList.map((row) =>
-            toSnapshotStock(row.stock, "可觀察", row.plan.reason)
-          ),
-          avoids: entryBadList.map((row) =>
-            toSnapshotStock(row.stock, "不要碰", row.plan.warning)
-          ),
-        };
-
-        setSnapshot(next);
-        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next));
-        localStorage.setItem(autoKey, "done");
-      }
-    }, 10000);
-
-    return () => window.clearInterval(timer);
-  }, [top50, mainIndustries, entryGoodList, entryBadList, settings, moneyHistory]);
   useEffect(() => {
     if (!selectedCode) return;
 
@@ -2401,6 +2480,41 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, [selectedCode]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      const taiwan = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+
+      const hh = taiwan.getHours();
+      const mm = taiwan.getMinutes();
+      const today = todayKey();
+      const autoKey = `auto-snapshot-${today}`;
+
+      const alreadyDone = localStorage.getItem(autoKey);
+
+      if (hh === 9 && mm === 10 && !alreadyDone && top50.length > 0) {
+        const next: Open910Snapshot = {
+          id: `${today}-${Date.now()}`,
+          dateKey: today,
+          createdAt: nowText(),
+          topIndustries: mainIndustries.slice(0, 3),
+          top50: top50.map((stock) =>
+            toSnapshotStock(stock, "前50", decisionText(stock, top50, mainIndustries, settings, moneyHistory))
+          ),
+          picks: entryGoodList.map((row) => toSnapshotStock(row.stock, "可觀察", row.plan.reason)),
+          avoids: entryBadList.map((row) => toSnapshotStock(row.stock, "不要碰", row.plan.warning)),
+        };
+
+        setSnapshot(next);
+        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next));
+        localStorage.setItem(autoKey, "done");
+      }
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [top50, mainIndustries, entryGoodList, entryBadList, settings, moneyHistory]);
+
   return (
     <div className="min-h-screen overflow-x-hidden bg-black text-white">
       <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_90%_15%,rgba(239,68,68,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.12),transparent_30%)]" />
@@ -2409,10 +2523,10 @@ export default function App() {
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v58</div>
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v64</div>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
-                開盤重點儀表板｜只看結論、警報、可看、不要碰
+                即時資料穩定保護｜防跳價｜來源標示｜自選5秒刷新
               </p>
             </div>
 
@@ -2446,12 +2560,11 @@ export default function App() {
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
-            <DetailRow label="今日只看" value={`${focusRows.length} 檔`} tone="text-emerald-300" />
-            <DetailRow label="不要碰" value={`${avoidAlerts.length} 檔`} tone="text-red-300" />
-            <DetailRow label="自選即時" value={`${favoriteStocks.length} 檔`} tone="text-cyan-300" />
+            <DetailRow label="TWSE即時" value={`${twseCount} 檔`} tone="text-cyan-300" />
+            <DetailRow label="Yahoo補價" value={`${yahooCount} 檔`} tone="text-blue-300" />
+            <DetailRow label="保護中" value={`${protectedCount} 檔`} tone={protectedCount > 0 ? "text-yellow-300" : "text-emerald-300"} />
           </div>
         </section>
-
         <section className="mt-4 grid grid-cols-3 gap-2">
           <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-red-400/40 bg-red-950/25 p-4 text-left shadow-[0_0_30px_rgba(239,68,68,0.15)]">
             <div className="text-xs font-black text-red-300">RED</div>
@@ -2481,13 +2594,18 @@ export default function App() {
               <div className="mt-1 text-xs font-bold text-slate-400">
                 最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
               </div>
+              <div className="mt-1 text-xs font-bold text-yellow-300">
+                {protectedCount > 0 ? `防跳價保護中：${protectedCount} 檔` : "防跳價保護：正常"}
+              </div>
             </div>
+
             <div className="text-right text-xs font-bold text-cyan-300">
               {source || "api/realtime"}<br />
               {formatAmount(totalAmount)}
             </div>
           </div>
         </section>
+
         <section className="mt-4 grid grid-cols-4 gap-2">
           <QuickActionButton title="快照" sub="9:10鎖定" onClick={createSnapshot} />
           <QuickActionButton title="SOP" sub="開盤流程" onClick={() => setPopup("sop")} />
@@ -2553,18 +2671,6 @@ export default function App() {
                   {avoidAlerts.slice(0, 5).map((alert) => (
                     <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
                   ))}
-                </div>
-              </NeonPanel>
-
-              <NeonPanel>
-                <div className="text-xs font-black tracking-[0.18em] text-cyan-300">MORE TOOLS</div>
-                <h3 className="mt-1 text-2xl font-black text-white">快速功能</h3>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <MiniCard title="今日50強" value={top50.length} sub="完整排行" tone="text-red-300" onClick={() => setPopup("top50")} />
-                  <MiniCard title="主線產業" value={industryRanking.length} sub="產業強弱" tone="text-yellow-300" onClick={() => setPopup("industry")} />
-                  <MiniCard title="資金增加" value={moneyUpList.length} sub="資金流入" tone="text-emerald-300" onClick={() => setPopup("moneyUp")} />
-                  <MiniCard title="持倉" value={positionStats.count} sub="停利停損" tone="text-cyan-300" onClick={() => setPopup("positions")} />
                 </div>
               </NeonPanel>
             </div>
@@ -2641,6 +2747,7 @@ export default function App() {
           )}
         </section>
       </div>
+
       {popup === "alerts" && (
         <ModalShell title="盤中實戰警報中心" sub="紅燈先處理，綠燈只代表觀察機會" onClose={() => setPopup("")}>
           <section className={`rounded-[1.8rem] border p-4 ${redAlerts.length > 0 ? "border-red-500/40 bg-red-950/20" : "border-emerald-500/40 bg-emerald-950/20"}`}>
@@ -2686,7 +2793,6 @@ export default function App() {
           </section>
         </ModalShell>
       )}
-
       {popup === "avoid" && (
         <ModalShell title="不要碰清單" sub="跌破開盤、追高風險、爆量不漲、資金減少" onClose={() => setPopup("")}>
           <section className="rounded-[1.8rem] border border-red-500/40 bg-red-950/20 p-4 shadow-[0_0_32px_rgba(239,68,68,0.16)]">
@@ -2748,8 +2854,19 @@ export default function App() {
               ))}
             </div>
           </section>
+
+          <section className="mt-4">
+            <div className="text-lg font-black text-red-100">不建議進場</div>
+            <div className="mt-3 space-y-3">
+              {entryBadList.length === 0 && <div className="rounded-2xl bg-black/30 p-4 text-sm font-bold text-slate-400">目前沒有不建議進場清單。</div>}
+              {entryBadList.map((row) => (
+                <EntryStockButton key={row.stock.code} stock={row.stock} plan={row.plan} onClick={() => setSelectedCode(row.stock.code)} />
+              ))}
+            </div>
+          </section>
         </ModalShell>
       )}
+
       {popup === "snapshot" && (
         <ModalShell title="9:10鎖定快照" sub={snapshot ? `${snapshot.dateKey}｜${snapshot.createdAt}` : "尚未建立快照"} onClose={() => setPopup("")}>
           {!snapshot && (
@@ -2800,7 +2917,6 @@ export default function App() {
           )}
         </ModalShell>
       )}
-
       {["moneyUp", "moneyDown", "failed", "amount", "volume", "top50"].includes(popup) && (
         <ModalShell title={popupTitle(popup)} sub={`共 ${popupList(popup).length} 檔｜點股票看詳情`} onClose={() => setPopup("")}>
           <div className="space-y-3">
@@ -2855,6 +2971,7 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+
       {industryPopup && (
         <ModalShell title={`${industryPopup} 主線個股`} sub="該產業內資金排序" onClose={() => setIndustryPopup("")} z={110}>
           <div className="space-y-3">
@@ -2881,7 +2998,6 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-
       {popup === "positions" && (
         <ModalShell title="持倉總表風險雷達" sub="你的買進價、損益、停利、停損集中看" onClose={() => setPopup("")}>
           <div className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
@@ -2971,6 +3087,7 @@ export default function App() {
           </div>
         </ModalShell>
       )}
+
       {popup === "settings" && (
         <ModalShell title="設定" sub="主線確認與更新頻率" onClose={() => setPopup("")}>
           <div className="space-y-4">
@@ -2987,7 +3104,9 @@ export default function App() {
                     key={String(value)}
                     onClick={() => saveSettings({ ...settings, refreshSeconds: Number(value) })}
                     className={`rounded-2xl py-3 text-sm font-black ${
-                      settings.refreshSeconds === Number(value) ? "bg-cyan-500 text-white shadow-[0_0_24px_rgba(34,211,238,0.28)]" : "bg-black/30 text-slate-300"
+                      settings.refreshSeconds === Number(value)
+                        ? "bg-cyan-500 text-white shadow-[0_0_24px_rgba(34,211,238,0.28)]"
+                        : "bg-black/30 text-slate-300"
                     }`}
                   >
                     {label}
@@ -3012,7 +3131,6 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-
       {selectedStock && (
         <>
           <div className="fixed right-4 top-24 z-[140] rounded-2xl border border-cyan-400/30 bg-black/80 px-3 py-2 text-xs font-black text-cyan-200 shadow-[0_0_20px_rgba(34,211,238,0.2)]">
