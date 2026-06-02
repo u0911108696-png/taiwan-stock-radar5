@@ -2258,8 +2258,11 @@ export default function App() {
     }
   }
 
-  async function refreshOneStock(code: string) {
-    const q = cleanCode(code);
+    async function refreshOneStock(code: string) {
+    const raw = String(code || "").trim();
+    const onlyCode = cleanCode(raw);
+    const q = onlyCode || raw;
+
     if (!q) return null;
 
     try {
