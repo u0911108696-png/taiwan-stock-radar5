@@ -1840,12 +1840,6 @@ function StockQuickModal({
 
       <div className="mt-4 grid grid-cols-2 gap-2">
               <div className="mt-4 grid grid-cols-2 gap-2">
-        <button
-          onClick={() => openStockKline(stock.code)}
-          className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200"
-        >
-          📈 K線資料
-        </button>
 
         <button
           onClick={() => (isWatch ? onRemoveWatch(stock.code) : onAddWatch(stock.code))}
