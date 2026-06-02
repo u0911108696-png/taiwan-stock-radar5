@@ -2338,6 +2338,49 @@ export default function App() {
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
   useEffect(() => {
+    const timer = window.setInterval(() => {
+      const now = new Date();
+      const taiwan = new Date(
+        now.toLocaleString("en-US", { timeZone: "Asia/Taipei" })
+      );
+
+      const hh = taiwan.getHours();
+      const mm = taiwan.getMinutes();
+      const today = todayKey();
+      const autoKey = `auto-snapshot-${today}`;
+
+      const alreadyDone = localStorage.getItem(autoKey);
+
+      if (hh === 9 && mm === 10 && !alreadyDone && top50.length > 0) {
+        const next: Open910Snapshot = {
+          id: `${today}-${Date.now()}`,
+          dateKey: today,
+          createdAt: nowText(),
+          topIndustries: mainIndustries.slice(0, 3),
+          top50: top50.map((stock) =>
+            toSnapshotStock(
+              stock,
+              "前50",
+              decisionText(stock, top50, mainIndustries, settings, moneyHistory)
+            )
+          ),
+          picks: entryGoodList.map((row) =>
+            toSnapshotStock(row.stock, "可觀察", row.plan.reason)
+          ),
+          avoids: entryBadList.map((row) =>
+            toSnapshotStock(row.stock, "不要碰", row.plan.warning)
+          ),
+        };
+
+        setSnapshot(next);
+        localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(next));
+        localStorage.setItem(autoKey, "done");
+      }
+    }, 10000);
+
+    return () => window.clearInterval(timer);
+  }, [top50, mainIndustries, entryGoodList, entryBadList, settings, moneyHistory]);
+  useEffect(() => {
     if (!selectedCode) return;
 
     let cancelled = false;
