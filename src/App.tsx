@@ -26,6 +26,17 @@ type KlineCandle = {
   volume: number;
 };
 
+type KlineSignal = {
+  action: "可進場" | "等回測" | "不追高" | "跌破出場" | "觀察";
+  tone: string;
+  reason: string;
+  maText: string;
+  buyLow: number;
+  buyHigh: number;
+  stopLine: number;
+  atrLine: number;
+};
+
 type Position = {
   code: string;
   buyPrice: number;
@@ -171,17 +182,16 @@ const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
 const SEARCH_HISTORY_KEY = "taiwan-stock-radar-search-history";
 
-const SETTINGS_KEY = "taiwan-stock-radar-v65-settings";
-const CACHE_KEY = "taiwan-stock-radar-v65-cache";
-const MONEY_HISTORY_KEY = "taiwan-stock-radar-v65-money-history";
-const SNAPSHOT_KEY = "taiwan-stock-radar-v65-snapshot";
+const SETTINGS_KEY = "taiwan-stock-radar-v66-settings";
+const CACHE_KEY = "taiwan-stock-radar-v66-cache";
+const MONEY_HISTORY_KEY = "taiwan-stock-radar-v66-money-history";
+const SNAPSHOT_KEY = "taiwan-stock-radar-v66-snapshot";
 
 const defaultSettings: Settings = {
   refreshSeconds: 15,
   hotPercent: 8,
   stableIndustryLock: true,
 };
-
 const codeToChineseName: Record<string, string> = {
   "2330": "台積電",
   "2303": "聯電",
@@ -257,8 +267,8 @@ const industryMap: Record<string, string> = {
   "3481": "面板",
   "2409": "面板",
 
-  "3042": "其他",
   "2327": "被動元件",
+  "3042": "其他",
 
   "2382": "AI伺服器",
   "3231": "AI伺服器",
@@ -301,6 +311,7 @@ const industryMap: Record<string, string> = {
   "2615": "航運",
   "2618": "航空",
 };
+
 function n(value: unknown, fallback = 0) {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
@@ -381,7 +392,6 @@ function formatAmount(value: number) {
   if (abs >= 10000) return `${sign}${(abs / 10000).toFixed(0)}萬`;
   return `${sign}${abs.toFixed(0)}`;
 }
-
 function parseTimeMs(text?: string) {
   if (!text) return 0;
   const time = new Date(String(text).replace(" ", "T")).getTime();
@@ -494,6 +504,7 @@ function stableMergeList(nextList: Stock[], oldList: Stock[]) {
   const oldMap = new Map(oldList.map((stock) => [stock.code, stock]));
   return nextList.map((next) => stableMergeStock(next, oldMap.get(next.code)));
 }
+
 function openingPremium(stock: Stock) {
   return stock.openPremiumPercent ?? 0;
 }
@@ -518,7 +529,6 @@ function volumeRankIndex(stock: Stock, list: Stock[]) {
   const index = sorted.findIndex((s) => s.code === stock.code);
   return index >= 0 ? index + 1 : 999;
 }
-
 function rankPercent(rank: number, length: number) {
   if (rank >= 999 || length <= 1) return 0;
   return Math.round(((length - rank + 1) / length) * 100);
@@ -628,11 +638,11 @@ function priceVolumeState(stock: Stock, list: Stock[], settings: Settings) {
 function isOverheat(stock: Stock, settings: Settings) {
   return stock.changePercent >= settings.hotPercent || openingPremium(stock) >= 6 || afterOpenPercent(stock) >= 4;
 }
+
 function isFail(stock: Stock, list: Stock[], settings: Settings) {
   const pv = priceVolumeState(stock, list, settings);
   return pv === "轉弱退潮" || pv === "爆量不漲" || stock.price < stock.openPrice || stock.changePercent < 0;
 }
-
 function chaseRisk(stock: Stock, list: Stock[], settings: Settings) {
   const pv = priceVolumeState(stock, list, settings);
 
@@ -729,7 +739,6 @@ function alertBg(level: AlertLevel) {
 function neonPanel(extra = "") {
   return `rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 shadow-[0_0_35px_rgba(34,211,238,0.12)] ${extra}`;
 }
-
 function directionTone(direction?: PriceDirection) {
   if (direction === "up") return "text-red-300";
   if (direction === "down") return "text-emerald-300";
@@ -746,6 +755,7 @@ function directionText(direction?: PriceDirection) {
   if (direction === "new") return "新資料";
   return "--";
 }
+
 function entryPlan(
   stock: Stock,
   list: Stock[],
@@ -905,11 +915,6 @@ function entryPlan(
     warnings.push("離開盤價偏遠，等回測比較安全");
   }
 
-  if (level === "不建議進場" && score >= 38 && warnings.length <= 2 && stock.price >= stock.openPrice && stock.price >= stock.previousClose) {
-    level = "等回測再進";
-    warnings.push("備用候選，只能小部位觀察");
-  }
-
   return {
     level,
     score: Math.max(0, Math.min(100, score)),
@@ -923,7 +928,6 @@ function entryPlan(
     atrLine: safeAtrLine,
   };
 }
-
 function makeAlert(
   stock: Stock,
   level: AlertLevel,
@@ -944,6 +948,7 @@ function makeAlert(
     updatedAt: stock.updatedAt || nowText(),
   };
 }
+
 function buildStockAlerts(
   stock: Stock,
   list: Stock[],
@@ -1159,7 +1164,6 @@ function makeSopSteps(openStatus: string, entryGoodCount: number, alertRedCount:
     },
   ];
 }
-
 function getIndustryRanking(list: Stock[], settings: Settings, moneyHistory: Record<string, MoneyHistory>): IndustryItem[] {
   const totalAmount = list.reduce((sum, s) => sum + estimatedAmount(s), 0);
   const map = new Map<string, IndustryItem>();
@@ -1254,6 +1258,92 @@ function getIndustryRanking(list: Stock[], settings: Settings, moneyHistory: Rec
     })
     .sort((a, b) => b.score - a.score);
 }
+
+function klineAverage(candles: KlineCandle[], days: number) {
+  const part = candles.slice(-days);
+  if (part.length === 0) return 0;
+  return part.reduce((sum, item) => sum + item.close, 0) / part.length;
+}
+
+function klineAtr(candles: KlineCandle[]) {
+  const part = candles.slice(-14);
+  if (part.length === 0) return 0;
+
+  const avgRange =
+    part.reduce((sum, item) => {
+      return sum + Math.max(item.high - item.low, item.close * 0.01);
+    }, 0) / part.length;
+
+  return avgRange;
+}
+
+function klineSignal(stock: Stock, candles: KlineCandle[], entry: EntryPlan): KlineSignal {
+  const last = candles[candles.length - 1];
+  const prev = candles[candles.length - 2];
+
+  const ma5 = klineAverage(candles, 5);
+  const ma10 = klineAverage(candles, 10);
+  const atr = klineAtr(candles);
+
+  const lastClose = last?.close || stock.price;
+  const lastOpen = last?.open || stock.openPrice || stock.price;
+  const prevClose = prev?.close || stock.previousClose || stock.price;
+
+  const buyLow = entry.buyLow;
+  const buyHigh = entry.buyHigh;
+  const stopLine = entry.stopPrice;
+  const atrLine = Math.max(0, (last?.high || stock.highPrice || stock.price) - atr * 1.5);
+
+  const isRedK = lastClose >= lastOpen;
+  const aboveMa5 = ma5 > 0 && lastClose >= ma5;
+  const aboveMa10 = ma10 > 0 && lastClose >= ma10;
+  const maStrong = ma5 >= ma10;
+  const tooFar = ma5 > 0 && ((lastClose - ma5) / ma5) * 100 >= 5;
+  const weakBreak = ma10 > 0 && lastClose < ma10;
+  const stopBreak = lastClose < stopLine || lastClose < atrLine;
+  const nearBuy = lastClose >= buyLow && lastClose <= buyHigh * 1.015;
+  const pullbackOk = lastClose >= stopLine && lastClose >= prevClose * 0.985;
+
+  let action: KlineSignal["action"] = "觀察";
+  let tone = "text-yellow-300";
+  let reason = "K線尚未給出明確訊號。";
+
+  if (stopBreak || weakBreak) {
+    action = "跌破出場";
+    tone = "text-red-300";
+    reason = "跌破停損線、ATR線或MA10，優先保護本金。";
+  } else if (tooFar || entry.level === "不建議進場") {
+    action = "不追高";
+    tone = "text-orange-300";
+    reason = tooFar ? "現價離MA5太遠，容易回測，不追高。" : "進場條件不足，不建議進場。";
+  } else if (nearBuy && aboveMa5 && maStrong && isRedK && pullbackOk) {
+    action = "可進場";
+    tone = "text-emerald-300";
+    reason = "價格在買點區附近，站上MA5且MA5高於MA10。";
+  } else if (lastClose > buyHigh || !nearBuy) {
+    action = "等回測";
+    tone = "text-yellow-300";
+    reason = "尚未回到理想買點區，等回測靠近買點。";
+  }
+
+  const maText =
+    ma5 > 0 && ma10 > 0
+      ? ma5 >= ma10
+        ? "MA5站上MA10，短線偏強"
+        : "MA5低於MA10，短線偏弱"
+      : "均線資料不足";
+
+  return {
+    action,
+    tone,
+    reason,
+    maText,
+    buyLow,
+    buyHigh,
+    stopLine,
+    atrLine: atrLine || entry.atrLine,
+  };
+}
 function positionPlan(
   stock: Stock,
   position: Position | undefined,
@@ -1329,16 +1419,6 @@ function NeonPanel({
   return <section className={neonPanel(`p-4 ${className}`)}>{children}</section>;
 }
 
-function MiniCard({ title, value, sub, tone, onClick }: { title: string; value: string | number; sub: string; tone: string; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="rounded-[1.5rem] border border-cyan-400/20 bg-slate-950/80 p-3 text-left shadow-[0_0_25px_rgba(34,211,238,0.08)] active:scale-95">
-      <div className="text-xs font-bold text-slate-500">{title}</div>
-      <div className={`mt-1 text-3xl font-black ${tone}`}>{value}</div>
-      <div className="mt-1 text-xs font-bold text-slate-400">{sub}</div>
-    </button>
-  );
-}
-
 function ActionCard({ title, sub, badge, tone, onClick }: { title: string; sub: string; badge: string | number; tone: string; onClick: () => void }) {
   return (
     <button onClick={onClick} className="rounded-[1.6rem] border border-slate-700/80 bg-slate-950/90 p-4 text-left shadow-[0_0_22px_rgba(15,23,42,0.8)] active:scale-95">
@@ -1379,7 +1459,6 @@ function DataBadge({ stock }: { stock: Stock }) {
     </div>
   );
 }
-
 function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; sub?: string; children: ReactNode; onClose: () => void; z?: number }) {
   return (
     <div className="fixed inset-0 flex items-center justify-center bg-black/85 px-3 py-6 backdrop-blur-sm" style={{ zIndex: z }} onClick={onClose}>
@@ -1398,6 +1477,7 @@ function ModalShell({ title, sub, children, onClose, z = 90 }: { title: string; 
     </div>
   );
 }
+
 function SopCard({ step }: { step: SopStep }) {
   const tone = step.status === "做" ? "text-emerald-300" : step.status === "等" ? "text-yellow-300" : "text-red-300";
   const bg =
@@ -1510,7 +1590,6 @@ function EntryStockButton({ stock, plan, onClick }: { stock: Stock; plan: EntryP
     </button>
   );
 }
-
 function SnapshotButton({ item, current, onClick }: { item: SnapshotStock; current: Stock | null; onClick: () => void }) {
   const nowPrice = current?.price || item.snapshotPrice;
   const change = snapshotChangePercent(item.snapshotPrice, nowPrice);
@@ -1544,6 +1623,7 @@ function SnapshotButton({ item, current, onClick }: { item: SnapshotStock; curre
     </button>
   );
 }
+
 function FocusStockCard({
   stock,
   plan,
@@ -1640,9 +1720,11 @@ function QuickActionButton({
 }
 function KlineModal({
   stock,
+  entry,
   onClose,
 }: {
   stock: Stock;
+  entry: EntryPlan;
   onClose: () => void;
 }) {
   const [candles, setCandles] = useState<KlineCandle[]>([]);
@@ -1680,15 +1762,23 @@ function KlineModal({
   const last = chartData[chartData.length - 1];
   const prev = chartData[chartData.length - 2];
 
-  const maxHigh = chartData.length ? Math.max(...chartData.map((c) => c.high), stock.price) : stock.price;
-  const minLow = chartData.length ? Math.min(...chartData.map((c) => c.low), stock.price) : stock.price;
+  const signal = klineSignal(stock, chartData, entry);
+
+  const maxHigh = chartData.length
+    ? Math.max(...chartData.map((c) => c.high), stock.price, signal.buyHigh, signal.stopLine, signal.atrLine)
+    : stock.price;
+
+  const minLow = chartData.length
+    ? Math.min(...chartData.map((c) => c.low), stock.price, signal.buyLow, signal.stopLine, signal.atrLine)
+    : stock.price;
+
   const maxVolume = chartData.length ? Math.max(...chartData.map((c) => c.volume), 1) : 1;
 
   const width = 340;
-  const height = 230;
+  const height = 260;
   const priceTop = 16;
-  const priceHeight = 150;
-  const volumeTop = 180;
+  const priceHeight = 170;
+  const volumeTop = 210;
   const volumeHeight = 38;
   const gap = Math.max(6, width / Math.max(chartData.length, 1));
   const candleWidth = Math.max(3, Math.min(8, gap * 0.55));
@@ -1731,26 +1821,19 @@ function KlineModal({
   const change = last && prev ? ((last.close - prev.close) / prev.close) * 100 : 0;
   const trend = last && last.close >= last.open ? "日K收紅" : last ? "日K收黑" : "等待資料";
 
+  const currentY = yPrice(stock.price);
+  const buyLowY = yPrice(signal.buyLow);
+  const buyHighY = yPrice(signal.buyHigh);
+  const stopY = yPrice(signal.stopLine);
+  const atrY = yPrice(signal.atrLine);
+
   return (
-    <ModalShell title={`${stockDisplayName(stock)} K線圖`} sub={`${stock.code}｜內建日K線`} onClose={onClose} z={150}>
-      <section className="rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)]">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="text-xs font-black text-cyan-300">KLINE CHART</div>
-            <div className="mt-1 text-3xl font-black text-white">{formatPrice(stock.price)}</div>
-          </div>
-
-          <div className="text-right">
-            <div className={stock.changePercent >= 0 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-emerald-300"}>
-              {formatPercent(stock.changePercent)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-slate-400">{sourceLabel(stock.priceSource)}</div>
-          </div>
-        </div>
-
-        <DataBadge stock={stock} />
+    <ModalShell title={`${stockDisplayName(stock)} K線訊號`} sub={`${stock.code}｜v66 進出場判斷`} onClose={onClose} z={150}>
+      <section className={`rounded-[1.8rem] border border-cyan-500/40 bg-cyan-950/20 p-4 shadow-[0_0_28px_rgba(34,211,238,0.12)] ${signal.tone}`}>
+        <div className="text-xs font-black text-slate-400">K線實戰結論</div>
+        <div className="mt-1 text-4xl font-black">{signal.action}</div>
+        <div className="mt-2 text-sm font-bold leading-6 text-slate-300">{signal.reason}</div>
       </section>
-
       <section className="mt-4 rounded-[1.8rem] border border-slate-700 bg-black/40 p-3">
         {loading && <div className="p-8 text-center text-sm font-black text-cyan-300">K線載入中...</div>}
 
@@ -1764,7 +1847,21 @@ function KlineModal({
         )}
 
         {!loading && !message && chartData.length > 0 && (
-          <svg viewBox={`0 0 ${width} ${height}`} className="h-64 w-full">
+          <svg viewBox={`0 0 ${width} ${height}`} className="h-72 w-full">
+            <rect
+              x="0"
+              y={Math.min(buyLowY, buyHighY)}
+              width={width}
+              height={Math.max(2, Math.abs(buyHighY - buyLowY))}
+              fill="rgba(34,211,238,0.12)"
+              stroke="rgba(34,211,238,0.45)"
+              strokeWidth="1"
+            />
+
+            <line x1="0" y1={currentY} x2={width} y2={currentY} stroke="#ffffff" strokeWidth="1.4" strokeDasharray="5 4" />
+            <line x1="0" y1={stopY} x2={width} y2={stopY} stroke="#f87171" strokeWidth="1.5" strokeDasharray="6 4" />
+            <line x1="0" y1={atrY} x2={width} y2={atrY} stroke="#fb923c" strokeWidth="1.5" strokeDasharray="6 4" />
+
             <line x1="0" y1={yPrice(maxHigh)} x2={width} y2={yPrice(maxHigh)} stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
             <line x1="0" y1={yPrice(minLow)} x2={width} y2={yPrice(minLow)} stroke="rgba(148,163,184,0.25)" strokeWidth="1" />
             <line x1="0" y1={volumeTop} x2={width} y2={volumeTop} stroke="rgba(148,163,184,0.2)" strokeWidth="1" />
@@ -1792,8 +1889,8 @@ function KlineModal({
               );
             })}
 
-            {ma5Path && <path d={ma5Path} fill="none" stroke="#fde047" strokeWidth="1.6" />}
-            {ma10Path && <path d={ma10Path} fill="none" stroke="#38bdf8" strokeWidth="1.6" />}
+            {ma5Path && <path d={ma5Path} fill="none" stroke="#fde047" strokeWidth="1.7" />}
+            {ma10Path && <path d={ma10Path} fill="none" stroke="#38bdf8" strokeWidth="1.7" />}
 
             <text x="4" y="12" fill="#94a3b8" fontSize="10">
               高 {formatPrice(maxHigh)}
@@ -1801,24 +1898,55 @@ function KlineModal({
             <text x="4" y={priceTop + priceHeight + 12} fill="#94a3b8" fontSize="10">
               低 {formatPrice(minLow)}
             </text>
+            <text x="235" y={currentY - 4} fill="#ffffff" fontSize="10">
+              現價 {formatPrice(stock.price)}
+            </text>
+            <text x="235" y={stopY - 4} fill="#f87171" fontSize="10">
+              停損 {formatPrice(signal.stopLine)}
+            </text>
+            <text x="235" y={atrY - 4} fill="#fb923c" fontSize="10">
+              ATR {formatPrice(signal.atrLine)}
+            </text>
+            <text x="4" y={Math.min(buyLowY, buyHighY) - 4} fill="#67e8f9" fontSize="10">
+              買點區 {formatPrice(signal.buyLow)}～{formatPrice(signal.buyHigh)}
+            </text>
           </svg>
         )}
       </section>
-
       <section className="mt-4 grid grid-cols-2 gap-2">
         <DetailRow label="K線狀態" value={trend} tone={last && last.close >= last.open ? "text-red-300" : "text-emerald-300"} />
         <DetailRow label="日漲跌" value={formatPercent(change)} tone={change >= 0 ? "text-red-300" : "text-emerald-300"} />
-        <DetailRow label="MA5" value={ma5.length ? formatPrice(ma5[ma5.length - 1]) : "--"} tone="text-yellow-300" />
-        <DetailRow label="MA10" value={ma10.length ? formatPrice(ma10[ma10.length - 1]) : "--"} tone="text-cyan-300" />
+        <DetailRow label="MA5 / MA10" value={signal.maText} tone={signal.maText.includes("偏強") ? "text-emerald-300" : "text-yellow-300"} />
+        <DetailRow label="K線分數" value={`${entry.score} 分`} tone={entry.score >= 68 ? "text-emerald-300" : entry.score >= 45 ? "text-yellow-300" : "text-red-300"} />
+        <DetailRow label="買點區" value={`${formatPrice(signal.buyLow)}～${formatPrice(signal.buyHigh)}`} tone="text-cyan-300" />
+        <DetailRow label="停損線" value={formatPrice(signal.stopLine)} tone="text-red-300" />
+        <DetailRow label="ATR移動線" value={formatPrice(signal.atrLine)} tone="text-orange-300" />
+        <DetailRow label="現價" value={formatPrice(stock.price)} tone="text-white" />
       </section>
 
       <section className="mt-4 rounded-[1.6rem] border border-yellow-500/30 bg-yellow-950/20 p-4">
-        <div className="text-lg font-black text-yellow-100">實戰看法</div>
+        <div className="text-lg font-black text-yellow-100">20項實戰提醒</div>
         <div className="mt-2 text-sm font-bold leading-6 text-slate-300">
-          1. 紅K站上 MA5 / MA10，短線偏強。<br />
-          2. 長紅離均線太遠，不追高，等回測。<br />
-          3. 跌破 MA5 且量縮，先降低部位。<br />
-          4. 跌破 MA10 或 ATR 線，優先保護本金。
+          1. 現價在買點區附近才考慮。<br />
+          2. 站上 MA5 且 MA5 高於 MA10，短線較強。<br />
+          3. 離 MA5 太遠，不追高。<br />
+          4. 跌破停損線，先保護本金。<br />
+          5. 跌破 ATR 移動線，先減碼觀察。<br />
+          6. 跌破 MA10，短線轉弱。<br />
+          7. 長紅但量能不足，容易回測。<br />
+          8. 紅K加量較健康。<br />
+          9. 黑K跌破均線要小心。<br />
+          10. 回測不破買點區才是低風險。<br />
+          11. 追高風險高時只觀察。<br />
+          12. 第一停利用分批，不猜最高點。<br />
+          13. ATR線往上移，停利跟著上移。<br />
+          14. 產業不是主線，部位要小。<br />
+          15. 紅燈警報出現，先不要加碼。<br />
+          16. 爆量不漲要防出貨。<br />
+          17. 資金減少時先保守。<br />
+          18. 可進場不等於一定會漲。<br />
+          19. 等回測比追高安全。<br />
+          20. 停損價到了就照紀律。
         </div>
       </section>
     </ModalShell>
@@ -1935,7 +2063,6 @@ function StockQuickModal({
           </div>
         </section>
       )}
-
       <section className={`mt-3 rounded-[1.6rem] border border-emerald-500/40 bg-emerald-950/20 p-4 ${entryTone(entry.level)}`}>
         <div className="text-xs font-bold text-slate-400">低風險進場判斷</div>
         <div className="mt-1 text-3xl font-black">{entry.level}</div>
@@ -1991,6 +2118,7 @@ function StockQuickModal({
           </button>
         </div>
       </section>
+
       <section className={`mt-3 rounded-[1.6rem] bg-black/30 p-4 ${riskTone(plan.action)}`}>
         <div className="text-xs font-bold text-slate-400">我的交易計畫</div>
         <div className="mt-1 text-3xl font-black">{plan.action}</div>
@@ -2004,7 +2132,6 @@ function StockQuickModal({
           加倉：{plan.addText}
         </div>
       </section>
-
       <section className="mt-3 rounded-[1.6rem] border border-emerald-500/40 bg-emerald-950/20 p-4">
         <div className="text-lg font-black text-emerald-100">資金增減趨勢</div>
         <div className={`mt-2 text-2xl font-black ${moneyTrendTone(moneyLabel)}`}>{moneyLabel}</div>
@@ -2039,7 +2166,7 @@ function StockQuickModal({
           }}
           className="rounded-2xl bg-emerald-500/20 py-3 text-sm font-black text-emerald-200"
         >
-          📈 內建K線
+          📈 K線20項訊號
         </button>
 
         <button
@@ -2059,6 +2186,7 @@ function StockQuickModal({
     </ModalShell>
   );
 }
+
 export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [searchHistory, setSearchHistory] = useState<Stock[]>([]);
@@ -2099,7 +2227,6 @@ export default function App() {
   function jumpToContent() {
     setTimeout(() => contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
-
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
   const mainIndustries = useMemo(() => {
@@ -2133,6 +2260,19 @@ export default function App() {
     () => stocks.find((s) => s.code === selectedKlineCode) || searchHistory.find((s) => s.code === selectedKlineCode) || null,
     [stocks, searchHistory, selectedKlineCode]
   );
+
+  const selectedKlineEntry = useMemo(() => {
+    if (!selectedKlineStock) return null;
+
+    return entryPlan(
+      selectedKlineStock,
+      top50.length > 0 ? top50 : [selectedKlineStock],
+      mainIndustries,
+      settings,
+      moneyHistory,
+      stockIndustryStatus(selectedKlineStock)
+    );
+  }, [selectedKlineStock, top50, mainIndustries, settings, moneyHistory, industryRanking]);
 
   const entryRows = useMemo(() => {
     return top50
@@ -2168,6 +2308,7 @@ export default function App() {
   const redAlerts = useMemo(() => allAlerts.filter((a) => a.level === "紅燈"), [allAlerts]);
   const yellowAlerts = useMemo(() => allAlerts.filter((a) => a.level === "黃燈"), [allAlerts]);
   const greenAlerts = useMemo(() => allAlerts.filter((a) => a.level === "綠燈"), [allAlerts]);
+
   const avoidAlerts = useMemo(
     () =>
       allAlerts
@@ -2194,7 +2335,6 @@ export default function App() {
         .sort((a, b) => moneyTrendChange(a.code, moneyHistory).amountChangePercent - moneyTrendChange(b.code, moneyHistory).amountChangePercent),
     [top50, moneyHistory]
   );
-
   const failedList = useMemo(
     () =>
       top50.filter((stock) => {
@@ -2280,6 +2420,7 @@ export default function App() {
       danger: string;
     }[];
   }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking, moneyHistory]);
+
   const positionStats = useMemo(() => {
     let totalPnl = 0;
 
@@ -2300,7 +2441,6 @@ export default function App() {
   const protectedCount = useMemo(() => stocks.filter((stock) => stock.stableNote && stock.stableNote !== "正常更新").length, [stocks]);
   const twseCount = useMemo(() => stocks.filter((stock) => stock.priceSource?.includes("TWSE")).length, [stocks]);
   const yahooCount = useMemo(() => stocks.filter((stock) => stock.priceSource?.includes("Yahoo")).length, [stocks]);
-
   const snapshotPickRate = useMemo(
     () => (snapshot ? snapshotSuccessRate(snapshot.picks, stocks, searchHistory, "可觀察") : { total: 0, done: 0, success: 0, rate: 0 }),
     [snapshot, stocks, searchHistory]
@@ -2539,7 +2679,6 @@ export default function App() {
       return null;
     }
   }
-
   async function searchAnyStock() {
     const q = queryText.trim();
 
@@ -2567,6 +2706,7 @@ export default function App() {
       setQueryLoading(false);
     }
   }
+
   function sortList(list: Stock[]) {
     return [...list].sort((a, b) => {
       const ad = decisionText(a, top50, mainIndustries, settings, moneyHistory);
@@ -2677,7 +2817,6 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
-
   useEffect(() => {
     if (!selectedCode) return;
 
@@ -2699,6 +2838,7 @@ export default function App() {
       window.clearInterval(timer);
     };
   }, [selectedCode]);
+
   useEffect(() => {
     const timer = window.setInterval(() => {
       const now = new Date();
@@ -2741,10 +2881,10 @@ export default function App() {
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v65</div>
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v66</div>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
-                內建K線圖｜MA5 / MA10｜成交量｜即時資料穩定保護
+                K線20項訊號｜買點區｜停損線｜ATR移動線｜MA5 / MA10
               </p>
             </div>
 
@@ -3348,9 +3488,10 @@ export default function App() {
           </div>
         </ModalShell>
       )}
-      {selectedKlineStock && (
+      {selectedKlineStock && selectedKlineEntry && (
         <KlineModal
           stock={selectedKlineStock}
+          entry={selectedKlineEntry}
           onClose={() => setSelectedKlineCode("")}
         />
       )}
