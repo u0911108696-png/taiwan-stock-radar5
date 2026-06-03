@@ -475,17 +475,37 @@ function normalizeStock(raw: any, updateTime: string): Stock {
 }
 
 function stableMergeStock(next: Stock, old?: Stock): Stock {
-  if (!old || !old.price || old.price <= 0) return next;
-  if (!next.price || next.price <= 0) return { ...old, stableNote: "新資料無效，保留上一筆" };
+  if (!old || !old.price || old.price <= 0) {
+    return {
+      ...next,
+      stableNote: next.stableNote || "正常更新",
+    };
+  }
+
+  if (!next.price || next.price <= 0) {
+    return { ...old, stableNote: "新資料無效，保留上一筆" };
+  }
 
   const priceGap = Math.abs(next.price - old.price) / old.price;
   const oldTime = parseTimeMs(old.updatedAt);
   const nextTime = parseTimeMs(next.updatedAt);
 
-  if (nextTime && oldTime && nextTime + 30000 < oldTime) {
-    return { ...old, stableNote: "新資料時間較舊，保留上一筆" };
+  // 新資料時間比舊資料還早，不准覆蓋
+  if (oldTime > 0 && nextTime > 0 && nextTime < oldTime) {
+    return { ...old, stableNote: "資料時間較舊，保留最新價" };
   }
 
+  // 同一分鐘內，如果價格跳回昨收或開盤，通常是舊資料回補，不准覆蓋
+  if (oldTime > 0 && nextTime > 0 && Math.abs(nextTime - oldTime) <= 60000) {
+    const jumpBackToOpen = next.openPrice > 0 && Math.abs(next.price - next.openPrice) <= 0.01 && Math.abs(old.price - next.openPrice) / old.price > 0.02;
+    const jumpBackToPrev = next.previousClose > 0 && Math.abs(next.price - next.previousClose) <= 0.01 && Math.abs(old.price - next.previousClose) / old.price > 0.02;
+
+    if (jumpBackToOpen || jumpBackToPrev) {
+      return { ...old, stableNote: "疑似舊價回補，保留最新價" };
+    }
+  }
+
+  // 價格瞬間跳動過大，先保護
   if (priceGap >= 0.08 && next.price === next.openPrice && old.price !== old.openPrice) {
     return { ...old, stableNote: "疑似跳回開盤價，保留上一筆" };
   }
@@ -2630,9 +2650,16 @@ export default function App() {
       const oldStock = stocks.find((item) => item.code === rawStock.code) || searchHistory.find((item) => item.code === rawStock.code);
       const stock = stableMergeStock(rawStock, oldStock);
 
-      setStocks((old) => {
+            setStocks((old) => {
         const exists = old.some((item) => item.code === stock.code);
-        const next = exists ? old.map((item) => (item.code === stock.code ? { ...item, ...stock } : item)) : [stock, ...old];
+
+        const next = exists
+          ? old.map((item) => {
+              if (item.code !== stock.code) return item;
+              return stableMergeStock(stock, item);
+            })
+          : [stock, ...old];
+
         return next.sort((a, b) => b.changePercent - a.changePercent);
       });
 
