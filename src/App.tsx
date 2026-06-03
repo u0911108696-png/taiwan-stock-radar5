@@ -50,7 +50,7 @@ type Settings = {
   stableIndustryLock: boolean;
 };
 
-type TabKey = "home" | "top50" | "watch" | "favorite" | "more";
+type TabKey = "home" | "top50" | "portfolio" | "favorite" | "more";
 
 type PopupKey =
   | ""
@@ -2441,15 +2441,40 @@ export default function App() {
     }[];
   }, [positions, stocks, searchHistory, top50, mainIndustries, settings, industryRanking, moneyHistory]);
 
-  const positionStats = useMemo(() => {
+    const positionStats = useMemo(() => {
+    let totalCost = 0;
+    let totalMarketValue = 0;
     let totalPnl = 0;
+    let todayPnl = 0;
 
     Object.values(positions).forEach((p) => {
       const stock = stocks.find((s) => s.code === p.code) || searchHistory.find((s) => s.code === p.code);
-      if (stock && p.buyPrice > 0 && p.shares > 0) totalPnl += (stock.price - p.buyPrice) * p.shares * 1000;
+      if (!stock || p.buyPrice <= 0 || p.shares <= 0) return;
+
+      const sharesUnit = p.shares * 1000;
+      const cost = p.buyPrice * sharesUnit;
+      const marketValue = stock.price * sharesUnit;
+      const pnl = marketValue - cost;
+      const dayPnl = (stock.price - stock.previousClose) * sharesUnit;
+
+      totalCost += cost;
+      totalMarketValue += marketValue;
+      totalPnl += pnl;
+      todayPnl += dayPnl;
     });
 
-    return { count: Object.values(positions).length, totalPnl };
+    const totalPnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+    const todayPnlPercent = totalCost > 0 ? (todayPnl / totalCost) * 100 : 0;
+
+    return {
+      count: Object.values(positions).length,
+      totalCost,
+      totalMarketValue,
+      totalPnl,
+      todayPnl,
+      totalPnlPercent,
+      todayPnlPercent,
+    };
   }, [positions, stocks, searchHistory]);
 
   const bestPosition = positionRows.length ? [...positionRows].sort((a, b) => b.pnlPercent - a.pnlPercent)[0] : null;
@@ -3068,24 +3093,142 @@ export default function App() {
             </div>
           )}
 
-          {tab === "watch" && (
-            <div className="space-y-3">
-              {watchStocks.length === 0 && (
-                <div className="rounded-[1.6rem] border border-slate-800 bg-slate-950 p-6 text-center text-slate-400">
-                  目前沒有觀察股票。
-                </div>
-              )}
+                    {tab === "portfolio" && (
+            <div className="space-y-4">
+              <section className="rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-5 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-black tracking-[0.2em] text-cyan-300">MY PORTFOLIO</div>
+                    <div className="mt-2 text-3xl font-black text-white">我的庫存股</div>
+                    <div className="mt-2 text-sm font-bold text-slate-400">即時損益｜市值｜成本｜報酬率</div>
+                  </div>
 
-              {watchStocks.map((stock) => (
-                <SimpleStockButton
-                  key={stock.code}
-                  stock={stock}
-                  label={decisionText(stock, top50, mainIndustries, settings, moneyHistory)}
-                  tone={riskTone(decisionText(stock, top50, mainIndustries, settings, moneyHistory))}
-                  reason={`更新：${stock.updatedAt || lastSuccessAt || "--"}`}
-                  onClick={() => setSelectedCode(stock.code)}
-                />
-              ))}
+                  <button
+                    onClick={() => setPopup("positions")}
+                    className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs font-black text-cyan-200"
+                  >
+                    編輯<br />庫存
+                  </button>
+                </div>
+
+                <div className="mt-5 grid grid-cols-3 gap-2">
+                  <div className="rounded-[1.4rem] border border-white/10 bg-black/35 p-3">
+                    <div className="text-xs font-bold text-slate-500">今日損益</div>
+                    <div className={`mt-1 text-2xl font-black ${positionStats.todayPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatAmount(positionStats.todayPnl)}
+                    </div>
+                    <div className={`mt-1 text-xs font-black ${positionStats.todayPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatPercent(positionStats.todayPnlPercent)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.4rem] border border-white/10 bg-black/35 p-3">
+                    <div className="text-xs font-bold text-slate-500">累積損益</div>
+                    <div className={`mt-1 text-2xl font-black ${positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatAmount(positionStats.totalPnl)}
+                    </div>
+                    <div className={`mt-1 text-xs font-black ${positionStats.totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                      {formatPercent(positionStats.totalPnlPercent)}
+                    </div>
+                  </div>
+
+                  <div className="rounded-[1.4rem] border border-white/10 bg-black/35 p-3">
+                    <div className="text-xs font-bold text-slate-500">股票市值</div>
+                    <div className="mt-1 text-2xl font-black text-white">
+                      {formatAmount(positionStats.totalMarketValue)}
+                    </div>
+                    <div className="mt-1 text-xs font-black text-slate-400">
+                      成本 {formatAmount(positionStats.totalCost)}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-[2rem] border border-slate-700 bg-slate-950/90 p-4 shadow-[0_0_35px_rgba(15,23,42,0.8)]">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="text-lg font-black text-white">庫存股</div>
+                  <div className="text-xs font-black text-slate-400">{positionStats.count} 檔</div>
+                </div>
+
+                <div className="space-y-3">
+                  {positionRows.length === 0 && (
+                    <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-6 text-center">
+                      <div className="text-xl font-black text-slate-300">尚未建立庫存股</div>
+                      <div className="mt-2 text-sm font-bold text-slate-500">
+                        點個股 → 輸入我的持倉 → 儲存買點，就會出現在這裡。
+                      </div>
+                    </div>
+                  )}
+
+                  {positionRows.map((row) => {
+                    const stock = row.stock;
+                    const sharesUnit = row.position.shares * 1000;
+                    const cost = row.position.buyPrice * sharesUnit;
+                    const marketValue = stock.price * sharesUnit;
+                    const totalPnl = marketValue - cost;
+                    const todayPnl = (stock.price - stock.previousClose) * sharesUnit;
+                    const totalPnlPercent = cost > 0 ? (totalPnl / cost) * 100 : 0;
+
+                    return (
+                      <button
+                        key={stock.code}
+                        onClick={() => setSelectedCode(stock.code)}
+                        className="w-full rounded-[1.6rem] border border-slate-800 bg-black/35 p-4 text-left active:scale-95"
+                      >
+                        <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-3">
+                          <div>
+                            <div className="text-xs font-black text-orange-300">現股</div>
+                            <div className="mt-1 text-xl font-black text-white">{stockDisplayName(stock)}</div>
+                            <div className="mt-1 text-xs font-bold text-slate-400">{stock.code}</div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-slate-500">今日損益</div>
+                            <div className={`mt-1 text-xl font-black ${todayPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                              {formatAmount(todayPnl)}
+                            </div>
+                          </div>
+
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-slate-500">股價</div>
+                            <div className={stock.changePercent >= 0 ? "mt-1 text-xl font-black text-red-300" : "mt-1 text-xl font-black text-emerald-300"}>
+                              {formatPrice(stock.price)}
+                            </div>
+                            <div className={stock.changePercent >= 0 ? "text-xs font-black text-red-300" : "text-xs font-black text-emerald-300"}>
+                              {formatPercent(stock.changePercent)}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-black">
+                          <div className="rounded-2xl bg-black/35 p-2 text-slate-300">
+                            張數<br />{row.position.shares || 0}
+                          </div>
+                          <div className="rounded-2xl bg-black/35 p-2 text-yellow-300">
+                            成本<br />{formatPrice(row.position.buyPrice)}
+                          </div>
+                          <div className={`rounded-2xl bg-black/35 p-2 ${totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                            總損益<br />{formatAmount(totalPnl)}
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between rounded-2xl bg-black/35 px-3 py-2">
+                          <div className="text-xs font-bold text-slate-400">
+                            市值 {formatAmount(marketValue)}｜成本 {formatAmount(cost)}
+                          </div>
+                          <div className={`text-sm font-black ${totalPnl >= 0 ? "text-red-300" : "text-emerald-300"}`}>
+                            {formatPercent(totalPnlPercent)}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 text-xs font-bold text-cyan-300">
+                          點擊看個股資料 / K線20項訊號
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
             </div>
           )}
 
@@ -3563,7 +3706,7 @@ export default function App() {
           {[
             ["home", "📊", "首頁"],
             ["top50", "🔥", "50強"],
-            ["watch", "📌", "觀察"],
+            ["portfolio", "💰", "庫存"],
             ["favorite", "⭐", "自選"],
             ["more", "☰", "更多"],
           ].map(([key, icon, label]) => (
