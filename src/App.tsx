@@ -176,7 +176,7 @@ type AlertItem = {
 const API_URL = "/api/realtime";
 const SEARCH_API_URL = "/api/search";
 const KLINE_API_URL = "/api/kline";
-
+const ACTIVE_ETF_API_URL = "/api/active-etf";
 const FAVORITE_KEY = "taiwan-stock-radar-favorites";
 const WATCH_KEY = "taiwan-stock-radar-watch";
 const POSITIONS_KEY = "taiwan-stock-radar-my-positions";
@@ -1496,10 +1496,10 @@ const ACTIVE_ETF_HOLDINGS: ActiveEtfHolding[] = [
   { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "3231", name: "緯創", industry: "AI伺服器", todayWeight: 0, yesterdayWeight: 2.2 },
 ];
 
-function buildActiveEtfFlows(): ActiveEtfFlow[] {
+function buildActiveEtfFlows(list: ActiveEtfHolding[] = ACTIVE_ETF_HOLDINGS): ActiveEtfFlow[] {
   const map = new Map<string, ActiveEtfFlow>();
 
-  ACTIVE_ETF_HOLDINGS.forEach((item) => {
+  list.forEach((item) => {
     const diff = item.todayWeight - item.yesterdayWeight;
     if (diff === 0) return;
 
@@ -2304,7 +2304,8 @@ export default function App() {
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [moneyHistory, setMoneyHistory] = useState<Record<string, MoneyHistory>>({});
   const [snapshot, setSnapshot] = useState<Open910Snapshot | null>(null);
-
+  const [activeEtfHoldings, setActiveEtfHoldings] = useState<ActiveEtfHolding[]>(ACTIVE_ETF_HOLDINGS);
+  const [activeEtfSource, setActiveEtfSource] = useState("前端示範資料");
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
@@ -2671,6 +2672,25 @@ export default function App() {
     setSnapshot(null);
     localStorage.removeItem(SNAPSHOT_KEY);
   }
+  async function loadActiveEtf() {
+  try {
+    const response = await fetch(`${ACTIVE_ETF_API_URL}?t=${Date.now()}`, {
+      cache: "no-store",
+    });
+
+    const json = await response.json();
+
+    if (!json.ok || !Array.isArray(json.holdings)) {
+      throw new Error("主動ETF API 回傳格式錯誤");
+    }
+
+    setActiveEtfHoldings(json.holdings);
+    setActiveEtfSource(json.source || "api/active-etf");
+  } catch {
+    setActiveEtfHoldings(ACTIVE_ETF_HOLDINGS);
+    setActiveEtfSource("API失敗，使用前端示範資料");
+  }
+}
   async function loadStocks() {
     try {
       setUpdating(true);
@@ -2925,7 +2945,8 @@ export default function App() {
     }
 
     loadStocks();
-  }, []);
+    loadActiveEtf();
+    }, []);
 
   useEffect(() => {
     if (settings.refreshSeconds <= 0) return;
@@ -3183,7 +3204,7 @@ export default function App() {
             </div>
           )}
   {tab === "activeEtf" && (() => {
-  const flows = buildActiveEtfFlows();
+  const flows = buildActiveEtfFlows(activeEtfHoldings);
   const addList = flows.filter((item) => item.weightChange > 0);
   const cutList = flows.filter((item) => item.weightChange < 0);
 
@@ -3207,7 +3228,7 @@ export default function App() {
 <div className="mt-3 rounded-2xl border border-yellow-400/30 bg-yellow-500/10 p-3">
   <div className="text-xs font-black text-yellow-300">DATA STATUS</div>
   <div className="mt-1 text-sm font-black text-yellow-100">
-    目前：示範資料｜下一步：串接 SITCA / 投信每日投資組合
+    目前：{activeEtfSource}｜下一步：串接 SITCA / 投信每日投資組合
   </div>
   <div className="mt-1 text-xs font-bold text-slate-300">
     用途：先確認加碼、減碼、新買進、清倉的判斷邏輯與手機版面。
@@ -3226,7 +3247,7 @@ export default function App() {
           <div className="rounded-2xl bg-black/30 p-3">
             <div className="text-xs font-bold text-slate-400">追蹤ETF</div>
             <div className="text-xl font-black text-cyan-300">
-              {new Set(ACTIVE_ETF_HOLDINGS.map((x) => x.etfCode)).size}
+              {new Set(activeEtfHoldings.map((x) => x.etfCode)).size}
             </div>
           </div>
         </div>
