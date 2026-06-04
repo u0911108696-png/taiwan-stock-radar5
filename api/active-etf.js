@@ -13,11 +13,38 @@ export default function handler(req, res) {
     { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "3231", name: "緯創", industry: "AI伺服器", todayWeight: 0, yesterdayWeight: 2.2 },
   ];
 
-  res.status(200).json({
-    ok: true,
-    source: "api/active-etf mock js",
+  const etfs = [
+  {
+    etfCode: "00980A",
+    etfName: "主動野村臺灣優選",
+    issuer: "野村投信",
     mode: "mock",
-    updatedAt: new Date().toISOString(),
-    holdings,
-  });
-}
+    status: "已建立",
+    note: "目前使用示範持股，下一版串接每日投資組合。",
+  },
+  {
+    etfCode: "00981A",
+    etfName: "主動統一台股增長",
+    issuer: "統一投信",
+    mode: "mock",
+    status: "已建立",
+    note: "目前使用示範持股，下一版串接每日投資組合。",
+  },
+  {
+    etfCode: "00982A",
+    etfName: "主動群益台灣強棒",
+    issuer: "群益投信",
+    mode: "mock",
+    status: "已建立",
+    note: "目前使用示範持股，下一版串接每日投資組合。",
+  },
+];
+
+res.status(200).json({
+  ok: true,
+  source: "api/active-etf mock js",
+  mode: "mock",
+  updatedAt: new Date().toISOString(),
+  etfs,
+  holdings,
+});
