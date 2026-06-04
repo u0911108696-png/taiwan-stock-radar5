@@ -3023,7 +3023,7 @@ export default function App() {
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v66</div>
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v70</div>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
                 K線20項訊號｜買點區｜停損線｜ATR移動線｜MA5 / MA10
@@ -3201,8 +3201,18 @@ export default function App() {
         <div className="text-xs font-black text-cyan-300">ACTIVE ETF FLOW</div>
         <div className="mt-1 text-2xl font-black text-white">主動ETF加減碼雷達</div>
         <div className="mt-1 text-sm font-bold text-slate-300">
-          先用前端示範資料，比對今日權重 vs 昨日權重，找出加碼、減碼、新買進、清倉。
-        </div>
+  v70 先建立主動ETF資金雷達架構，目前使用示範資料；下一版會串接每日公告持股資料。
+</div>
+
+<div className="mt-3 rounded-2xl border border-yellow-400/30 bg-yellow-500/10 p-3">
+  <div className="text-xs font-black text-yellow-300">DATA STATUS</div>
+  <div className="mt-1 text-sm font-black text-yellow-100">
+    目前：示範資料｜下一步：串接 SITCA / 投信每日投資組合
+  </div>
+  <div className="mt-1 text-xs font-bold text-slate-300">
+    用途：先確認加碼、減碼、新買進、清倉的判斷邏輯與手機版面。
+  </div>
+</div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           <div className="rounded-2xl bg-black/30 p-3">
@@ -3230,7 +3240,7 @@ export default function App() {
           {addList.map((item, index) => (
             <button
               key={item.code}
-              onClick={() => setSelectedCode(item.code)}
+              onClick={() => setQueryText(item.code)}
               className="w-full rounded-2xl border border-white/10 bg-black/35 p-3 text-left"
             >
               <div className="flex items-start justify-between gap-2">
@@ -3266,7 +3276,7 @@ export default function App() {
           {cutList.map((item, index) => (
             <button
               key={item.code}
-              onClick={() => setSelectedCode(item.code)}
+              onClick={() => setQueryText(item.code)}
               className="w-full rounded-2xl border border-white/10 bg-black/35 p-3 text-left"
             >
               <div className="flex items-start justify-between gap-2">
