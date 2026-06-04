@@ -3302,7 +3302,8 @@ export default function App() {
             </div>
           ))}
         </div>
-      
+      </div>
+
       <div className="rounded-3xl border border-red-400/30 bg-red-500/10 p-4">
         <div className="text-xs font-black text-red-300">BUY MORE</div>
         <div className="text-xl font-black text-white">主動ETF今日加碼排行</div>
