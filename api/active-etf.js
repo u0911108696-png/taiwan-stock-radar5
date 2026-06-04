@@ -1,30 +1,42 @@
 export default function handler(req, res) {
   const etfs = [
-    {
-      etfCode: "00980A",
-      etfName: "主動野村臺灣優選",
-      issuer: "野村投信",
-      mode: "mock",
-      status: "已建立",
-      note: "目前使用示範持股，下一版串接每日投資組合。",
-    },
-    {
-      etfCode: "00981A",
-      etfName: "主動統一台股增長",
-      issuer: "統一投信",
-      mode: "mock",
-      status: "已建立",
-      note: "目前使用示範持股，下一版串接每日投資組合。",
-    },
-    {
-      etfCode: "00982A",
-      etfName: "主動群益台灣強棒",
-      issuer: "群益投信",
-      mode: "mock",
-      status: "已建立",
-      note: "目前使用示範持股，下一版串接每日投資組合。",
-    },
-  ];
+  {
+    etfCode: "00980A",
+    etfName: "主動野村臺灣優選",
+    issuer: "野村投信",
+    mode: "mock",
+    status: "準備串接",
+    fetchStatus: "mock_ready",
+    sourceUrl: "https://www.nomurafunds.com.tw/",
+    sourceName: "野村投信官網",
+    lastFetchAt: new Date().toISOString(),
+    note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+  },
+  {
+    etfCode: "00981A",
+    etfName: "主動統一台股增長",
+    issuer: "統一投信",
+    mode: "mock",
+    status: "準備串接",
+    fetchStatus: "mock_ready",
+    sourceUrl: "https://www.ezmoney.com.tw/",
+    sourceName: "統一投信官網",
+    lastFetchAt: new Date().toISOString(),
+    note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+  },
+  {
+    etfCode: "00982A",
+    etfName: "主動群益台灣強棒",
+    issuer: "群益投信",
+    mode: "mock",
+    status: "準備串接",
+    fetchStatus: "mock_ready",
+    sourceUrl: "https://www.capitalfund.com.tw/",
+    sourceName: "群益投信官網",
+    lastFetchAt: new Date().toISOString(),
+    note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+  },
+];
 
   const holdings = [
     { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "2330", name: "台積電", industry: "半導體", todayWeight: 9.8, yesterdayWeight: 9.1 },
@@ -41,11 +53,12 @@ export default function handler(req, res) {
   ];
 
   res.status(200).json({
-    ok: true,
-    source: "api/active-etf mock js",
-    mode: "mock",
-    updatedAt: new Date().toISOString(),
-    etfs,
-    holdings,
-  });
-}
+  ok: true,
+  source: "api/active-etf v73 real-ready mock",
+  mode: "mock",
+  realReady: true,
+  updatedAt: new Date().toISOString(),
+  message: "v73 已建立真實資料來源欄位，下一版開始串接投信每日投資組合。",
+  etfs,
+  holdings,
+});
