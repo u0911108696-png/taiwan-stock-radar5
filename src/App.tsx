@@ -4059,11 +4059,11 @@ export default function App() {
         <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1 text-center">
           {[
             ["home", "", "首頁"],
-["top50", "", "50強"],
-["portfolio", "", "庫存"],
-["activeEtf", "🧠", "ETF"],
-["favorite", "⭐", "自選"],
-["more", "☰", "更多"],
+            ["top50", "", "50強"],
+            ["portfolio", "", "庫存"],
+            ["activeEtf", "🧠", "ETF"],
+            ["favorite", "⭐", "自選"],
+            ["more", "☰", "更多"],
           ].map(([key, icon, label]) => (
             <button
               key={key}
