@@ -1,7 +1,7 @@
-const REAL_FETCH_ENABLED = false;
+const DEFAULT_REAL_FETCH_ENABLED = false;
 
-async function fetchActiveEtfHoldings(etf) {
-  if (!REAL_FETCH_ENABLED) {
+async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
+  if (!realFetchEnabled) {
     return {
       ok: false,
       mode: "mock",
@@ -11,8 +11,9 @@ async function fetchActiveEtfHoldings(etf) {
   }
 
   try {
-    // v74 先預留真實抓取架構。
-    // v75 再針對單一投信每日投資組合網址做實際解析。
+    // v75 測試模式：
+    // 只有 /api/active-etf?test=1 才會嘗試抓取投信官網。
+    // 目前只確認能不能抓到 HTML，不解析持股，避免資料錯誤。
     const response = await fetch(etf.sourceUrl, {
       headers: {
         "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
@@ -51,6 +52,9 @@ function normalizeActiveEtfHolding(raw, etf) {
 }
 
 export default async function handler(req, res) {
+  const realFetchEnabled =
+    DEFAULT_REAL_FETCH_ENABLED || String(req.query?.test || "") === "1";
+
   const etfs = [
     {
       etfCode: "00980A",
@@ -62,7 +66,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
+      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
     },
     {
       etfCode: "00981A",
@@ -74,7 +78,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
+      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
     },
     {
       etfCode: "00982A",
@@ -86,20 +90,20 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.capitalfund.com.tw/",
       sourceName: "群益投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
+      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
     },
   ];
 
   const fetchReports = await Promise.all(
     etfs.map(async (etf) => {
-      const result = await fetchActiveEtfHoldings(etf);
+      const result = await fetchActiveEtfHoldings(etf, realFetchEnabled);
 
       return {
         etfCode: etf.etfCode,
         etfName: etf.etfName,
         sourceName: etf.sourceName,
         sourceUrl: etf.sourceUrl,
-        realFetchEnabled: REAL_FETCH_ENABLED,
+        realFetchEnabled,
         ok: result.ok,
         mode: result.mode,
         reason: result.reason,
@@ -115,10 +119,10 @@ export default async function handler(req, res) {
 
     return {
       ...etf,
-      mode: REAL_FETCH_ENABLED && report?.ok ? "real" : "mock",
-      status: REAL_FETCH_ENABLED && report?.ok ? "真實資料測試成功" : "準備串接",
+      mode: realFetchEnabled && report?.ok ? "real" : "mock",
+      status: realFetchEnabled && report?.ok ? "真實抓取測試成功" : "準備串接",
       fetchStatus: report?.reason || "mock_ready",
-      realFetchEnabled: REAL_FETCH_ENABLED,
+      realFetchEnabled,
       lastFetchAt: report?.checkedAt || new Date().toISOString(),
     };
   });
@@ -139,14 +143,16 @@ export default async function handler(req, res) {
 
   res.status(200).json({
     ok: true,
-    source: "api/active-etf v74 real-fetch-ready mock",
-    mode: REAL_FETCH_ENABLED ? "real-test" : "mock",
+    source: realFetchEnabled
+      ? "api/active-etf v75 real-fetch-test"
+      : "api/active-etf v75 mock safe",
+    mode: realFetchEnabled ? "real-test" : "mock",
     realReady: true,
-    realFetchEnabled: REAL_FETCH_ENABLED,
+    realFetchEnabled,
     updatedAt: new Date().toISOString(),
-    message: REAL_FETCH_ENABLED
-      ? "v74 已啟用真實抓取測試，但尚未解析持股。"
-      : "v74 已建立真實抓取函式，目前安全關閉，仍使用示範持股。",
+    message: realFetchEnabled
+      ? "v75 測試模式已啟用：正在嘗試抓取投信官網，但尚未解析持股。"
+      : "v75 安全模式：真實抓取關閉，仍使用示範持股。",
     fetchReports,
     etfs: etfsWithFetchStatus,
     holdings,
