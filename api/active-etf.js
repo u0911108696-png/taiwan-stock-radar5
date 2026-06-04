@@ -1,4 +1,56 @@
-export default function handler(req, res) {
+const REAL_FETCH_ENABLED = false;
+
+async function fetchActiveEtfHoldings(etf) {
+  if (!REAL_FETCH_ENABLED) {
+    return {
+      ok: false,
+      mode: "mock",
+      reason: "real fetch disabled",
+      holdings: [],
+    };
+  }
+
+  try {
+    // v74 先預留真實抓取架構。
+    // v75 再針對單一投信每日投資組合網址做實際解析。
+    const response = await fetch(etf.sourceUrl, {
+      headers: {
+        "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
+      },
+    });
+
+    const text = await response.text();
+
+    return {
+      ok: response.ok,
+      mode: "real",
+      reason: response.ok ? "fetch success but parser not enabled" : `http ${response.status}`,
+      rawLength: text.length,
+      holdings: [],
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      mode: "real",
+      reason: error?.message || "fetch failed",
+      holdings: [],
+    };
+  }
+}
+
+function normalizeActiveEtfHolding(raw, etf) {
+  return {
+    etfCode: etf.etfCode,
+    etfName: etf.etfName,
+    code: String(raw.code || "").replace(/\D/g, "").slice(0, 6),
+    name: String(raw.name || ""),
+    industry: String(raw.industry || "其他"),
+    todayWeight: Number(raw.todayWeight || 0),
+    yesterdayWeight: Number(raw.yesterdayWeight || 0),
+  };
+}
+
+export default async function handler(req, res) {
   const etfs = [
     {
       etfCode: "00980A",
@@ -10,7 +62,7 @@ export default function handler(req, res) {
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
     },
     {
       etfCode: "00981A",
@@ -22,7 +74,7 @@ export default function handler(req, res) {
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
     },
     {
       etfCode: "00982A",
@@ -34,9 +86,42 @@ export default function handler(req, res) {
       sourceUrl: "https://www.capitalfund.com.tw/",
       sourceName: "群益投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v74 開始嘗試串接投信每日投資組合。",
+      note: "目前使用示範持股；v75 開始嘗試解析投信每日投資組合。",
     },
   ];
+
+  const fetchReports = await Promise.all(
+    etfs.map(async (etf) => {
+      const result = await fetchActiveEtfHoldings(etf);
+
+      return {
+        etfCode: etf.etfCode,
+        etfName: etf.etfName,
+        sourceName: etf.sourceName,
+        sourceUrl: etf.sourceUrl,
+        realFetchEnabled: REAL_FETCH_ENABLED,
+        ok: result.ok,
+        mode: result.mode,
+        reason: result.reason,
+        rawLength: result.rawLength || 0,
+        holdingsCount: result.holdings?.length || 0,
+        checkedAt: new Date().toISOString(),
+      };
+    })
+  );
+
+  const etfsWithFetchStatus = etfs.map((etf) => {
+    const report = fetchReports.find((item) => item.etfCode === etf.etfCode);
+
+    return {
+      ...etf,
+      mode: REAL_FETCH_ENABLED && report?.ok ? "real" : "mock",
+      status: REAL_FETCH_ENABLED && report?.ok ? "真實資料測試成功" : "準備串接",
+      fetchStatus: report?.reason || "mock_ready",
+      realFetchEnabled: REAL_FETCH_ENABLED,
+      lastFetchAt: report?.checkedAt || new Date().toISOString(),
+    };
+  });
 
   const holdings = [
     { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "2330", name: "台積電", industry: "半導體", todayWeight: 9.8, yesterdayWeight: 9.1 },
@@ -54,12 +139,16 @@ export default function handler(req, res) {
 
   res.status(200).json({
     ok: true,
-    source: "api/active-etf v73 real-ready mock",
-    mode: "mock",
+    source: "api/active-etf v74 real-fetch-ready mock",
+    mode: REAL_FETCH_ENABLED ? "real-test" : "mock",
     realReady: true,
+    realFetchEnabled: REAL_FETCH_ENABLED,
     updatedAt: new Date().toISOString(),
-    message: "v73 已建立真實資料來源欄位，下一版開始串接投信每日投資組合。",
-    etfs,
+    message: REAL_FETCH_ENABLED
+      ? "v74 已啟用真實抓取測試，但尚未解析持股。"
+      : "v74 已建立真實抓取函式，目前安全關閉，仍使用示範持股。",
+    fetchReports,
+    etfs: etfsWithFetchStatus,
     holdings,
   });
 }
