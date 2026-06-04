@@ -1461,6 +1461,15 @@ function DetailRow({ label, value, tone = "text-white" }: { label: string; value
     </div>
   );
 }
+type ActiveEtfInfo = {
+  etfCode: string;
+  etfName: string;
+  issuer: string;
+  mode: "mock" | "real" | string;
+  status: string;
+  note: string;
+};
+
 type ActiveEtfHolding = {
   etfCode: string;
   etfName: string;
@@ -2306,6 +2315,8 @@ export default function App() {
   const [snapshot, setSnapshot] = useState<Open910Snapshot | null>(null);
   const [activeEtfHoldings, setActiveEtfHoldings] = useState<ActiveEtfHolding[]>(ACTIVE_ETF_HOLDINGS);
   const [activeEtfSource, setActiveEtfSource] = useState("前端示範資料");
+  const [activeEtfList, setActiveEtfList] = useState<ActiveEtfInfo[]>([]);
+  const [activeEtfUpdatedAt, setActiveEtfUpdatedAt] = useState("");
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
@@ -2686,9 +2697,13 @@ export default function App() {
 
     setActiveEtfHoldings(json.holdings);
     setActiveEtfSource(json.source || "api/active-etf");
+    setActiveEtfList(Array.isArray(json.etfs) ? json.etfs : []);
+    setActiveEtfUpdatedAt(json.updatedAt || "");
   } catch {
     setActiveEtfHoldings(ACTIVE_ETF_HOLDINGS);
     setActiveEtfSource("API失敗，使用前端示範資料");
+    setActiveEtfList([]);
+    setActiveEtfUpdatedAt("");
   }
 }
   async function loadStocks() {
@@ -3252,7 +3267,42 @@ export default function App() {
           </div>
         </div>
       </div>
+            <div className="rounded-3xl border border-blue-400/30 bg-blue-500/10 p-4">
+        <div className="text-xs font-black text-blue-300">TRACKING ETF LIST</div>
+        <div className="text-xl font-black text-white">追蹤中的主動ETF清單</div>
+        <div className="mt-1 text-xs font-bold text-slate-400">
+          更新時間：{activeEtfUpdatedAt ? new Date(activeEtfUpdatedAt).toLocaleString("zh-TW") : "--"}
+        </div>
 
+        <div className="mt-3 space-y-2">
+          {activeEtfList.length === 0 && (
+            <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+              尚未取得 ETF 清單，先使用持股資料統計。
+            </div>
+          )}
+
+          {activeEtfList.map((etf) => (
+            <div key={etf.etfCode} className="rounded-2xl border border-white/10 bg-black/35 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-black text-slate-400">{etf.issuer}</div>
+                  <div className="mt-1 text-lg font-black text-white">
+                    {etf.etfCode} {etf.etfName}
+                  </div>
+                  <div className="mt-1 text-xs font-bold text-slate-400">{etf.note}</div>
+                </div>
+
+                <div className="text-right">
+                  <div className={etf.mode === "real" ? "text-sm font-black text-emerald-300" : "text-sm font-black text-yellow-300"}>
+                    {etf.mode === "real" ? "REAL" : "MOCK"}
+                  </div>
+                  <div className="mt-1 text-xs font-black text-cyan-300">{etf.status}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      
       <div className="rounded-3xl border border-red-400/30 bg-red-500/10 p-4">
         <div className="text-xs font-black text-red-300">BUY MORE</div>
         <div className="text-xl font-black text-white">主動ETF今日加碼排行</div>
