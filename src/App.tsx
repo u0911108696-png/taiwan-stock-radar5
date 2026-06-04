@@ -3309,7 +3309,7 @@ export default function App() {
       </div>
     </div>
   );
-})(
+})()}
                     {tab === "portfolio" && (
             <div className="space-y-4">
               <section className="rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-5 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
