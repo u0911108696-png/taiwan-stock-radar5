@@ -1461,7 +1461,97 @@ function DetailRow({ label, value, tone = "text-white" }: { label: string; value
     </div>
   );
 }
+type ActiveEtfHolding = {
+  etfCode: string;
+  etfName: string;
+  code: string;
+  name: string;
+  industry: string;
+  todayWeight: number;
+  yesterdayWeight: number;
+};
 
+type ActiveEtfFlow = {
+  code: string;
+  name: string;
+  industry: string;
+  addEtfCount: number;
+  cutEtfCount: number;
+  weightChange: number;
+  status: "強加碼" | "小加碼" | "強減碼" | "小減碼" | "新買進" | "清倉";
+  detail: string[];
+};
+
+const ACTIVE_ETF_HOLDINGS: ActiveEtfHolding[] = [
+  { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "2330", name: "台積電", industry: "半導體", todayWeight: 9.8, yesterdayWeight: 9.1 },
+  { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "3661", name: "世芯-KY", industry: "IC設計", todayWeight: 3.1, yesterdayWeight: 2.4 },
+  { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "2382", name: "廣達", industry: "AI伺服器", todayWeight: 4.5, yesterdayWeight: 3.9 },
+
+  { etfCode: "00981A", etfName: "主動統一台股增長", code: "2330", name: "台積電", industry: "半導體", todayWeight: 8.9, yesterdayWeight: 8.4 },
+  { etfCode: "00981A", etfName: "主動統一台股增長", code: "3017", name: "奇鋐", industry: "散熱", todayWeight: 3.8, yesterdayWeight: 2.9 },
+  { etfCode: "00981A", etfName: "主動統一台股增長", code: "6669", name: "緯穎", industry: "AI伺服器", todayWeight: 2.7, yesterdayWeight: 0 },
+
+  { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "2308", name: "台達電", industry: "電源", todayWeight: 4.2, yesterdayWeight: 4.8 },
+  { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "2382", name: "廣達", industry: "AI伺服器", todayWeight: 4.1, yesterdayWeight: 3.5 },
+  { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "3231", name: "緯創", industry: "AI伺服器", todayWeight: 0, yesterdayWeight: 2.2 },
+];
+
+function buildActiveEtfFlows(): ActiveEtfFlow[] {
+  const map = new Map<string, ActiveEtfFlow>();
+
+  ACTIVE_ETF_HOLDINGS.forEach((item) => {
+    const diff = item.todayWeight - item.yesterdayWeight;
+    if (diff === 0) return;
+
+    const old = map.get(item.code) || {
+      code: item.code,
+      name: item.name,
+      industry: item.industry,
+      addEtfCount: 0,
+      cutEtfCount: 0,
+      weightChange: 0,
+      status: "小加碼" as ActiveEtfFlow["status"],
+      detail: [],
+    };
+
+    old.weightChange += diff;
+
+    if (item.yesterdayWeight === 0 && item.todayWeight > 0) {
+      old.addEtfCount += 1;
+      old.detail.push(`${item.etfName} 新買進 ${item.todayWeight.toFixed(2)}%`);
+    } else if (item.todayWeight === 0 && item.yesterdayWeight > 0) {
+      old.cutEtfCount += 1;
+      old.detail.push(`${item.etfName} 清倉 ${item.yesterdayWeight.toFixed(2)}%`);
+    } else if (diff > 0) {
+      old.addEtfCount += 1;
+      old.detail.push(`${item.etfName} 加碼 +${diff.toFixed(2)}%`);
+    } else {
+      old.cutEtfCount += 1;
+      old.detail.push(`${item.etfName} 減碼 ${diff.toFixed(2)}%`);
+    }
+
+    map.set(item.code, old);
+  });
+
+  return Array.from(map.values())
+    .map((item) => {
+      let status: ActiveEtfFlow["status"] = "小加碼";
+      if (item.detail.some((text) => text.includes("新買進"))) status = "新買進";
+      else if (item.detail.some((text) => text.includes("清倉"))) status = "清倉";
+      else if (item.weightChange >= 0.8) status = "強加碼";
+      else if (item.weightChange > 0) status = "小加碼";
+      else if (item.weightChange <= -0.8) status = "強減碼";
+      else status = "小減碼";
+
+      return { ...item, status };
+    })
+    .sort((a, b) => Math.abs(b.weightChange) - Math.abs(a.weightChange));
+}
+
+function activeEtfTone(status: ActiveEtfFlow["status"]) {
+  if (status.includes("加碼") || status === "新買進") return "text-red-300";
+  return "text-emerald-300";
+}
 function DataBadge({ stock }: { stock: Stock }) {
   return (
     <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-black">
@@ -3092,7 +3182,134 @@ export default function App() {
               ))}
             </div>
           )}
+)} {tab === "activeEtf" && (() => {
+  const flows = buildActiveEtfFlows();
+  const addList = flows.filter((item) => item.weightChange > 0);
+  const cutList = flows.filter((item) => item.weightChange < 0);
 
+  const industryMap = new Map<string, number>();
+  addList.forEach((item) => {
+    industryMap.set(item.industry, (industryMap.get(item.industry) || 0) + item.weightChange);
+  });
+  const hotIndustries = Array.from(industryMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+        <div className="text-xs font-black text-cyan-300">ACTIVE ETF FLOW</div>
+        <div className="mt-1 text-2xl font-black text-white">主動ETF加減碼雷達</div>
+        <div className="mt-1 text-sm font-bold text-slate-300">
+          先用前端示範資料，比對今日權重 vs 昨日權重，找出加碼、減碼、新買進、清倉。
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">加碼股數</div>
+            <div className="text-xl font-black text-red-300">{addList.length}</div>
+          </div>
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">減碼股數</div>
+            <div className="text-xl font-black text-emerald-300">{cutList.length}</div>
+          </div>
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">追蹤ETF</div>
+            <div className="text-xl font-black text-cyan-300">
+              {new Set(ACTIVE_ETF_HOLDINGS.map((x) => x.etfCode)).size}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-red-400/30 bg-red-500/10 p-4">
+        <div className="text-xs font-black text-red-300">BUY MORE</div>
+        <div className="text-xl font-black text-white">主動ETF今日加碼排行</div>
+
+        <div className="mt-3 space-y-3">
+          {addList.map((item, index) => (
+            <button
+              key={item.code}
+              onClick={() => setSelectedCode(item.code)}
+              className="w-full rounded-2xl border border-white/10 bg-black/35 p-3 text-left"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black text-slate-400">#{index + 1}｜{item.industry}</div>
+                  <div className="text-lg font-black text-white">{item.code} {item.name}</div>
+                </div>
+                <div className={`text-right text-lg font-black ${activeEtfTone(item.status)}`}>
+                  +{item.weightChange.toFixed(2)}%
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-black">
+                <span className="rounded-full bg-red-500/20 px-2 py-1 text-red-200">{item.status}</span>
+                <span className="rounded-full bg-white/10 px-2 py-1 text-slate-200">加碼ETF：{item.addEtfCount}</span>
+              </div>
+
+              <div className="mt-2 space-y-1 text-xs font-bold text-slate-300">
+                {item.detail.map((text) => (
+                  <div key={text}>・{text}</div>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+        <div className="text-xs font-black text-emerald-300">SELL / CUT</div>
+        <div className="text-xl font-black text-white">主動ETF今日減碼排行</div>
+
+        <div className="mt-3 space-y-3">
+          {cutList.map((item, index) => (
+            <button
+              key={item.code}
+              onClick={() => setSelectedCode(item.code)}
+              className="w-full rounded-2xl border border-white/10 bg-black/35 p-3 text-left"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-xs font-black text-slate-400">#{index + 1}｜{item.industry}</div>
+                  <div className="text-lg font-black text-white">{item.code} {item.name}</div>
+                </div>
+                <div className={`text-right text-lg font-black ${activeEtfTone(item.status)}`}>
+                  {item.weightChange.toFixed(2)}%
+                </div>
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-black">
+                <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-emerald-200">{item.status}</span>
+                <span className="rounded-full bg-white/10 px-2 py-1 text-slate-200">減碼ETF：{item.cutEtfCount}</span>
+              </div>
+
+              <div className="mt-2 space-y-1 text-xs font-bold text-slate-300">
+                {item.detail.map((text) => (
+                  <div key={text}>・{text}</div>
+                ))}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
+        <div className="text-xs font-black text-yellow-300">HOT INDUSTRY</div>
+        <div className="text-xl font-black text-white">主動ETF資金流入產業</div>
+
+        <div className="mt-3 space-y-2">
+          {hotIndustries.map(([industry, value], index) => (
+            <div key={industry} className="flex items-center justify-between rounded-2xl bg-black/30 p-3">
+              <div className="font-black text-white">#{index + 1} {industry}</div>
+              <div className="font-black text-red-300">+{value.toFixed(2)}%</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+})(
                     {tab === "portfolio" && (
             <div className="space-y-4">
               <section className="rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-5 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
@@ -3841,11 +4058,12 @@ export default function App() {
       <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-cyan-400/20 bg-black/90 px-3 pb-8 pt-3 backdrop-blur">
         <div className="mx-auto grid max-w-3xl grid-cols-5 gap-1 text-center">
           {[
-            ["home", "📊", "首頁"],
-            ["top50", "🔥", "50強"],
-            ["portfolio", "💰", "庫存"],
-            ["favorite", "⭐", "自選"],
-            ["more", "☰", "更多"],
+            ["home", "", "首頁"],
+["top50", "", "50強"],
+["portfolio", "", "庫存"],
+["activeEtf", "🧠", "ETF"],
+["favorite", "⭐", "自選"],
+["more", "☰", "更多"],
           ].map(([key, icon, label]) => (
             <button
               key={key}
