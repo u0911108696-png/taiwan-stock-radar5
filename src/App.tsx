@@ -1467,6 +1467,10 @@ type ActiveEtfInfo = {
   issuer: string;
   mode: "mock" | "real" | string;
   status: string;
+  fetchStatus?: string;
+  sourceUrl?: string;
+  sourceName?: string;
+  lastFetchAt?: string;
   note: string;
 };
 
@@ -3290,6 +3294,19 @@ export default function App() {
                     {etf.etfCode} {etf.etfName}
                   </div>
                   <div className="mt-1 text-xs font-bold text-slate-400">{etf.note}</div>
+
+<div className="mt-2 grid grid-cols-2 gap-2 text-xs font-black">
+  <div className="rounded-2xl bg-black/30 p-2 text-blue-200">
+    來源<br />{etf.sourceName || "--"}
+  </div>
+  <div className="rounded-2xl bg-black/30 p-2 text-yellow-200">
+    抓取狀態<br />{etf.fetchStatus || "--"}
+  </div>
+  <div className="col-span-2 rounded-2xl bg-black/30 p-2 text-slate-300">
+    最後抓取<br />
+    {etf.lastFetchAt ? new Date(etf.lastFetchAt).toLocaleString("zh-TW") : "--"}
+  </div>
+</div>
                 </div>
 
                 <div className="text-right">
@@ -3297,6 +3314,9 @@ export default function App() {
                     {etf.mode === "real" ? "REAL" : "MOCK"}
                   </div>
                   <div className="mt-1 text-xs font-black text-cyan-300">{etf.status}</div>
+<div className="mt-1 text-[10px] font-black text-slate-400">
+  {etf.mode === "real" ? "真實資料" : "示範資料"}
+</div>
                 </div>
               </div>
             </div>
