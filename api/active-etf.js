@@ -8,11 +8,11 @@ function cleanText(text, limit = 1800) {
   return String(text || "").replace(/\s+/g, " ").slice(0, limit);
 }
 
-function getNearbyText(text, keyword, range = 500) {
+function getNearbyText(text, keyword, range = 600) {
   const source = String(text || "");
   const index = source.toLowerCase().indexOf(String(keyword || "").toLowerCase());
   if (index < 0) return "";
-  return cleanText(source.slice(Math.max(0, index - range), index + range), 1600);
+  return cleanText(source.slice(Math.max(0, index - range), index + range), 1800);
 }
 
 function normalizeLink(url, baseUrl) {
@@ -30,17 +30,17 @@ function scoreLink(url) {
   const u = String(url || "").toLowerCase();
   let score = 0;
 
-  if (u.includes("00982a")) score += 100;
-  if (u.includes("download")) score += 40;
-  if (u.includes("transaction")) score += 30;
+  if (u.includes("00982a")) score += 120;
+  if (u.includes("download")) score += 45;
+  if (u.includes("transaction")) score += 35;
   if (u.includes("etf")) score += 20;
   if (u.includes("fund")) score += 15;
-  if (u.includes("csv")) score += 60;
-  if (u.includes("xlsx") || u.includes("xls")) score += 60;
+  if (u.includes("csv")) score += 70;
+  if (u.includes("xlsx") || u.includes("xls")) score += 70;
   if (u.includes("pdf")) score += 25;
-  if (u.includes("api") || u.includes("ajax")) score += 45;
-  if (u.includes("portfolio") || u.includes("holding") || u.includes("constituent")) score += 45;
-  if (u.includes("composition") || u.includes("ingredient")) score += 35;
+  if (u.includes("api") || u.includes("ajax")) score += 50;
+  if (u.includes("portfolio") || u.includes("holding") || u.includes("constituent")) score += 55;
+  if (u.includes("composition") || u.includes("ingredient")) score += 40;
 
   return score;
 }
@@ -72,7 +72,7 @@ function extractLinks(text, baseUrl) {
     hrefLinks: uniq(hrefLinks, 80),
     scriptLinks: uniq(scriptLinks, 80),
     urlLikeLinks: uniq(urlLikeLinks, 80),
-    apiLikeStrings: uniq(apiLikeStrings, 100),
+    apiLikeStrings: uniq(apiLikeStrings, 120),
   };
 }
 
@@ -88,7 +88,7 @@ function analyzeRawText(text, baseUrl, etfCode) {
       ...extracted.urlLikeLinks,
       ...extracted.apiLikeStrings,
     ],
-    180
+    200
   );
 
   const possibleLinks = uniq(
@@ -117,14 +117,14 @@ function analyzeRawText(text, baseUrl, etfCode) {
         u.includes("constituent")
       );
     }),
-    120
+    140
   );
 
   const bestLinks = [...possibleLinks]
     .map((url) => ({ url, score: scoreLink(url) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 30);
+    .slice(0, 35);
 
   const hasEtfCode = lower.includes(String(etfCode || "").toLowerCase());
   const hasFileHint =
@@ -136,7 +136,7 @@ function analyzeRawText(text, baseUrl, etfCode) {
     lower.includes("ajax");
 
   return {
-    rawPreview: safeText.slice(0, 800),
+    rawPreview: safeText.slice(0, 900),
     rawLength: safeText.length,
     hasTable: lower.includes("<table"),
     hasCsv: lower.includes(".csv") || lower.includes("csv"),
@@ -146,10 +146,10 @@ function analyzeRawText(text, baseUrl, etfCode) {
     hasApi: lower.includes("api") || lower.includes("ajax"),
     hasEtfCode,
     hasFileHint,
-    hrefLinks: extracted.hrefLinks.slice(0, 50),
-    scriptLinks: extracted.scriptLinks.slice(0, 50),
-    apiLikeStrings: extracted.apiLikeStrings.slice(0, 80),
-    possibleLinks: possibleLinks.slice(0, 100),
+    hrefLinks: extracted.hrefLinks.slice(0, 60),
+    scriptLinks: extracted.scriptLinks.slice(0, 60),
+    apiLikeStrings: extracted.apiLikeStrings.slice(0, 100),
+    possibleLinks: possibleLinks.slice(0, 120),
     bestLinks,
     keywordNearby: {
       etfCode: getNearbyText(safeText, etfCode),
@@ -170,6 +170,116 @@ function analyzeRawText(text, baseUrl, etfCode) {
   };
 }
 
+function stripHtml(text) {
+  return String(text || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePercent(value) {
+  const text = String(value || "").replace("%", "").replace(",", "").trim();
+  const num = Number(text);
+  return Number.isFinite(num) ? num : 0;
+}
+
+function guessIndustry(code) {
+  const map = {
+    "2330": "半導體",
+    "2303": "半導體",
+    "2454": "半導體",
+    "2382": "AI伺服器",
+    "3231": "AI伺服器",
+    "6669": "AI伺服器",
+    "3017": "散熱",
+    "3324": "散熱",
+    "2308": "電源",
+    "2317": "電子代工",
+    "3661": "IC設計",
+  };
+
+  return map[code] || "其他";
+}
+
+function normalizeActiveEtfHolding(raw, etf) {
+  return {
+    etfCode: etf.etfCode,
+    etfName: etf.etfName,
+    code: String(raw.code || "").replace(/\D/g, "").slice(0, 6),
+    name: String(raw.name || ""),
+    industry: String(raw.industry || guessIndustry(raw.code) || "其他"),
+    todayWeight: Number(raw.todayWeight || 0),
+    yesterdayWeight: Number(raw.yesterdayWeight || 0),
+  };
+}
+
+function parseHoldingsFromText(text, etf) {
+  const plain = stripHtml(text);
+  const nearEtf = getNearbyText(plain, etf.etfCode, 12000) || plain.slice(0, 120000);
+
+  const rows = [];
+  const seen = new Set();
+
+  const patterns = [
+    /(\d{4})\s*([一-龥A-Za-z0-9\-\_]{2,20})\s+(\d+(?:\.\d+)?)\s*%/g,
+    /(\d{4})\s+([一-龥A-Za-z0-9\-\_]{2,20})\s+[^0-9]{0,20}(\d+(?:\.\d+)?)\s*%/g,
+    /"code"\s*:\s*"(\d{4})"[\s\S]{0,120}?"name"\s*:\s*"([^"]+)"[\s\S]{0,160}?"(?:weight|ratio|percent|percentage)"\s*:\s*"?(\d+(?:\.\d+)?)"?/gi,
+    /"stockCode"\s*:\s*"(\d{4})"[\s\S]{0,120}?"stockName"\s*:\s*"([^"]+)"[\s\S]{0,160}?"(?:weight|ratio|percent|percentage)"\s*:\s*"?(\d+(?:\.\d+)?)"?/gi,
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(nearEtf)) !== null) {
+      const code = String(match[1] || "").replace(/\D/g, "").slice(0, 4);
+      const name = String(match[2] || "").trim();
+      const weight = parsePercent(match[3]);
+
+      if (!code || code.length !== 4 || !name || weight <= 0 || weight > 100) continue;
+
+      const key = `${code}-${weight}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      rows.push(
+        normalizeActiveEtfHolding(
+          {
+            code,
+            name,
+            industry: guessIndustry(code),
+            todayWeight: weight,
+            yesterdayWeight: 0,
+          },
+          etf
+        )
+      );
+    }
+  }
+
+  const cleanRows = rows
+    .filter((item) => item.code && item.name && item.todayWeight > 0)
+    .slice(0, 80);
+
+  const totalWeight = cleanRows.reduce((sum, item) => sum + item.todayWeight, 0);
+
+  return {
+    ok: cleanRows.length >= 3 && totalWeight > 5,
+    rows: cleanRows,
+    count: cleanRows.length,
+    totalWeight,
+    sampleText: nearEtf.slice(0, 2000),
+    reason:
+      cleanRows.length >= 3 && totalWeight > 5
+        ? "parsed holding-like rows from text"
+        : "not enough holding rows parsed",
+  };
+}
+
 async function fetchTextPage(url, etfCode) {
   try {
     const response = await fetch(url, {
@@ -187,6 +297,7 @@ async function fetchTextPage(url, etfCode) {
       url,
       reason: response.ok ? "fetch success" : `http ${response.status}`,
       rawLength: text.length,
+      rawText: text,
       analysis: analyzeRawText(text, url, etfCode),
     };
   } catch (error) {
@@ -196,6 +307,7 @@ async function fetchTextPage(url, etfCode) {
       url,
       reason: error?.message || "fetch failed",
       rawLength: 0,
+      rawText: "",
       analysis: analyzeRawText("", url, etfCode),
     };
   }
@@ -220,10 +332,10 @@ function buildTradingSafety({ realFetchEnabled, pages, parsedHoldings }) {
   if (hasParsedHoldings) {
     return {
       usableForTrading: true,
-      dataLevel: "REAL_PARSED",
-      confidence: 90,
-      label: "真實資料已解析，可進入實戰觀察",
-      reason: "已取得並解析真實持股權重。",
+      dataLevel: "REAL_PARSED_TEST",
+      confidence: 75,
+      label: "測試解析成功，仍需人工確認",
+      reason: "已從頁面解析出疑似持股權重，但仍需人工確認來源欄位後才能正式實戰。",
     };
   }
 
@@ -266,6 +378,12 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       pages: [],
       analysis: analyzeRawText("", etf.sourceUrl, etf.etfCode),
       downloadAnalysis: null,
+      parserReport: {
+        ok: false,
+        count: 0,
+        totalWeight: 0,
+        reason: "real fetch disabled",
+      },
       tradingSafety: buildTradingSafety({
         realFetchEnabled,
         pages: [],
@@ -296,7 +414,23 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
     }))
     .sort((a, b) => b.score - a.score)[0];
 
-  const parsedHoldings = [];
+  const parserReports = pages.map((page) => ({
+    url: page.url,
+    ...parseHoldingsFromText(page.rawText, etf),
+  }));
+
+  const bestParserReport = parserReports
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count || b.totalWeight - a.totalWeight)[0] || {
+      ok: false,
+      rows: [],
+      count: 0,
+      totalWeight: 0,
+      reason: "no holding rows parsed",
+      sampleText: "",
+    };
+
+  const parsedHoldings = bestParserReport.ok ? bestParserReport.rows : [];
 
   const tradingSafety = buildTradingSafety({
     realFetchEnabled,
@@ -325,19 +459,16 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
     })),
     analysis: bestPage?.analysis || mainPage?.analysis || analyzeRawText("", etf.sourceUrl, etf.etfCode),
     downloadAnalysis: downloadPage?.analysis || null,
+    parserReport: {
+      ok: bestParserReport.ok || false,
+      url: bestParserReport.url || "",
+      count: bestParserReport.count || 0,
+      totalWeight: bestParserReport.totalWeight || 0,
+      reason: bestParserReport.reason || "",
+      rowsPreview: (bestParserReport.rows || []).slice(0, 10),
+      sampleText: bestParserReport.sampleText || "",
+    },
     tradingSafety,
-  };
-}
-
-function normalizeActiveEtfHolding(raw, etf) {
-  return {
-    etfCode: etf.etfCode,
-    etfName: etf.etfName,
-    code: String(raw.code || "").replace(/\D/g, "").slice(0, 6),
-    name: String(raw.name || ""),
-    industry: String(raw.industry || "其他"),
-    todayWeight: Number(raw.todayWeight || 0),
-    yesterdayWeight: Number(raw.yesterdayWeight || 0),
   };
 }
 
@@ -388,7 +519,7 @@ export default async function handler(req, res) {
         "https://www.capitalfund.com.tw/etf/product/cross/feature",
       ],
       lastFetchAt: new Date().toISOString(),
-      note: "v80 實戰安全版：找到真實來源前，仍不把資料當成真實加減碼。",
+      note: "v83 解析測試版：只在 test=1 嘗試解析下載頁文字。",
     },
   ];
 
@@ -411,7 +542,9 @@ export default async function handler(req, res) {
         pages: result.pages || [],
         analysis: result.analysis,
         downloadAnalysis: result.downloadAnalysis,
+        parserReport: result.parserReport,
         tradingSafety: result.tradingSafety,
+        realHoldings: result.holdings || [],
       };
     })
   );
@@ -423,7 +556,7 @@ export default async function handler(req, res) {
     return {
       ...etf,
       mode: safety?.usableForTrading ? "real" : "mock",
-      status: safety?.usableForTrading ? "真實資料可用" : "實戰前檢查",
+      status: safety?.usableForTrading ? "測試解析成功" : "實戰前檢查",
       fetchStatus: safety?.label || report?.reason || "mock_ready",
       realFetchEnabled,
       usableForTrading: safety?.usableForTrading || false,
@@ -467,24 +600,24 @@ export default async function handler(req, res) {
 
   const overallSafety = {
     usableForTrading: hasRealHoldings,
-    dataLevel: hasRealHoldings ? "REAL_PARSED" : "MOCK_WITH_REAL_SOURCE_CHECK",
-    confidence: hasRealHoldings ? 90 : realFetchEnabled ? 65 : 20,
+    dataLevel: hasRealHoldings ? "REAL_PARSED_TEST" : "MOCK_WITH_REAL_SOURCE_CHECK",
+    confidence: hasRealHoldings ? 75 : realFetchEnabled ? 65 : 20,
     label: hasRealHoldings
-      ? "真實持股已解析，可實戰觀察"
+      ? "測試解析成功，仍需人工確認"
       : realFetchEnabled
         ? "找到真實來源線索，但尚未解析持股"
         : "安全模式，使用示範資料",
     reason: hasRealHoldings
-      ? "API 已使用真實持股權重。"
+      ? "API 已解析出疑似真實持股權重，但仍需人工確認來源欄位。"
       : "尚未把官網資料解析成持股權重，因此 ETF 加減碼仍不可當成真實買賣依據。",
   };
 
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v80 trading-safe-source-check"
-      : "api/active-etf v80 trading-safe-mock",
-    mode: realFetchEnabled ? "trading-safe-source-check" : "mock",
+      ? "api/active-etf v83 parser-test"
+      : "api/active-etf v83 safe-mock",
+    mode: realFetchEnabled ? "parser-test" : "mock",
     realReady: true,
     realFetchEnabled,
     usableForTrading: overallSafety.usableForTrading,
@@ -497,6 +630,7 @@ export default async function handler(req, res) {
     focusSourceUrl: focusReport?.sourceUrl || "",
     focusPages,
     focusBestLinks,
+    focusParserReport: focusReport?.parserReport || null,
     focusAnalysis: focusReport?.analysis || null,
     focusDownloadAnalysis: focusReport?.downloadAnalysis || null,
     fetchReports,
