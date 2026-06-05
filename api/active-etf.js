@@ -75,19 +75,41 @@ const INDUSTRY_MAP = {
   "1513": "重電",
 };
 
-const ETF_CODE_PREFIX_BLOCK = [
-  "00",
-  "006",
-  "007",
-  "008",
-  "009",
+const HOLDING_KEYWORDS = [
+  "持股",
+  "持股明細",
+  "投資組合",
+  "成分股",
+  "主要投資",
+  "權重",
+  "比重",
+  "portfolio",
+  "holding",
+  "holdings",
+  "composition",
+  "constituent",
+];
+
+const ETF_LIST_NOISE_KEYWORDS = [
+  "ETF首頁",
+  "ETF產品資訊",
+  "ETF總覽",
+  "ETF配息",
+  "ETF Q&A",
+  "ETF介紹",
+  "ETF交易資訊",
+  "群益ETF總覽",
+  "熱門搜尋",
+  "請輸入基金名稱",
+  "登入交易",
+  "ETF產品特色",
 ];
 
 function uniq(list, limit = 120) {
   return Array.from(new Set((list || []).filter(Boolean))).slice(0, limit);
 }
 
-function cleanText(text, limit = 5000) {
+function cleanText(text, limit = 8000) {
   return String(text || "")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
     .replace(/<style[\s\S]*?<\/style>/gi, " ")
@@ -177,15 +199,10 @@ function isRealUsefulLink(value) {
     u.includes("xlsx") ||
     u.includes("pdf") ||
     u.includes("download") ||
-    u.includes("fund") ||
-    u.includes("etf") ||
     u.includes("holding") ||
     u.includes("portfolio") ||
     u.includes("stock") ||
-    u.includes("nav") ||
     u.includes("detail") ||
-    u.includes("query") ||
-    u.includes("file") ||
     u.includes("transaction") ||
     u.includes("product") ||
     u.includes("composition") ||
@@ -216,10 +233,6 @@ function scoreLink(url) {
   if (u.includes("xlsx") || u.includes("xls")) score += 110;
   if (u.includes("pdf")) score += 55;
   if (u.includes("api") || u.includes("ajax")) score += 95;
-  if (u.includes("product/detail")) score += 80;
-  if (u.includes("transaction")) score += 50;
-  if (u.includes("etf")) score += 35;
-  if (u.includes("fund")) score += 20;
 
   if (u.includes("favicon")) score -= 100;
   if (u.includes("google")) score -= 100;
@@ -252,26 +265,17 @@ function extractLinks(text, baseUrl) {
     .map((match) => String(match[0] || "").replace(/[),;]+$/g, ""))
     .filter(isRealUsefulLink);
 
-  const stringLinks = [
-    ...safeText.matchAll(
-      /["'`]([^"'`]*(?:api|ajax|fund|etf|download|holding|portfolio|stock|query|nav|detail|file|pdf|csv|xlsx|xls|transaction|product|composition|constituent|ingredient|00982A|399)[^"'`]*)["'`]/gi
-    ),
-  ]
-    .map((match) => normalizeLink(match[1], baseUrl))
-    .filter(isRealUsefulLink);
-
   return {
-    hrefLinks: uniq(hrefLinks, 100),
-    scriptLinks: uniq(scriptLinks, 80),
-    urlLikeLinks: uniq(urlLikeLinks, 100),
-    stringLinks: uniq(stringLinks, 180),
+    hrefLinks: uniq(hrefLinks, 80),
+    scriptLinks: uniq(scriptLinks, 60),
+    urlLikeLinks: uniq(urlLikeLinks, 80),
   };
 }
 
 function analyzeRawText(text, baseUrl, etfCode) {
   const safeText = String(text || "");
   const lower = safeText.toLowerCase();
-  const clean = cleanText(safeText, 6000);
+  const clean = cleanText(safeText, 8000);
   const extracted = extractLinks(safeText, baseUrl);
 
   const allLinks = uniq(
@@ -279,16 +283,15 @@ function analyzeRawText(text, baseUrl, etfCode) {
       ...extracted.hrefLinks,
       ...extracted.scriptLinks,
       ...extracted.urlLikeLinks,
-      ...extracted.stringLinks,
     ].filter(isRealUsefulLink),
-    260
+    200
   );
 
   const bestLinks = [...allLinks]
     .map((url) => ({ url, score: scoreLink(url) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 50);
+    .slice(0, 40);
 
   const hasEtfCode = lower.includes(String(etfCode || "").toLowerCase());
   const hasProduct399 = lower.includes("399");
@@ -297,14 +300,9 @@ function analyzeRawText(text, baseUrl, etfCode) {
     lower.includes("群益台灣強棒") ||
     lower.includes("台灣強棒");
 
-  const hasHoldingKeyword =
-    lower.includes("持股") ||
-    lower.includes("投資組合") ||
-    lower.includes("成分") ||
-    lower.includes("portfolio") ||
-    lower.includes("holding") ||
-    lower.includes("composition") ||
-    lower.includes("constituent");
+  const hasHoldingKeyword = HOLDING_KEYWORDS.some((keyword) =>
+    lower.includes(keyword.toLowerCase())
+  );
 
   return {
     rawPreview: safeText.slice(0, 900),
@@ -321,9 +319,6 @@ function analyzeRawText(text, baseUrl, etfCode) {
     hasEtfName,
     hasProduct399,
     hasHoldingKeyword,
-    hrefLinks: extracted.hrefLinks.slice(0, 80),
-    scriptLinks: extracted.scriptLinks.slice(0, 80),
-    stringLinks: extracted.stringLinks.slice(0, 120),
     bestLinks,
     keywordNearby: {
       etfCode: getNearbyText(safeText, etfCode),
@@ -376,23 +371,22 @@ async function fetchTextPage(url, etfCode) {
 
 function isLikelyEtfCode(code) {
   const value = String(code || "").toUpperCase();
-
   if (value.length > 4) return true;
-  if (ETF_CODE_PREFIX_BLOCK.some((prefix) => value.startsWith(prefix))) return true;
-
+  if (value.startsWith("00")) return true;
+  if (value.startsWith("006")) return true;
+  if (value.startsWith("007")) return true;
+  if (value.startsWith("008")) return true;
+  if (value.startsWith("009")) return true;
   return false;
 }
 
 function isValidTaiwanStockCode(code) {
   const value = String(code || "");
-
   if (!/^\d{4}$/.test(value)) return false;
   if (isLikelyEtfCode(value)) return false;
 
   const num = Number(value);
-  if (!Number.isFinite(num)) return false;
-
-  return num >= 1100 && num <= 9999;
+  return Number.isFinite(num) && num >= 1100 && num <= 9999;
 }
 
 function extractWeightFromNearby(text) {
@@ -402,9 +396,7 @@ function extractWeightFromNearby(text) {
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value > 0 && value <= 30);
 
-  if (percentMatches.length > 0) {
-    return percentMatches[0];
-  }
+  if (percentMatches.length > 0) return percentMatches[0];
 
   const weightTextMatches = [
     ...nearby.matchAll(/(?:權重|比重|持股比例|投資比例)\D{0,20}(\d{1,2}(?:\.\d{1,4})?)/g),
@@ -412,105 +404,221 @@ function extractWeightFromNearby(text) {
     .map((match) => Number(match[1]))
     .filter((value) => Number.isFinite(value) && value > 0 && value <= 30);
 
-  if (weightTextMatches.length > 0) {
-    return weightTextMatches[0];
-  }
+  if (weightTextMatches.length > 0) return weightTextMatches[0];
 
   return 0;
 }
 
-function parseHoldingsFromText(rawText) {
-  const clean = cleanText(rawText, 40000);
+function findHoldingBlocks(rawText) {
+  const clean = cleanText(rawText, 60000);
+  const lower = clean.toLowerCase();
+  const blocks = [];
+
+  HOLDING_KEYWORDS.forEach((keyword) => {
+    const key = keyword.toLowerCase();
+    let start = 0;
+
+    while (true) {
+      const index = lower.indexOf(key, start);
+      if (index < 0) break;
+
+      const block = cleanText(clean.slice(Math.max(0, index - 700), index + 2600), 3600);
+
+      const hasCoreHoldingWord =
+        block.includes("持股") ||
+        block.includes("投資組合") ||
+        block.includes("成分") ||
+        block.toLowerCase().includes("portfolio") ||
+        block.toLowerCase().includes("holding") ||
+        block.includes("權重");
+
+      const hasTooMuchEtfListNoise =
+        ETF_LIST_NOISE_KEYWORDS.filter((word) => block.includes(word)).length >= 4;
+
+      const etfCodeCount = (block.match(/\b00\d{2,3}[A-Z]?\b/g) || []).length;
+      const stockCodeCount = (block.match(/\b[1-9]\d{3}\b/g) || []).filter((code) =>
+        isValidTaiwanStockCode(code)
+      ).length;
+
+      blocks.push({
+        keyword,
+        index,
+        text: block,
+        length: block.length,
+        hasCoreHoldingWord,
+        hasTooMuchEtfListNoise,
+        etfCodeCount,
+        stockCodeCount,
+        score:
+          (hasCoreHoldingWord ? 60 : 0) +
+          stockCodeCount * 20 -
+          etfCodeCount * 8 -
+          (hasTooMuchEtfListNoise ? 90 : 0),
+      });
+
+      start = index + key.length;
+    }
+  });
+
+  const unique = Array.from(new Map(blocks.map((b) => [`${b.keyword}-${b.index}`, b])).values());
+
+  return unique.sort((a, b) => b.score - a.score).slice(0, 20);
+}
+
+function parseHoldingsFromBlocks(rawText) {
+  const blocks = findHoldingBlocks(rawText);
   const candidates = [];
   const rejected = [];
 
-  for (const [code, name] of Object.entries(STOCK_NAME_MAP)) {
-    if (!isValidTaiwanStockCode(code)) {
-      rejected.push({ code, name, reason: "非台股個股代號" });
-      continue;
-    }
-
-    const codeNearby = getNearbyText(clean, code, 220);
-    const nameNearby = getNearbyText(clean, name, 220);
-    const hasCode = Boolean(codeNearby);
-    const hasName = Boolean(nameNearby);
-
-    if (!hasCode && !hasName) continue;
-
-    const combinedNearby = `${codeNearby} ${nameNearby}`;
-    const weight = extractWeightFromNearby(combinedNearby);
-
-    if (!hasCode || !hasName) {
-      rejected.push({
-        code,
-        name,
-        reason: "缺少代號或名稱，防止誤判",
-        nearby: cleanText(combinedNearby, 400),
-      });
-      continue;
-    }
-
-    if (!weight || weight <= 0) {
-      rejected.push({
-        code,
-        name,
-        reason: "找到代號與名稱，但沒有權重%，不可當持股",
-        nearby: cleanText(combinedNearby, 400),
-      });
-      continue;
-    }
-
-    candidates.push({
-      etfCode: FOCUS_ETF_CODE,
-      etfName: "主動群益台灣強棒",
-      code,
-      name,
-      industry: INDUSTRY_MAP[code] || "其他",
-      todayWeight: weight,
-      yesterdayWeight: 0,
-      parseSource: "strict-known-code-name-weight",
-      nearby: cleanText(combinedNearby, 500),
-      confidence: 90,
-    });
+  if (blocks.length === 0) {
+    return {
+      ok: false,
+      count: 0,
+      withWeightCount: 0,
+      totalWeight: 0,
+      validForManualCheck: false,
+      usableAsRealHoldings: false,
+      reason: "沒有找到持股區塊，避免掃整頁誤判。",
+      holdings: [],
+      rejected: [],
+      blocks: [],
+    };
   }
 
-  const genericMatches = [
-    ...clean.matchAll(/(?:^|\s)(\d{4})\s+([\u4e00-\u9fa5A-Za-z0-9\-]{2,12})\s+(\d{1,2}(?:\.\d{1,4})?)\s*%/g),
-  ];
+  const validBlocks = blocks.filter((block) => {
+    if (!block.hasCoreHoldingWord) return false;
+    if (block.hasTooMuchEtfListNoise && block.stockCodeCount < 3) return false;
+    if (block.etfCodeCount >= 8 && block.stockCodeCount < 3) return false;
+    return block.score >= 10;
+  });
 
-  for (const match of genericMatches) {
-    const code = match[1];
-    const name = STOCK_NAME_MAP[code] || match[2];
-    const weight = Number(match[3]);
-
-    if (!isValidTaiwanStockCode(code)) {
-      rejected.push({ code, name, reason: "疑似 ETF 或非個股代號，已過濾", nearby: cleanText(match[0], 300) });
-      continue;
-    }
-
-    if (!Number.isFinite(weight) || weight <= 0 || weight > 30) {
-      rejected.push({ code, name, reason: "權重不合理，已過濾", nearby: cleanText(match[0], 300) });
-      continue;
-    }
-
-    if (!STOCK_NAME_MAP[code] && String(name).length < 2) {
-      rejected.push({ code, name, reason: "名稱不足，已過濾", nearby: cleanText(match[0], 300) });
-      continue;
-    }
-
-    candidates.push({
-      etfCode: FOCUS_ETF_CODE,
-      etfName: "主動群益台灣強棒",
-      code,
-      name,
-      industry: INDUSTRY_MAP[code] || "其他",
-      todayWeight: weight,
-      yesterdayWeight: 0,
-      parseSource: "strict-generic-code-name-weight",
-      nearby: cleanText(match[0], 300),
-      confidence: STOCK_NAME_MAP[code] ? 85 : 70,
-    });
+  if (validBlocks.length === 0) {
+    return {
+      ok: false,
+      count: 0,
+      withWeightCount: 0,
+      totalWeight: 0,
+      validForManualCheck: false,
+      usableAsRealHoldings: false,
+      reason: "找到的區塊疑似 ETF 清單或雜訊，不解析成持股。",
+      holdings: [],
+      rejected: blocks.slice(0, 8).map((block) => ({
+        keyword: block.keyword,
+        reason: "疑似 ETF 清單或雜訊區塊",
+        etfCodeCount: block.etfCodeCount,
+        stockCodeCount: block.stockCodeCount,
+        preview: cleanText(block.text, 500),
+      })),
+      blocks: blocks.slice(0, 8).map((block) => ({
+        keyword: block.keyword,
+        score: block.score,
+        etfCodeCount: block.etfCodeCount,
+        stockCodeCount: block.stockCodeCount,
+        hasTooMuchEtfListNoise: block.hasTooMuchEtfListNoise,
+        preview: cleanText(block.text, 500),
+      })),
+    };
   }
+
+  validBlocks.forEach((block) => {
+    const blockText = block.text;
+
+    for (const [code, name] of Object.entries(STOCK_NAME_MAP)) {
+      if (!isValidTaiwanStockCode(code)) continue;
+
+      const hasCode = blockText.includes(code);
+      const hasName = blockText.includes(name);
+
+      if (!hasCode && !hasName) continue;
+
+      const codeIndex = blockText.indexOf(code);
+      const nameIndex = blockText.indexOf(name);
+      const anchor = codeIndex >= 0 ? codeIndex : nameIndex;
+
+      const nearby = cleanText(
+        blockText.slice(Math.max(0, anchor - 180), anchor + 260),
+        600
+      );
+
+      const weight = extractWeightFromNearby(nearby);
+
+      if (!hasCode || !hasName) {
+        rejected.push({
+          code,
+          name,
+          reason: "區塊內缺少代號或名稱",
+          nearby,
+        });
+        continue;
+      }
+
+      if (!weight || weight <= 0) {
+        rejected.push({
+          code,
+          name,
+          reason: "區塊內有代號與名稱，但沒有權重%",
+          nearby,
+        });
+        continue;
+      }
+
+      candidates.push({
+        etfCode: FOCUS_ETF_CODE,
+        etfName: "主動群益台灣強棒",
+        code,
+        name,
+        industry: INDUSTRY_MAP[code] || "其他",
+        todayWeight: weight,
+        yesterdayWeight: 0,
+        parseSource: `block-keyword-${block.keyword}`,
+        nearby,
+        confidence: 92,
+      });
+    }
+
+    const genericMatches = [
+      ...blockText.matchAll(/(?:^|\s)(\d{4})\s+([\u4e00-\u9fa5A-Za-z0-9\-]{2,12})\s+(\d{1,2}(?:\.\d{1,4})?)\s*%/g),
+    ];
+
+    genericMatches.forEach((match) => {
+      const code = match[1];
+      const name = STOCK_NAME_MAP[code] || match[2];
+      const weight = Number(match[3]);
+
+      if (!isValidTaiwanStockCode(code)) {
+        rejected.push({
+          code,
+          name,
+          reason: "ETF 或非個股代號，已過濾",
+          nearby: cleanText(match[0], 300),
+        });
+        return;
+      }
+
+      if (!Number.isFinite(weight) || weight <= 0 || weight > 30) {
+        rejected.push({
+          code,
+          name,
+          reason: "權重不合理",
+          nearby: cleanText(match[0], 300),
+        });
+        return;
+      }
+
+      candidates.push({
+        etfCode: FOCUS_ETF_CODE,
+        etfName: "主動群益台灣強棒",
+        code,
+        name,
+        industry: INDUSTRY_MAP[code] || "其他",
+        todayWeight: weight,
+        yesterdayWeight: 0,
+        parseSource: `generic-block-${block.keyword}`,
+        nearby: cleanText(match[0], 300),
+        confidence: STOCK_NAME_MAP[code] ? 88 : 72,
+      });
+    });
+  });
 
   const unique = Array.from(
     new Map(
@@ -523,8 +631,11 @@ function parseHoldingsFromText(rawText) {
   const totalWeight = unique.reduce((sum, item) => sum + (Number(item.todayWeight) || 0), 0);
   const withWeightCount = unique.filter((item) => item.todayWeight > 0).length;
 
-  const validForManualCheck = withWeightCount >= 3 && totalWeight >= 5 && totalWeight <= 100;
-  const usableAsRealHoldings = false;
+  const validForManualCheck =
+    withWeightCount >= 3 &&
+    totalWeight >= 5 &&
+    totalWeight <= 100 &&
+    validBlocks.some((block) => block.stockCodeCount >= 3);
 
   return {
     ok: unique.length > 0,
@@ -532,15 +643,23 @@ function parseHoldingsFromText(rawText) {
     withWeightCount,
     totalWeight: Number(totalWeight.toFixed(4)),
     validForManualCheck,
-    usableAsRealHoldings,
+    usableAsRealHoldings: false,
     reason:
       validForManualCheck
-        ? "已嚴格解析出多檔持股與權重，但仍需人工核對，不開放實戰。"
+        ? "已在持股區塊內解析到疑似持股與權重，但仍需人工核對。"
         : unique.length > 0
-          ? "有找到部分嚴格持股，但數量或權重不足，不可用。"
-          : "嚴格模式下尚未解析出可用持股。",
+          ? "有找到部分持股，但數量或權重不足，不可用。"
+          : "已鎖定持股區塊，但尚未解析出代號 + 名稱 + 權重。",
     holdings: unique.slice(0, 50),
     rejected: rejected.slice(0, 80),
+    blocks: validBlocks.slice(0, 8).map((block) => ({
+      keyword: block.keyword,
+      score: block.score,
+      etfCodeCount: block.etfCodeCount,
+      stockCodeCount: block.stockCodeCount,
+      hasTooMuchEtfListNoise: block.hasTooMuchEtfListNoise,
+      preview: cleanText(block.text, 700),
+    })),
   };
 }
 
@@ -549,9 +668,9 @@ async function analyzeProduct399Portfolio() {
   const basicPage = await fetchTextPage(`${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/basic`, FOCUS_ETF_CODE);
   const downloadPage = await fetchTextPage(`${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/download`, FOCUS_ETF_CODE);
 
-  const portfolioParse = parseHoldingsFromText(portfolioPage.rawText);
-  const basicParse = parseHoldingsFromText(basicPage.rawText);
-  const downloadParse = parseHoldingsFromText(downloadPage.rawText);
+  const portfolioParse = parseHoldingsFromBlocks(portfolioPage.rawText);
+  const basicParse = parseHoldingsFromBlocks(basicPage.rawText);
+  const downloadParse = parseHoldingsFromBlocks(downloadPage.rawText);
 
   const bestParse = [portfolioParse, basicParse, downloadParse].sort((a, b) => {
     return b.withWeightCount * 100 + b.totalWeight - (a.withWeightCount * 100 + a.totalWeight);
@@ -570,7 +689,7 @@ async function analyzeProduct399Portfolio() {
     productId: FOCUS_PRODUCT_ID,
     etfCode: FOCUS_ETF_CODE,
     portfolioUrl: PORTFOLIO_URL,
-    parserMode: "strict-no-etf-code-no-weight-no-use",
+    parserMode: "range-locked-holding-block-only",
     testedPages: [
       {
         label: "portfolio",
@@ -630,6 +749,7 @@ async function analyzeProduct399Portfolio() {
     bestParse,
     realHoldingsTest: bestParse.holdings,
     rejectedSamples: bestParse.rejected,
+    holdingBlocks: bestParse.blocks,
     bestLinks: allBestLinks,
     message: bestParse.reason,
   };
@@ -649,29 +769,29 @@ function buildTradingSafety({ realFetchEnabled, portfolioReport }) {
   if (portfolioReport?.bestParse?.validForManualCheck) {
     return {
       usableForTrading: false,
-      dataLevel: "STRICT_HOLDINGS_PARSED_NEED_MANUAL_CHECK",
-      confidence: 84,
-      label: "嚴格模式解析到疑似持股",
-      reason: "已過濾 ETF 代號，且要求代號、名稱、權重同時存在；仍需人工核對，不開放實戰。",
+      dataLevel: "RANGE_LOCKED_HOLDINGS_NEED_MANUAL_CHECK",
+      confidence: 82,
+      label: "持股區塊內找到疑似持股",
+      reason: "只在持股相關區塊內解析，已降低 ETF 清單誤判；仍需人工核對，不開放實戰。",
     };
   }
 
   if ((portfolioReport?.bestParse?.count || 0) > 0) {
     return {
       usableForTrading: false,
-      dataLevel: "STRICT_PARTIAL_HOLDINGS_NOT_USABLE",
-      confidence: 70,
-      label: "嚴格模式僅解析到部分持股",
-      reason: "解析結果數量或權重不足，不可當成真實加減碼。",
+      dataLevel: "RANGE_LOCKED_PARTIAL_NOT_USABLE",
+      confidence: 68,
+      label: "持股區塊只解析到部分資料",
+      reason: "數量或權重不足，不可當成真實加減碼。",
     };
   }
 
   return {
     usableForTrading: false,
-    dataLevel: "STRICT_PARSE_FAILED_SAFE",
-    confidence: 60,
-    label: "嚴格模式未取得可用持股",
-    reason: "避免誤把 ETF 清單當成持股，目前不顯示為真實資料。",
+    dataLevel: "RANGE_LOCKED_PARSE_FAILED_SAFE",
+    confidence: 58,
+    label: "未在持股區塊取得可用持股",
+    reason: "避免掃整頁誤判，目前不顯示為真實資料。",
   };
 }
 
@@ -747,7 +867,7 @@ export default async function handler(req, res) {
       sourceUrl: PORTFOLIO_URL,
       sourceName: "群益投信 00982A 399 portfolio",
       lastFetchAt: new Date().toISOString(),
-      note: "v89 嚴格防誤判：過濾 ETF 代號，必須代號 + 名稱 + 權重才算持股。",
+      note: "v90 鎖定持股區塊解析，不掃整頁，降低 ETF 清單誤判。",
     },
   ];
 
@@ -785,8 +905,8 @@ export default async function handler(req, res) {
   const overallSafety = {
     usableForTrading: false,
     dataLevel: focusReport?.tradingSafety?.dataLevel || "MOCK_ONLY",
-    confidence: focusReport?.tradingSafety?.confidence || (realFetchEnabled ? 60 : 20),
-    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "嚴格防誤判解析中" : "安全模式，使用示範資料"),
+    confidence: focusReport?.tradingSafety?.confidence || (realFetchEnabled ? 58 : 20),
+    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "持股區塊解析中" : "安全模式，使用示範資料"),
     reason:
       focusReport?.tradingSafety?.reason ||
       "尚未把官網資料解析成持股權重，因此 ETF 加減碼仍不可當成真實買賣依據。",
@@ -809,9 +929,9 @@ export default async function handler(req, res) {
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v89 strict-anti-false-parser"
-      : "api/active-etf v89 safe-mock",
-    mode: realFetchEnabled ? "strict-anti-false-parser" : "mock",
+      ? "api/active-etf v90 range-locked-parser"
+      : "api/active-etf v90 safe-mock",
+    mode: realFetchEnabled ? "range-locked-parser" : "mock",
     realReady: true,
     realFetchEnabled,
     usableForTrading: false,
@@ -825,6 +945,7 @@ export default async function handler(req, res) {
     focusSourceUrl: PORTFOLIO_URL,
     portfolioReport,
     realHoldingsTest,
+    holdingBlocks: portfolioReport?.holdingBlocks || [],
     rejectedSamples: portfolioReport?.rejectedSamples || portfolioReport?.bestParse?.rejected || [],
     fetchReports,
     etfs: etfs.map((etf) => ({
