@@ -1,14 +1,70 @@
 const DEFAULT_REAL_FETCH_ENABLED = false;
+
 const FOCUS_ETF_CODE = "00982A";
 const FOCUS_PRODUCT_ID = "399";
 const CAPITAL_BASE = "https://www.capitalfund.com.tw";
+const PORTFOLIO_URL = `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/portfolio`;
+
+const STOCK_NAME_MAP = {
+  "2330": "台積電",
+  "2308": "台達電",
+  "2382": "廣達",
+  "3231": "緯創",
+  "6669": "緯穎",
+  "3017": "奇鋐",
+  "3661": "世芯-KY",
+  "2454": "聯發科",
+  "2317": "鴻海",
+  "3037": "欣興",
+  "2383": "台光電",
+  "2344": "華邦電",
+  "2408": "南亞科",
+  "2376": "技嘉",
+  "2377": "微星",
+  "2357": "華碩",
+  "2324": "仁寶",
+  "2356": "英業達",
+};
+
+const INDUSTRY_MAP = {
+  "2330": "半導體",
+  "2454": "半導體",
+  "3661": "IC設計",
+  "2308": "電源能源",
+  "2382": "AI伺服器",
+  "3231": "AI伺服器",
+  "6669": "AI伺服器",
+  "3017": "散熱",
+  "2317": "電子代工",
+  "3037": "PCB",
+  "2383": "PCB",
+  "2344": "記憶體",
+  "2408": "記憶體",
+  "2376": "AI伺服器",
+  "2377": "電腦週邊",
+  "2357": "電腦週邊",
+  "2324": "電子代工",
+  "2356": "電子代工",
+};
 
 function uniq(list, limit = 120) {
   return Array.from(new Set((list || []).filter(Boolean))).slice(0, limit);
 }
 
-function cleanText(text, limit = 1800) {
-  return String(text || "").replace(/\s+/g, " ").slice(0, limit);
+function cleanText(text, limit = 5000) {
+  return String(text || "")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
 }
 
 function getNearbyText(text, keyword, range = 900) {
@@ -114,7 +170,7 @@ function scoreLink(url) {
   if (u.includes("00982a")) score += 180;
   if (u.includes("/399/")) score += 150;
   if (u.includes("detail/399")) score += 150;
-  if (u.includes("portfolio")) score += 130;
+  if (u.includes("portfolio")) score += 150;
   if (u.includes("holding")) score += 130;
   if (u.includes("composition")) score += 120;
   if (u.includes("constituent")) score += 120;
@@ -128,7 +184,6 @@ function scoreLink(url) {
   if (u.includes("transaction")) score += 50;
   if (u.includes("etf")) score += 35;
   if (u.includes("fund")) score += 20;
-  if (u.includes("query") || u.includes("detail")) score += 35;
 
   if (u.includes("favicon")) score -= 100;
   if (u.includes("google")) score -= 100;
@@ -180,6 +235,7 @@ function extractLinks(text, baseUrl) {
 function analyzeRawText(text, baseUrl, etfCode) {
   const safeText = String(text || "");
   const lower = safeText.toLowerCase();
+  const clean = cleanText(safeText, 6000);
   const extracted = extractLinks(safeText, baseUrl);
 
   const allLinks = uniq(
@@ -192,9 +248,7 @@ function analyzeRawText(text, baseUrl, etfCode) {
     260
   );
 
-  const possibleLinks = uniq(allLinks.filter(isRealUsefulLink), 180);
-
-  const bestLinks = [...possibleLinks]
+  const bestLinks = [...allLinks]
     .map((url) => ({ url, score: scoreLink(url) }))
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score)
@@ -216,17 +270,11 @@ function analyzeRawText(text, baseUrl, etfCode) {
     lower.includes("composition") ||
     lower.includes("constituent");
 
-  const hasFileHint =
-    lower.includes(".csv") ||
-    lower.includes(".xls") ||
-    lower.includes(".xlsx") ||
-    lower.includes("download") ||
-    lower.includes("api") ||
-    lower.includes("ajax");
-
   return {
     rawPreview: safeText.slice(0, 900),
+    cleanPreview: clean.slice(0, 1400),
     rawLength: safeText.length,
+    cleanLength: clean.length,
     hasTable: lower.includes("<table"),
     hasCsv: lower.includes(".csv") || lower.includes("csv"),
     hasJson: lower.includes("application/json") || lower.includes("__next_data__") || lower.includes("json"),
@@ -237,28 +285,20 @@ function analyzeRawText(text, baseUrl, etfCode) {
     hasEtfName,
     hasProduct399,
     hasHoldingKeyword,
-    hasFileHint,
     hrefLinks: extracted.hrefLinks.slice(0, 80),
     scriptLinks: extracted.scriptLinks.slice(0, 80),
     stringLinks: extracted.stringLinks.slice(0, 120),
-    possibleLinks: possibleLinks.slice(0, 140),
     bestLinks,
     keywordNearby: {
       etfCode: getNearbyText(safeText, etfCode),
       product399: getNearbyText(safeText, "399"),
-      active: getNearbyText(safeText, "主動"),
       capitalStrong: getNearbyText(safeText, "強棒"),
       holding: getNearbyText(safeText, "持股"),
       portfolio: getNearbyText(safeText, "portfolio"),
       composition: getNearbyText(safeText, "投資組合"),
       constituent: getNearbyText(safeText, "constituent"),
+      weight: getNearbyText(safeText, "權重"),
       download: getNearbyText(safeText, "download"),
-      transaction: getNearbyText(safeText, "transaction"),
-      product: getNearbyText(safeText, "product"),
-      fund: getNearbyText(safeText, "fund"),
-      api: getNearbyText(safeText, "api"),
-      ajax: getNearbyText(safeText, "ajax"),
-      pdf: getNearbyText(safeText, "pdf"),
       csv: getNearbyText(safeText, "csv"),
       xls: getNearbyText(safeText, "xls"),
     },
@@ -298,216 +338,184 @@ async function fetchTextPage(url, etfCode) {
   }
 }
 
-async function fetchJsFiles(scriptLinks, etfCode) {
-  const jsLinks = uniq(
-    (scriptLinks || []).filter((url) => {
-      const u = String(url || "").toLowerCase();
-      return u.includes("capitalfund.com.tw") && u.includes(".js") && !isCssNoise(u);
-    }),
-    14
-  );
+function parseHoldingsFromText(rawText) {
+  const clean = cleanText(rawText, 30000);
+  const candidates = [];
 
-  const reports = [];
+  const knownCodes = Object.keys(STOCK_NAME_MAP);
 
-  for (const url of jsLinks) {
-    try {
-      const response = await fetch(url, {
-        headers: {
-          "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
-          accept: "*/*",
-        },
-      });
+  for (const code of knownCodes) {
+    const name = STOCK_NAME_MAP[code];
+    const nearby = getNearbyText(clean, code, 180);
 
-      const text = await response.text();
-      const analysis = analyzeRawText(text, url, etfCode);
+    if (!nearby && !clean.includes(name)) continue;
 
-      reports.push({
-        url,
-        ok: response.ok,
-        status: response.status,
-        rawLength: text.length,
-        hasEtfCode: analysis.hasEtfCode,
-        hasEtfName: analysis.hasEtfName,
-        hasProduct399: analysis.hasProduct399,
-        hasHoldingKeyword: analysis.hasHoldingKeyword,
-        hasApi: analysis.hasApi,
-        hasCsv: analysis.hasCsv,
-        hasXlsx: analysis.hasXlsx,
-        hasPdf: analysis.hasPdf,
-        cleanLinkCount: analysis.bestLinks.length,
-        bestLinks: analysis.bestLinks,
-        possibleLinks: analysis.possibleLinks,
-        keywordNearby: analysis.keywordNearby,
-      });
-    } catch (error) {
-      reports.push({
-        url,
-        ok: false,
-        status: 0,
-        rawLength: 0,
-        reason: error?.message || "js fetch failed",
-        cleanLinkCount: 0,
-        bestLinks: [],
-        possibleLinks: [],
-      });
-    }
+    const nameNearby = getNearbyText(clean, name, 180);
+    const combinedNearby = `${nearby} ${nameNearby}`;
+
+    const weightMatches = [...combinedNearby.matchAll(/(\d{1,2}(?:\.\d{1,4})?)\s*%/g)]
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value > 0 && value <= 50);
+
+    const weight = weightMatches.length ? weightMatches[0] : 0;
+
+    candidates.push({
+      etfCode: FOCUS_ETF_CODE,
+      etfName: "主動群益台灣強棒",
+      code,
+      name,
+      industry: INDUSTRY_MAP[code] || "其他",
+      todayWeight: weight,
+      yesterdayWeight: 0,
+      parseSource: "text-known-code",
+      nearby: cleanText(combinedNearby, 500),
+      confidence: weight > 0 ? 80 : 45,
+    });
   }
 
-  return reports;
-}
-
-function buildProduct399Urls() {
-  return [
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/basic`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/portfolio`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/download`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/transaction`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/networth`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/holding`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/composition`,
-    `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/constituent`,
-    `${CAPITAL_BASE}/etf/transaction/download`,
-    `${CAPITAL_BASE}/etf/transaction/download?fundId=${FOCUS_PRODUCT_ID}`,
-    `${CAPITAL_BASE}/etf/transaction/download?productId=${FOCUS_PRODUCT_ID}`,
-    `${CAPITAL_BASE}/etf/transaction/download?etfCode=${FOCUS_ETF_CODE}`,
+  const genericMatches = [
+    ...clean.matchAll(/(?:^|\s)(\d{4})\s+([\u4e00-\u9fa5A-Za-z0-9\-]+)\s+(\d{1,2}(?:\.\d{1,4})?)\s*%/g),
   ];
-}
 
-function scoreDetailPage(page) {
-  const a = page.analysis || {};
-  const lower = String(page.rawText || "").toLowerCase();
+  for (const match of genericMatches) {
+    const code = match[1];
+    const name = match[2];
+    const weight = Number(match[3]);
 
-  let score = 0;
+    if (!/^\d{4}$/.test(code)) continue;
+    if (!Number.isFinite(weight) || weight <= 0 || weight > 50) continue;
 
-  if (page.ok) score += 20;
-  if (a.hasEtfCode) score += 120;
-  if (a.hasEtfName) score += 120;
-  if (a.hasProduct399) score += 70;
-  if (a.hasHoldingKeyword) score += 80;
-  if (a.hasCsv) score += 40;
-  if (a.hasXlsx) score += 40;
-  if (a.hasPdf) score += 25;
-  if (a.hasApi) score += 35;
-  if (a.hasTable) score += 30;
+    candidates.push({
+      etfCode: FOCUS_ETF_CODE,
+      etfName: "主動群益台灣強棒",
+      code,
+      name: STOCK_NAME_MAP[code] || name,
+      industry: INDUSTRY_MAP[code] || "其他",
+      todayWeight: weight,
+      yesterdayWeight: 0,
+      parseSource: "generic-code-name-weight",
+      nearby: cleanText(match[0], 300),
+      confidence: 70,
+    });
+  }
 
-  if (lower.includes("00982a")) score += 120;
-  if (lower.includes("主動群益台灣強棒")) score += 130;
-  if (lower.includes("投資組合")) score += 50;
-  if (lower.includes("持股")) score += 50;
-  if (lower.includes("成分股")) score += 50;
-  if (lower.includes("前十大")) score += 35;
-  if (lower.includes("權重")) score += 35;
-  if (lower.includes("download")) score += 30;
-  if (lower.includes("portfolio")) score += 40;
-  if (lower.includes("holding")) score += 40;
-  if (lower.includes("composition")) score += 40;
-
-  const bestTop = a.bestLinks?.[0]?.score || 0;
-  score += Math.min(120, bestTop);
-
-  return score;
-}
-
-async function analyzeProduct399Detail(etfCode) {
-  const urls = buildProduct399Urls();
-  const pages = await Promise.all(urls.map((url) => fetchTextPage(url, etfCode)));
-
-  const allScriptLinks = uniq(
-    pages.flatMap((page) => page.analysis?.scriptLinks || []),
-    30
+  const unique = Array.from(
+    new Map(
+      candidates
+        .sort((a, b) => b.confidence + b.todayWeight - (a.confidence + a.todayWeight))
+        .map((item) => [item.code, item])
+    ).values()
   );
 
-  const jsReports = await fetchJsFiles(allScriptLinks, etfCode);
-
-  const pageReports = pages
-    .map((page) => ({
-      url: page.url,
-      ok: page.ok,
-      status: page.status,
-      rawLength: page.rawLength,
-      score: scoreDetailPage(page),
-      hasEtfCode: page.analysis?.hasEtfCode || false,
-      hasEtfName: page.analysis?.hasEtfName || false,
-      hasProduct399: page.analysis?.hasProduct399 || false,
-      hasHoldingKeyword: page.analysis?.hasHoldingKeyword || false,
-      hasCsv: page.analysis?.hasCsv || false,
-      hasXlsx: page.analysis?.hasXlsx || false,
-      hasPdf: page.analysis?.hasPdf || false,
-      hasApi: page.analysis?.hasApi || false,
-      hasTable: page.analysis?.hasTable || false,
-      cleanLinkCount: page.analysis?.bestLinks?.length || 0,
-      bestLinks: page.analysis?.bestLinks || [],
-      keywordNearby: {
-        etfCode: page.analysis?.keywordNearby?.etfCode || "",
-        product399: page.analysis?.keywordNearby?.product399 || "",
-        capitalStrong: page.analysis?.keywordNearby?.capitalStrong || "",
-        holding: page.analysis?.keywordNearby?.holding || "",
-        portfolio: page.analysis?.keywordNearby?.portfolio || "",
-        composition: page.analysis?.keywordNearby?.composition || "",
-        constituent: page.analysis?.keywordNearby?.constituent || "",
-        download: page.analysis?.keywordNearby?.download || "",
-        api: page.analysis?.keywordNearby?.api || "",
-        csv: page.analysis?.keywordNearby?.csv || "",
-        xls: page.analysis?.keywordNearby?.xls || "",
-      },
-    }))
-    .sort((a, b) => b.score - a.score);
-
-  const linkCandidates = uniq(
-    [
-      ...pageReports.flatMap((page) => (page.bestLinks || []).map((item) => item.url)),
-      ...jsReports.flatMap((item) => (item.bestLinks || []).map((link) => link.url)),
-      ...jsReports.flatMap((item) => item.possibleLinks || []),
-    ].filter(isRealUsefulLink),
-    120
-  )
-    .map((url) => ({ url, score: scoreLink(url) }))
-    .filter((item) => item.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 60);
-
-  const holdingLinkCandidates = linkCandidates.filter((item) => {
-    const u = item.url.toLowerCase();
-
-    return (
-      u.includes("portfolio") ||
-      u.includes("holding") ||
-      u.includes("composition") ||
-      u.includes("constituent") ||
-      u.includes("ingredient") ||
-      u.includes("download") ||
-      u.includes("csv") ||
-      u.includes("xls") ||
-      u.includes("xlsx") ||
-      u.includes("00982a") ||
-      u.includes("/399/")
-    );
-  });
-
-  const bestPage = pageReports[0] || null;
-  const bestHoldingLink = holdingLinkCandidates[0] || null;
+  const totalWeight = unique.reduce((sum, item) => sum + (Number(item.todayWeight) || 0), 0);
+  const withWeightCount = unique.filter((item) => item.todayWeight > 0).length;
 
   return {
-    productId: FOCUS_PRODUCT_ID,
-    productUrl: `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/basic`,
-    testedUrls: urls,
-    likelyProductFound: Boolean(bestPage && bestPage.score >= 300),
-    bestPageUrl: bestPage?.url || "",
-    bestPageScore: bestPage?.score || 0,
-    bestHoldingLink: bestHoldingLink?.url || "",
-    bestHoldingLinkScore: bestHoldingLink?.score || 0,
-    holdingLinkFound: Boolean(bestHoldingLink),
-    message: bestHoldingLink
-      ? `找到疑似 399 持股 / 下載連結：${bestHoldingLink.url}`
-      : "已鎖定 399，但尚未找到可直接解析的持股連結",
-    pageReports,
-    jsReports,
-    holdingLinkCandidates,
-    allLinkCandidates: linkCandidates,
+    ok: unique.length > 0,
+    count: unique.length,
+    withWeightCount,
+    totalWeight: Number(totalWeight.toFixed(4)),
+    usableAsRealHoldings: withWeightCount >= 3 && totalWeight > 5,
+    reason:
+      withWeightCount >= 3 && totalWeight > 5
+        ? "已解析出多檔持股與權重，但仍需人工核對。"
+        : unique.length > 0
+          ? "有找到股票代號，但權重不足或不完整。"
+          : "尚未從 portfolio 頁面解析出持股。",
+    holdings: unique.slice(0, 50),
   };
 }
 
-function buildTradingSafety({ realFetchEnabled, product399DetailReport }) {
+async function analyzeProduct399Portfolio() {
+  const portfolioPage = await fetchTextPage(PORTFOLIO_URL, FOCUS_ETF_CODE);
+  const basicPage = await fetchTextPage(`${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/basic`, FOCUS_ETF_CODE);
+  const downloadPage = await fetchTextPage(`${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/download`, FOCUS_ETF_CODE);
+
+  const portfolioParse = parseHoldingsFromText(portfolioPage.rawText);
+  const basicParse = parseHoldingsFromText(basicPage.rawText);
+  const downloadParse = parseHoldingsFromText(downloadPage.rawText);
+
+  const bestParse = [portfolioParse, basicParse, downloadParse].sort((a, b) => {
+    return b.withWeightCount * 100 + b.totalWeight - (a.withWeightCount * 100 + a.totalWeight);
+  })[0];
+
+  const allBestLinks = uniq(
+    [
+      ...(portfolioPage.analysis.bestLinks || []).map((item) => item.url),
+      ...(basicPage.analysis.bestLinks || []).map((item) => item.url),
+      ...(downloadPage.analysis.bestLinks || []).map((item) => item.url),
+    ].filter(isRealUsefulLink),
+    80
+  );
+
+  return {
+    productId: FOCUS_PRODUCT_ID,
+    etfCode: FOCUS_ETF_CODE,
+    portfolioUrl: PORTFOLIO_URL,
+    testedPages: [
+      {
+        label: "portfolio",
+        url: portfolioPage.url,
+        ok: portfolioPage.ok,
+        status: portfolioPage.status,
+        rawLength: portfolioPage.rawLength,
+        cleanPreview: portfolioPage.analysis.cleanPreview,
+        hasEtfCode: portfolioPage.analysis.hasEtfCode,
+        hasEtfName: portfolioPage.analysis.hasEtfName,
+        hasHoldingKeyword: portfolioPage.analysis.hasHoldingKeyword,
+        hasTable: portfolioPage.analysis.hasTable,
+        hasCsv: portfolioPage.analysis.hasCsv,
+        hasXlsx: portfolioPage.analysis.hasXlsx,
+        hasPdf: portfolioPage.analysis.hasPdf,
+        hasApi: portfolioPage.analysis.hasApi,
+        keywordNearby: portfolioPage.analysis.keywordNearby,
+        parse: portfolioParse,
+      },
+      {
+        label: "basic",
+        url: basicPage.url,
+        ok: basicPage.ok,
+        status: basicPage.status,
+        rawLength: basicPage.rawLength,
+        cleanPreview: basicPage.analysis.cleanPreview,
+        hasEtfCode: basicPage.analysis.hasEtfCode,
+        hasEtfName: basicPage.analysis.hasEtfName,
+        hasHoldingKeyword: basicPage.analysis.hasHoldingKeyword,
+        hasTable: basicPage.analysis.hasTable,
+        hasCsv: basicPage.analysis.hasCsv,
+        hasXlsx: basicPage.analysis.hasXlsx,
+        hasPdf: basicPage.analysis.hasPdf,
+        hasApi: basicPage.analysis.hasApi,
+        keywordNearby: basicPage.analysis.keywordNearby,
+        parse: basicParse,
+      },
+      {
+        label: "download",
+        url: downloadPage.url,
+        ok: downloadPage.ok,
+        status: downloadPage.status,
+        rawLength: downloadPage.rawLength,
+        cleanPreview: downloadPage.analysis.cleanPreview,
+        hasEtfCode: downloadPage.analysis.hasEtfCode,
+        hasEtfName: downloadPage.analysis.hasEtfName,
+        hasHoldingKeyword: downloadPage.analysis.hasHoldingKeyword,
+        hasTable: downloadPage.analysis.hasTable,
+        hasCsv: downloadPage.analysis.hasCsv,
+        hasXlsx: downloadPage.analysis.hasXlsx,
+        hasPdf: downloadPage.analysis.hasPdf,
+        hasApi: downloadPage.analysis.hasApi,
+        keywordNearby: downloadPage.analysis.keywordNearby,
+        parse: downloadParse,
+      },
+    ],
+    bestParse,
+    realHoldingsTest: bestParse.holdings,
+    bestLinks: allBestLinks,
+    message: bestParse.reason,
+  };
+}
+
+function buildTradingSafety({ realFetchEnabled, portfolioReport }) {
   if (!realFetchEnabled) {
     return {
       usableForTrading: false,
@@ -518,32 +526,32 @@ function buildTradingSafety({ realFetchEnabled, product399DetailReport }) {
     };
   }
 
-  if (product399DetailReport?.holdingLinkFound) {
+  if (portfolioReport?.bestParse?.usableAsRealHoldings) {
     return {
       usableForTrading: false,
-      dataLevel: "HOLDING_LINK_FOUND",
-      confidence: 82,
-      label: "找到疑似 399 持股資料連結",
-      reason: "已找到疑似持股或下載連結，但尚未解析成持股權重，不能當成真實加減碼。",
+      dataLevel: "REAL_HOLDINGS_PARSED_NEED_CHECK",
+      confidence: 88,
+      label: "已解析出疑似真實持股",
+      reason: "已解析出多檔持股與權重，但仍需人工核對來源格式，暫不開放實戰使用。",
     };
   }
 
-  if (product399DetailReport?.likelyProductFound) {
+  if ((portfolioReport?.bestParse?.count || 0) > 0) {
     return {
       usableForTrading: false,
-      dataLevel: "PRODUCT_399_FOUND",
+      dataLevel: "PARTIAL_HOLDINGS_PARSED",
       confidence: 78,
-      label: "已鎖定 00982A 產品頁 399",
-      reason: "已確認 399 是疑似 00982A 產品頁，但尚未解析持股權重。",
+      label: "有解析到部分持股",
+      reason: "有找到股票代號，但權重不足或不完整，不能當成真實加減碼。",
     };
   }
 
   return {
     usableForTrading: false,
-    dataLevel: "PRODUCT_399_CHECKING",
-    confidence: 65,
-    label: "正在檢查 399 持股連結",
-    reason: "正在追蹤 399 頁面裡的持股、投資組合、下載連結。",
+    dataLevel: "HOLDING_PAGE_FOUND_PARSE_FAILED",
+    confidence: 72,
+    label: "找到持股頁，但尚未解析成功",
+    reason: "已抓到 399 portfolio 頁，但尚未解析出可用持股權重。",
   };
 }
 
@@ -554,30 +562,28 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       mode: "mock",
       reason: "real fetch disabled",
       holdings: [],
-      product399DetailReport: null,
+      portfolioReport: null,
       tradingSafety: buildTradingSafety({
         realFetchEnabled,
-        product399DetailReport: null,
+        portfolioReport: null,
       }),
     };
   }
 
-  const product399DetailReport =
-    etf.etfCode === FOCUS_ETF_CODE ? await analyzeProduct399Detail(etf.etfCode) : null;
+  const portfolioReport = etf.etfCode === FOCUS_ETF_CODE ? await analyzeProduct399Portfolio() : null;
 
   const tradingSafety = buildTradingSafety({
     realFetchEnabled,
-    product399DetailReport,
+    portfolioReport,
   });
 
   return {
-    ok: Boolean(product399DetailReport?.likelyProductFound || product399DetailReport?.holdingLinkFound),
+    ok: Boolean(portfolioReport),
     mode: "real",
     reason: tradingSafety.reason,
-    rawLength:
-      product399DetailReport?.pageReports?.reduce((sum, page) => sum + (page.rawLength || 0), 0) || 0,
+    rawLength: portfolioReport?.testedPages?.reduce((sum, page) => sum + (page.rawLength || 0), 0) || 0,
     holdings: [],
-    product399DetailReport,
+    portfolioReport,
     tradingSafety,
   };
 }
@@ -596,7 +602,6 @@ export default async function handler(req, res) {
       fetchStatus: "mock_ready",
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
-      extraSourceUrls: [],
       lastFetchAt: new Date().toISOString(),
       note: "目前使用示範持股；尚未解析真實持股權重。",
     },
@@ -609,7 +614,6 @@ export default async function handler(req, res) {
       fetchStatus: "mock_ready",
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
-      extraSourceUrls: [],
       lastFetchAt: new Date().toISOString(),
       note: "目前使用示範持股；尚未解析真實持股權重。",
     },
@@ -620,11 +624,10 @@ export default async function handler(req, res) {
       mode: "mock",
       status: "準備串接",
       fetchStatus: "mock_ready",
-      sourceUrl: `${CAPITAL_BASE}/etf/product/detail/${FOCUS_PRODUCT_ID}/basic`,
-      sourceName: "群益投信 00982A 產品頁",
-      extraSourceUrls: [],
+      sourceUrl: PORTFOLIO_URL,
+      sourceName: "群益投信 00982A 399 portfolio",
       lastFetchAt: new Date().toISOString(),
-      note: "v87 鎖定 productId 399，追蹤持股 / 投資組合 / 下載連結。",
+      note: "v88 鎖定 399 portfolio，測試解析持股代號 / 名稱 / 權重。",
     },
   ];
 
@@ -644,29 +647,30 @@ export default async function handler(req, res) {
         rawLength: result.rawLength || 0,
         holdingsCount: result.holdings?.length || 0,
         checkedAt: new Date().toISOString(),
-        product399DetailReport: result.product399DetailReport || null,
+        portfolioReport: result.portfolioReport || null,
         tradingSafety: result.tradingSafety,
         realHoldings: result.holdings || [],
       };
     })
   );
 
-  const etfsWithFetchStatus = etfs.map((etf) => {
-    const report = fetchReports.find((item) => item.etfCode === etf.etfCode);
-    const safety = report?.tradingSafety;
+  const focusReport =
+    fetchReports.find((item) => item.etfCode === FOCUS_ETF_CODE) ||
+    fetchReports.find((item) => item.ok) ||
+    fetchReports[0];
 
-    return {
-      ...etf,
-      mode: safety?.usableForTrading ? "real" : "mock",
-      status: safety?.usableForTrading ? "真實資料可用" : "實戰前檢查",
-      fetchStatus: safety?.label || report?.reason || "mock_ready",
-      realFetchEnabled,
-      usableForTrading: safety?.usableForTrading || false,
-      dataLevel: safety?.dataLevel || "MOCK_ONLY",
-      confidence: safety?.confidence || 0,
-      lastFetchAt: report?.checkedAt || new Date().toISOString(),
-    };
-  });
+  const portfolioReport = focusReport?.portfolioReport || null;
+  const realHoldingsTest = portfolioReport?.realHoldingsTest || [];
+
+  const overallSafety = {
+    usableForTrading: false,
+    dataLevel: focusReport?.tradingSafety?.dataLevel || "MOCK_ONLY",
+    confidence: focusReport?.tradingSafety?.confidence || (realFetchEnabled ? 72 : 20),
+    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "399 持股解析測試中" : "安全模式，使用示範資料"),
+    reason:
+      focusReport?.tradingSafety?.reason ||
+      "尚未把官網資料解析成持股權重，因此 ETF 加減碼仍不可當成真實買賣依據。",
+  };
 
   const mockHoldings = [
     { etfCode: "00980A", etfName: "主動野村臺灣優選", code: "2330", name: "台積電", industry: "半導體", todayWeight: 9.8, yesterdayWeight: 9.1 },
@@ -682,61 +686,34 @@ export default async function handler(req, res) {
     { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "3231", name: "緯創", industry: "AI伺服器", todayWeight: 0, yesterdayWeight: 2.2 },
   ];
 
-  const realParsedHoldings = fetchReports.flatMap((report) => report.realHoldings || []);
-  const hasRealHoldings = realParsedHoldings.length > 0;
-  const holdings = hasRealHoldings ? realParsedHoldings : mockHoldings;
-
-  const focusReport =
-    fetchReports.find((item) => item.etfCode === FOCUS_ETF_CODE) ||
-    fetchReports.find((item) => item.ok) ||
-    fetchReports[0];
-
-  const product399DetailReport = focusReport?.product399DetailReport || null;
-
-  const focusBestLinks = uniq(
-    [
-      ...(product399DetailReport?.holdingLinkCandidates || []).map((item) => item.url),
-      ...(product399DetailReport?.allLinkCandidates || []).map((item) => item.url),
-      ...(product399DetailReport?.pageReports || []).flatMap((page) =>
-        (page.bestLinks || []).map((item) => item.url)
-      ),
-      ...(product399DetailReport?.jsReports || []).flatMap((item) =>
-        (item.bestLinks || []).map((link) => link.url)
-      ),
-    ].filter(isRealUsefulLink),
-    120
-  );
-
-  const overallSafety = {
-    usableForTrading: false,
-    dataLevel: focusReport?.tradingSafety?.dataLevel || "MOCK_WITH_REAL_SOURCE_CHECK",
-    confidence: focusReport?.tradingSafety?.confidence || (realFetchEnabled ? 65 : 20),
-    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "399 持股連結追蹤中" : "安全模式，使用示範資料"),
-    reason:
-      focusReport?.tradingSafety?.reason ||
-      "尚未把官網資料解析成持股權重，因此 ETF 加減碼仍不可當成真實買賣依據。",
-  };
-
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v87 product399-holding-link-trace"
-      : "api/active-etf v87 safe-mock",
-    mode: realFetchEnabled ? "product399-holding-link-trace" : "mock",
+      ? "api/active-etf v88 product399-portfolio-parser-test"
+      : "api/active-etf v88 safe-mock",
+    mode: realFetchEnabled ? "product399-portfolio-parser-test" : "mock",
     realReady: true,
     realFetchEnabled,
-    usableForTrading: overallSafety.usableForTrading,
+    usableForTrading: false,
     dataLevel: overallSafety.dataLevel,
     confidence: overallSafety.confidence,
     updatedAt: new Date().toISOString(),
     message: overallSafety.label,
     warning: overallSafety.reason,
-    focusEtfCode: focusReport?.etfCode || "",
-    focusSourceUrl: focusReport?.sourceUrl || "",
-    product399DetailReport,
-    focusBestLinks,
+    focusEtfCode: FOCUS_ETF_CODE,
+    focusProductId: FOCUS_PRODUCT_ID,
+    focusSourceUrl: PORTFOLIO_URL,
+    portfolioReport,
+    realHoldingsTest,
     fetchReports,
-    etfs: etfsWithFetchStatus,
-    holdings,
+    etfs: etfs.map((etf) => ({
+      ...etf,
+      realFetchEnabled,
+      usableForTrading: false,
+      dataLevel: etf.etfCode === FOCUS_ETF_CODE ? overallSafety.dataLevel : "MOCK_ONLY",
+      confidence: etf.etfCode === FOCUS_ETF_CODE ? overallSafety.confidence : 20,
+      fetchStatus: etf.etfCode === FOCUS_ETF_CODE ? overallSafety.label : "示範資料",
+    })),
+    holdings: mockHoldings,
   });
 }
