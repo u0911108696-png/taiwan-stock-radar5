@@ -1472,6 +1472,10 @@ type ActiveEtfInfo = {
   sourceName?: string;
   lastFetchAt?: string;
   note: string;
+  usableForTrading?: boolean;
+  dataLevel?: string;
+  confidence?: number;
+  realFetchEnabled?: boolean;
 };
 
 type ActiveEtfHolding = {
@@ -2321,6 +2325,10 @@ export default function App() {
   const [activeEtfSource, setActiveEtfSource] = useState("前端示範資料");
   const [activeEtfList, setActiveEtfList] = useState<ActiveEtfInfo[]>([]);
   const [activeEtfUpdatedAt, setActiveEtfUpdatedAt] = useState("");
+  const [activeEtfUsableForTrading, setActiveEtfUsableForTrading] = useState(false);
+  const [activeEtfDataLevel, setActiveEtfDataLevel] = useState("MOCK_ONLY");
+  const [activeEtfConfidence, setActiveEtfConfidence] = useState(0);
+  const [activeEtfWarning, setActiveEtfWarning] = useState("尚未取得主動ETF實戰狀態。");
   const [tab, setTab] = useState<TabKey>("home");
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
@@ -2703,11 +2711,19 @@ export default function App() {
     setActiveEtfSource(json.source || "api/active-etf");
     setActiveEtfList(Array.isArray(json.etfs) ? json.etfs : []);
     setActiveEtfUpdatedAt(json.updatedAt || "");
+    setActiveEtfUsableForTrading(Boolean(json.usableForTrading));
+    setActiveEtfDataLevel(json.dataLevel || "MOCK_ONLY");
+    setActiveEtfConfidence(Number(json.confidence || 0));
+    setActiveEtfWarning(json.warning || json.message || "尚未解析真實持股權重。");
   } catch {
     setActiveEtfHoldings(ACTIVE_ETF_HOLDINGS);
     setActiveEtfSource("API失敗，使用前端示範資料");
     setActiveEtfList([]);
     setActiveEtfUpdatedAt("");
+    setActiveEtfUsableForTrading(false);
+    setActiveEtfDataLevel("API_FAILED");
+    setActiveEtfConfidence(0);
+    setActiveEtfWarning("API 失敗，目前只能使用前端示範資料，不可當成真實ETF加減碼。");
   }
 }
   async function loadStocks() {
@@ -3270,6 +3286,51 @@ export default function App() {
             </div>
           </div>
         </div>
+      </div>
+      <div className={`rounded-3xl border p-4 ${
+        activeEtfUsableForTrading
+          ? "border-emerald-400/30 bg-emerald-500/10"
+          : "border-yellow-400/30 bg-yellow-500/10"
+      }`}>
+        <div className="text-xs font-black text-yellow-300">TRADING SAFETY</div>
+        <div className="mt-1 text-2xl font-black text-white">主動ETF實戰安全狀態</div>
+
+        <div className={`mt-2 text-3xl font-black ${
+          activeEtfUsableForTrading ? "text-emerald-300" : "text-yellow-300"
+        }`}>
+          {activeEtfUsableForTrading ? "可實戰觀察" : "尚未可用"}
+        </div>
+
+        <div className="mt-3 grid grid-cols-3 gap-2">
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">資料等級</div>
+            <div className="mt-1 text-sm font-black text-cyan-300">{activeEtfDataLevel}</div>
+          </div>
+
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">信心分數</div>
+            <div className="mt-1 text-xl font-black text-yellow-300">{activeEtfConfidence}</div>
+          </div>
+
+          <div className="rounded-2xl bg-black/30 p-3">
+            <div className="text-xs font-bold text-slate-400">真實資料</div>
+            <div className={`mt-1 text-sm font-black ${
+              activeEtfUsableForTrading ? "text-emerald-300" : "text-red-300"
+            }`}>
+              {activeEtfUsableForTrading ? "已解析" : "未解析"}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-2xl bg-black/30 p-3 text-sm font-bold leading-6 text-slate-200">
+          {activeEtfWarning}
+        </div>
+
+        {!activeEtfUsableForTrading && (
+          <div className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm font-black text-red-200">
+            提醒：目前主動ETF加減碼仍是示範資料，不能當成真實買賣依據。
+          </div>
+        )}
       </div>
             <div className="rounded-3xl border border-blue-400/30 bg-blue-500/10 p-4">
         <div className="text-xs font-black text-blue-300">TRACKING ETF LIST</div>
