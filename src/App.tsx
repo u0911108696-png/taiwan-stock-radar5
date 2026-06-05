@@ -2582,7 +2582,9 @@ export default function App() {
   const nextDayCandidates = useMemo(() => {
   return buildNextDayCandidates(top50);
 }, [top50]);
-
+const fiveDayBreakAlerts = useMemo(() => {
+  return buildFiveDayBreakAlerts(top50);
+}, [top50]);
 
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
@@ -3397,7 +3399,61 @@ const isAfterCloseMode = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-emerald-300">MA5 BREAK WATCH</div>
+      <div className="mt-1 text-2xl font-black text-white">剛突破5日線提示</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        僅做畫面提示，不跳通知；先確認有沒有取得 5日線資料，避免白畫面。
+      </div>
+    </div>
 
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">突破</div>
+      <div className="text-2xl font-black text-emerald-200">{fiveDayBreakAlerts.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {fiveDayBreakAlerts.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有偵測到剛突破 5日線的個股，或資料尚未包含 5日線。
+      </div>
+    )}
+
+    {fiveDayBreakAlerts.slice(0, 3).map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜5日線突破
+            </div>
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-emerald-200">
+              {item.reason}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">突破分數</div>
+            <div className="text-2xl font-black text-emerald-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          提醒：剛突破不等於立刻買，先看量能、分K是否站穩，開高過多不追。
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
         <div className="rounded-3xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
