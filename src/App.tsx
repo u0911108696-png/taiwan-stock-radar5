@@ -3366,11 +3366,11 @@ export default function App() {
 
 <div className="mt-2 grid grid-cols-2 gap-2 text-xs font-black">
   <div className="rounded-2xl bg-black/30 p-2 text-blue-200">
-    來源<br />{etf.sourceName || "--"}
-  </div>
+  來源<br />官方資料源等待中
+</div>
   <div className="rounded-2xl bg-black/30 p-2 text-yellow-200">
-    抓取狀態<br />{etf.fetchStatus || "--"}
-  </div>
+  抓取狀態<br />等待官方持股檔
+</div>
   <div className="col-span-2 rounded-2xl bg-black/30 p-2 text-slate-300">
     最後抓取<br />
     {etf.lastFetchAt ? new Date(etf.lastFetchAt).toLocaleString("zh-TW") : "--"}
