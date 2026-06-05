@@ -1,5 +1,42 @@
 const DEFAULT_REAL_FETCH_ENABLED = false;
 
+function analyzeRawText(text) {
+  const safeText = String(text || "");
+  const lower = safeText.toLowerCase();
+
+  const links = Array.from(
+    new Set(
+      [...safeText.matchAll(/href=["']([^"']+)["']/gi)]
+        .map((match) => match[1])
+        .filter(Boolean)
+        .filter((url) => {
+          const u = url.toLowerCase();
+          return (
+            u.includes("csv") ||
+            u.includes("xls") ||
+            u.includes("xlsx") ||
+            u.includes("pdf") ||
+            u.includes("download") ||
+            u.includes("fund") ||
+            u.includes("etf") ||
+            u.includes("holding") ||
+            u.includes("portfolio")
+          );
+        })
+    )
+  ).slice(0, 20);
+
+  return {
+    rawPreview: safeText.slice(0, 500),
+    hasTable: lower.includes("<table"),
+    hasCsv: lower.includes(".csv") || lower.includes("csv"),
+    hasJson: lower.includes("application/json") || lower.includes("__next_data__") || lower.includes("json"),
+    hasXlsx: lower.includes(".xlsx") || lower.includes(".xls"),
+    hasPdf: lower.includes(".pdf") || lower.includes("pdf"),
+    possibleLinks: links,
+  };
+}
+
 async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
   if (!realFetchEnabled) {
     return {
@@ -7,20 +44,20 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       mode: "mock",
       reason: "real fetch disabled",
       holdings: [],
+      analysis: analyzeRawText(""),
     };
   }
 
   try {
-    // v75 測試模式：
-    // 只有 /api/active-etf?test=1 才會嘗試抓取投信官網。
-    // 目前只確認能不能抓到 HTML，不解析持股，避免資料錯誤。
     const response = await fetch(etf.sourceUrl, {
       headers: {
         "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
+        "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       },
     });
 
     const text = await response.text();
+    const analysis = analyzeRawText(text);
 
     return {
       ok: response.ok,
@@ -28,13 +65,16 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       reason: response.ok ? "fetch success but parser not enabled" : `http ${response.status}`,
       rawLength: text.length,
       holdings: [],
+      analysis,
     };
   } catch (error) {
     return {
       ok: false,
       mode: "real",
       reason: error?.message || "fetch failed",
+      rawLength: 0,
       holdings: [],
+      analysis: analyzeRawText(""),
     };
   }
 }
@@ -66,7 +106,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
+      note: "目前使用示範持股；v76 分析官網 HTML 結構。",
     },
     {
       etfCode: "00981A",
@@ -78,7 +118,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
+      note: "目前使用示範持股；v76 分析官網 HTML 結構。",
     },
     {
       etfCode: "00982A",
@@ -90,7 +130,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.capitalfund.com.tw/",
       sourceName: "群益投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v75 可用 test=1 測試官網抓取。",
+      note: "目前使用示範持股；v76 分析官網 HTML 結構。",
     },
   ];
 
@@ -110,6 +150,7 @@ export default async function handler(req, res) {
         rawLength: result.rawLength || 0,
         holdingsCount: result.holdings?.length || 0,
         checkedAt: new Date().toISOString(),
+        analysis: result.analysis,
       };
     })
   );
@@ -144,15 +185,15 @@ export default async function handler(req, res) {
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v75 real-fetch-test"
-      : "api/active-etf v75 mock safe",
-    mode: realFetchEnabled ? "real-test" : "mock",
+      ? "api/active-etf v76 real-fetch-analyze"
+      : "api/active-etf v76 mock safe",
+    mode: realFetchEnabled ? "real-analyze" : "mock",
     realReady: true,
     realFetchEnabled,
     updatedAt: new Date().toISOString(),
     message: realFetchEnabled
-      ? "v75 測試模式已啟用：正在嘗試抓取投信官網，但尚未解析持股。"
-      : "v75 安全模式：真實抓取關閉，仍使用示範持股。",
+      ? "v76 分析模式：抓取官網 HTML 並回傳 rawPreview / possibleLinks / hasTable。"
+      : "v76 安全模式：真實抓取關閉，仍使用示範持股。",
     fetchReports,
     etfs: etfsWithFetchStatus,
     holdings,
