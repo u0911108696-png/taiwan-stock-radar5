@@ -1629,15 +1629,15 @@ function buildNextDayCandidates(stocks: Stock[] = []) {
         reasons.push("有成交金額支撐");
       }
 
-      const warning =
-        rise >= 6.5
-          ? "隔天若開高超過 3%，不要追高，等回測再看。"
-          : "隔天先看 9:10 後是否站穩，不要開盤直接追。";
+const warning =
+  rise >= 6.5
+    ? "隔天若開高超過 3%，不買不追；等回測 5日線或分K站穩。"
+    : "隔天先看 9:10 後是否站穩；開高超過 3% 不追。";
 
       return {
         stock,
         score: Math.max(0, Math.min(100, Math.round(score))),
-        level: score >= 75 ? "高機率候選" : "觀察候選",
+        level: score >= 80 ? "高機率候選" : "觀察候選",
         reasons: reasons.slice(0, 4),
         warning,
       } as NextDayCandidate;
@@ -1650,6 +1650,84 @@ function buildNextDayCandidates(stocks: Stock[] = []) {
     .slice(0, 12);
 
   return list;
+}
+type FiveDayBreakAlert = {
+  stock: Stock;
+  price: number;
+  ma5: number;
+  score: number;
+  reason: string;
+};
+
+function getStockPriceValue(stock: any) {
+  return (
+    toNumSafe(stock.price) ||
+    toNumSafe(stock.close) ||
+    toNumSafe(stock.lastPrice) ||
+    toNumSafe(stock.tradePrice) ||
+    toNumSafe(stock.currentPrice) ||
+    0
+  );
+}
+
+function getStockMa5Value(stock: any) {
+  return (
+    toNumSafe(stock.ma5) ||
+    toNumSafe(stock.avg5) ||
+    toNumSafe(stock.ma_5) ||
+    toNumSafe(stock.fiveMa) ||
+    toNumSafe(stock.movingAverage5) ||
+    0
+  );
+}
+
+function getStockPrevCloseValue(stock: any) {
+  return (
+    toNumSafe(stock.prevClose) ||
+    toNumSafe(stock.previousClose) ||
+    toNumSafe(stock.yesterdayClose) ||
+    toNumSafe(stock.refPrice) ||
+    0
+  );
+}
+
+function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
+  return (stocks || [])
+    .map((stock) => {
+      const price = getStockPriceValue(stock);
+      const ma5 = getStockMa5Value(stock);
+      const prevClose = getStockPrevCloseValue(stock);
+      const rise = getStockRisePercent(stock);
+      const volumeRatio = getStockVolumeRatio(stock);
+
+      const hasMa5 = ma5 > 0;
+      const nowAboveMa5 = hasMa5 && price > ma5;
+      const wasBelowOrNearMa5 = prevClose > 0 ? prevClose <= ma5 * 1.003 : true;
+      const notTooHot = rise > 0 && rise <= 7.5;
+
+      let score = 0;
+      if (nowAboveMa5) score += 40;
+      if (wasBelowOrNearMa5) score += 25;
+      if (notTooHot) score += 20;
+      if (volumeRatio >= 1.2) score += 15;
+
+      return {
+        stock,
+        price,
+        ma5,
+        score,
+        reason:
+          price > 0 && ma5 > 0
+            ? `現價 ${price.toFixed(2)} 站上 5日線 ${ma5.toFixed(2)}`
+            : "尚未取得完整 5日線資料",
+      } as FiveDayBreakAlert;
+    })
+    .filter((item) => {
+      const rise = getStockRisePercent(item.stock);
+      return item.ma5 > 0 && item.price > item.ma5 && item.score >= 70 && rise > 0 && rise <= 7.5;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
 }
 function buildActiveEtfFlows(list: ActiveEtfHolding[] = ACTIVE_ETF_HOLDINGS): ActiveEtfFlow[] {
   const map = new Map<string, ActiveEtfFlow>();
@@ -2504,7 +2582,34 @@ export default function App() {
   const nextDayCandidates = useMemo(() => {
   return buildNextDayCandidates(top50);
 }, [top50]);
+useEffect(() => {
+  if (!fiveDayBreakAlerts.length) return;
 
+  const first = fiveDayBreakAlerts[0];
+  const notifyKey = `ma5-break-${first.stock.code}-${new Date().toDateString()}`;
+
+  if (localStorage.getItem(notifyKey)) return;
+
+  const title = `剛突破5日線：${first.stock.code} ${stockDisplayName(first.stock)}`;
+  const body = `${first.reason}｜分數 ${first.score}｜不要追高，先看量能與分K站穩。`;
+
+  if ("Notification" in window) {
+    if (Notification.permission === "granted") {
+      new Notification(title, { body });
+      localStorage.setItem(notifyKey, "1");
+    } else if (Notification.permission !== "denied") {
+      Notification.requestPermission().then((permission) => {
+        if (permission === "granted") {
+          new Notification(title, { body });
+          localStorage.setItem(notifyKey, "1");
+        }
+      });
+    }
+  }
+}, [fiveDayBreakAlerts]);
+const fiveDayBreakAlerts = useMemo(() => {
+  return buildFiveDayBreakAlerts(top50);
+}, [top50]);
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
   return now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
@@ -3318,6 +3423,55 @@ const isAfterCloseMode = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-emerald-300">MA5 BREAK ALERT</div>
+      <div className="mt-1 text-2xl font-black text-white">剛突破5日線提醒</div>
+      <div className="mt-1 text-sm font-bold text-slate-300">
+        App 開著時，若偵測到個股剛站上 5日線，會嘗試跳出瀏覽器通知。
+      </div>
+    </div>
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">突破</div>
+      <div className="text-2xl font-black text-emerald-200">{fiveDayBreakAlerts.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {fiveDayBreakAlerts.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有偵測到剛突破 5日線的個股，或資料尚未包含 5日線。
+      </div>
+    )}
+
+    {fiveDayBreakAlerts.slice(0, 3).map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">#{index + 1}｜5日線突破</div>
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-emerald-200">{item.reason}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">突破分數</div>
+            <div className="text-2xl font-black text-emerald-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          提醒：剛突破不等於立刻買，先看量能、分K是否站穩，開高過多不追。
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
         <div className="rounded-3xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
