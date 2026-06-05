@@ -3304,12 +3304,20 @@ export default function App() {
         <div className="mt-3 grid grid-cols-3 gap-2">
           <div className="rounded-2xl bg-black/30 p-3">
             <div className="text-xs font-bold text-slate-400">資料等級</div>
-            <div className="mt-1 text-sm font-black text-cyan-300">{activeEtfDataLevel}</div>
+            <div className="mt-1 text-sm font-black text-cyan-300">
+  {activeEtfDataLevel === "MOCK_WITH_REAL_SOURCE_CHECK"
+    ? "來源檢查中"
+    : activeEtfDataLevel === "MOCK_ONLY"
+      ? "示範資料"
+      : activeEtfDataLevel === "REAL_PARSED"
+        ? "真實已解析"
+        : activeEtfDataLevel}
+</div>
           </div>
 
           <div className="rounded-2xl bg-black/30 p-3">
             <div className="text-xs font-bold text-slate-400">信心分數</div>
-            <div className="mt-1 text-xl font-black text-yellow-300">{activeEtfConfidence}</div>
+            <div className="mt-1 text-xl font-black text-yellow-300">{activeEtfConfidence}分</div>
           </div>
 
           <div className="rounded-2xl bg-black/30 p-3">
