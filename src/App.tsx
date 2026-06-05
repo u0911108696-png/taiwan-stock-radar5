@@ -3384,7 +3384,7 @@ export default function App() {
                   </div>
                   <div className="mt-1 text-xs font-black text-cyan-300">{etf.status}</div>
 <div className="mt-1 text-[10px] font-black text-slate-400">
-  {etf.mode === "real" ? "真實資料" : "示範資料"}
+  {etf.mode === "real" ? "真實資料" : "等待官方檔"}
 </div>
                 </div>
               </div>
