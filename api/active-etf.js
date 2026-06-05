@@ -17,7 +17,7 @@ function getNearbyText(text, keyword, range = 700) {
 
 function normalizeLink(url, baseUrl) {
   const value = String(url || "").trim();
-  if (!value || value.startsWith("javascript:")) return value;
+  if (!value || value.startsWith("javascript:")) return "";
 
   try {
     return new URL(value, baseUrl).toString();
@@ -26,41 +26,130 @@ function normalizeLink(url, baseUrl) {
   }
 }
 
+function isCssNoise(value) {
+  const u = String(value || "").toLowerCase();
+
+  if (!u) return true;
+  if (u.length > 260) return true;
+
+  return (
+    u.includes("{") ||
+    u.includes("}") ||
+    u.includes("@media") ||
+    u.includes("position:") ||
+    u.includes("absolute") ||
+    u.includes("background") ||
+    u.includes("linear-gradient") ||
+    u.includes("border-") ||
+    u.includes("padding") ||
+    u.includes("margin") ||
+    u.includes("display:") ||
+    u.includes("font-size") ||
+    u.includes("box-shadow") ||
+    u.includes("transition") ||
+    u.includes("transform") ||
+    u.includes("color:") ||
+    u.includes("width:") ||
+    u.includes("height:") ||
+    u.includes("rgba") ||
+    u.includes("%20%20") ||
+    u.includes("sc57") ||
+    u.includes("_nghost") ||
+    u.includes("_ngcontent") ||
+    u.includes("data-unchecked") ||
+    u.includes("data-checked")
+  );
+}
+
+function isRealUsefulLink(value) {
+  const u = String(value || "").toLowerCase();
+
+  if (!u) return false;
+  if (isCssNoise(u)) return false;
+
+  const isUrl =
+    u.startsWith("http://") ||
+    u.startsWith("https://") ||
+    u.startsWith("/") ||
+    u.startsWith("./") ||
+    u.startsWith("../");
+
+  const hasUsefulKeyword =
+    u.includes("api") ||
+    u.includes("ajax") ||
+    u.includes("csv") ||
+    u.includes("xls") ||
+    u.includes("xlsx") ||
+    u.includes("pdf") ||
+    u.includes("download") ||
+    u.includes("fund") ||
+    u.includes("etf") ||
+    u.includes("holding") ||
+    u.includes("portfolio") ||
+    u.includes("stock") ||
+    u.includes("nav") ||
+    u.includes("detail") ||
+    u.includes("query") ||
+    u.includes("file") ||
+    u.includes("transaction") ||
+    u.includes("product") ||
+    u.includes("composition") ||
+    u.includes("constituent") ||
+    u.includes("00982a");
+
+  return isUrl && hasUsefulKeyword;
+}
+
 function scoreLink(url) {
   const u = String(url || "").toLowerCase();
   let score = 0;
 
-  if (u.includes("00982a")) score += 150;
-  if (u.includes("download")) score += 55;
-  if (u.includes("transaction")) score += 40;
-  if (u.includes("etf")) score += 25;
-  if (u.includes("fund")) score += 20;
-  if (u.includes("csv")) score += 80;
-  if (u.includes("xlsx") || u.includes("xls")) score += 80;
-  if (u.includes("pdf")) score += 30;
-  if (u.includes("api") || u.includes("ajax")) score += 70;
-  if (u.includes("portfolio") || u.includes("holding") || u.includes("constituent")) score += 70;
-  if (u.includes("composition") || u.includes("ingredient")) score += 50;
-  if (u.includes("product")) score += 25;
-  if (u.includes("query") || u.includes("detail")) score += 30;
+  if (!isRealUsefulLink(u)) return 0;
 
-  return score;
+  if (u.includes("00982a")) score += 150;
+  if (u.includes("download")) score += 60;
+  if (u.includes("transaction")) score += 45;
+  if (u.includes("etf")) score += 30;
+  if (u.includes("fund")) score += 20;
+  if (u.includes("csv")) score += 90;
+  if (u.includes("xlsx") || u.includes("xls")) score += 90;
+  if (u.includes("pdf")) score += 35;
+  if (u.includes("api") || u.includes("ajax")) score += 80;
+  if (u.includes("portfolio") || u.includes("holding") || u.includes("constituent")) score += 80;
+  if (u.includes("composition") || u.includes("ingredient")) score += 55;
+  if (u.includes("product")) score += 25;
+  if (u.includes("query") || u.includes("detail")) score += 35;
+
+  if (u.includes("favicon")) score -= 100;
+  if (u.includes("google")) score -= 100;
+  if (u.includes("facebook")) score -= 100;
+  if (u.includes("line.me")) score -= 100;
+  if (u.includes("fonts.")) score -= 100;
+  if (u.includes("assets/images")) score -= 80;
+  if (u.includes(".css")) score -= 80;
+  if (u.includes(".woff")) score -= 80;
+  if (u.includes(".png") || u.includes(".jpg") || u.includes(".svg") || u.includes(".ico")) score -= 80;
+
+  return Math.max(0, score);
 }
 
 function extractLinks(text, baseUrl) {
   const safeText = String(text || "");
 
-  const hrefLinks = [...safeText.matchAll(/href=["']([^"']+)["']/gi)].map((match) =>
-    normalizeLink(match[1], baseUrl)
-  );
+  const hrefLinks = [...safeText.matchAll(/href=["']([^"']+)["']/gi)]
+    .map((match) => normalizeLink(match[1], baseUrl))
+    .filter(isRealUsefulLink);
 
-  const scriptLinks = [...safeText.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)].map((match) =>
-    normalizeLink(match[1], baseUrl)
-  );
+  const scriptLinks = [...safeText.matchAll(/<script[^>]+src=["']([^"']+)["']/gi)]
+    .map((match) => normalizeLink(match[1], baseUrl))
+    .filter((url) => {
+      const u = String(url || "").toLowerCase();
+      return u.includes(".js") && u.includes("capitalfund.com.tw") && !isCssNoise(u);
+    });
 
-  const urlLikeLinks = [...safeText.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)].map((match) =>
-    String(match[0] || "").replace(/[),;]+$/g, "")
-  );
+  const urlLikeLinks = [...safeText.matchAll(/https?:\/\/[^\s"'<>\\]+/gi)]
+    .map((match) => String(match[0] || "").replace(/[),;]+$/g, ""))
+    .filter(isRealUsefulLink);
 
   const stringLinks = [
     ...safeText.matchAll(
@@ -68,7 +157,7 @@ function extractLinks(text, baseUrl) {
     ),
   ]
     .map((match) => normalizeLink(match[1], baseUrl))
-    .filter((url) => String(url || "").length >= 4);
+    .filter(isRealUsefulLink);
 
   return {
     hrefLinks: uniq(hrefLinks, 80),
@@ -89,39 +178,11 @@ function analyzeRawText(text, baseUrl, etfCode) {
       ...extracted.scriptLinks,
       ...extracted.urlLikeLinks,
       ...extracted.stringLinks,
-    ],
+    ].filter(isRealUsefulLink),
     240
   );
 
-  const possibleLinks = uniq(
-    allLinks.filter((url) => {
-      const u = String(url || "").toLowerCase();
-      return (
-        u.includes("api") ||
-        u.includes("ajax") ||
-        u.includes("csv") ||
-        u.includes("xls") ||
-        u.includes("xlsx") ||
-        u.includes("pdf") ||
-        u.includes("download") ||
-        u.includes("fund") ||
-        u.includes("etf") ||
-        u.includes("holding") ||
-        u.includes("portfolio") ||
-        u.includes("stock") ||
-        u.includes("nav") ||
-        u.includes("detail") ||
-        u.includes("query") ||
-        u.includes("file") ||
-        u.includes("transaction") ||
-        u.includes("product") ||
-        u.includes("composition") ||
-        u.includes("constituent") ||
-        u.includes("00982a")
-      );
-    }),
-    160
-  );
+  const possibleLinks = uniq(allLinks.filter(isRealUsefulLink), 160);
 
   const bestLinks = [...possibleLinks]
     .map((url) => ({ url, score: scoreLink(url) }))
@@ -211,7 +272,7 @@ async function fetchJsFiles(scriptLinks, etfCode) {
   const jsLinks = uniq(
     (scriptLinks || []).filter((url) => {
       const u = String(url || "").toLowerCase();
-      return u.includes("capitalfund.com.tw") && (u.includes(".js") || u.includes("/assets/") || u.includes("/runtime/"));
+      return u.includes("capitalfund.com.tw") && u.includes(".js") && !isCssNoise(u);
     }),
     12
   );
@@ -240,6 +301,7 @@ async function fetchJsFiles(scriptLinks, etfCode) {
         hasCsv: analysis.hasCsv,
         hasXlsx: analysis.hasXlsx,
         hasPdf: analysis.hasPdf,
+        cleanLinkCount: analysis.bestLinks.length,
         bestLinks: analysis.bestLinks,
         possibleLinks: analysis.possibleLinks,
         keywordNearby: analysis.keywordNearby,
@@ -251,6 +313,7 @@ async function fetchJsFiles(scriptLinks, etfCode) {
         status: 0,
         rawLength: 0,
         reason: error?.message || "js fetch failed",
+        cleanLinkCount: 0,
         bestLinks: [],
         possibleLinks: [],
       });
@@ -266,7 +329,11 @@ function buildTradingSafety({ realFetchEnabled, pages, jsReports }) {
   const hasFileHint =
     pages.some((page) => page.analysis?.hasFileHint) ||
     jsReports.some((item) => item.hasApi || item.hasCsv || item.hasXlsx || item.hasPdf);
-  const hasStrongApiHint = jsReports.some((item) => (item.bestLinks || []).some((link) => link.score >= 100));
+
+  const cleanBestLinks = [
+    ...pages.flatMap((page) => page.analysis?.bestLinks || []),
+    ...jsReports.flatMap((item) => item.bestLinks || []),
+  ].filter((item) => item.score >= 100);
 
   if (!realFetchEnabled) {
     return {
@@ -278,13 +345,13 @@ function buildTradingSafety({ realFetchEnabled, pages, jsReports }) {
     };
   }
 
-  if (hasStrongApiHint) {
+  if (cleanBestLinks.length > 0) {
     return {
       usableForTrading: false,
       dataLevel: "REAL_API_HINT_FOUND",
       confidence: 72,
-      label: "找到疑似 API 端點，等待解析",
-      reason: "已從 JS 或頁面找到疑似資料端點，但尚未解析成持股權重。",
+      label: "找到乾淨疑似 API / 下載端點",
+      reason: "已過濾 CSS 雜訊，找到較乾淨的疑似資料連結；尚未解析成持股權重。",
     };
   }
 
@@ -368,7 +435,9 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
     ok: pages.some((page) => page.ok),
     mode: "real",
     reason: tradingSafety.reason,
-    rawLength: pages.reduce((sum, page) => sum + (page.rawLength || 0), 0) + jsReports.reduce((sum, item) => sum + (item.rawLength || 0), 0),
+    rawLength:
+      pages.reduce((sum, page) => sum + (page.rawLength || 0), 0) +
+      jsReports.reduce((sum, item) => sum + (item.rawLength || 0), 0),
     holdings: [],
     pages: pages.map((page) => ({
       url: page.url,
@@ -382,6 +451,7 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       hasPdf: page.analysis?.hasPdf || false,
       hasApi: page.analysis?.hasApi || false,
       scriptCount: page.analysis?.scriptLinks?.length || 0,
+      cleanLinkCount: page.analysis?.bestLinks?.length || 0,
       bestLinks: page.analysis?.bestLinks || [],
     })),
     jsReports,
@@ -437,7 +507,7 @@ export default async function handler(req, res) {
         "https://www.capitalfund.com.tw/etf/product/cross/feature",
       ],
       lastFetchAt: new Date().toISOString(),
-      note: "v84 JS/API 端點追蹤版：只在 test=1 抓 JS 檔找 API。",
+      note: "v85 API 連結清理版：過濾 CSS 雜訊，只留下乾淨 API / 下載線索。",
     },
   ];
 
@@ -515,7 +585,7 @@ export default async function handler(req, res) {
       ...focusPages.flatMap((page) => (page.bestLinks || []).map((item) => item.url)),
       ...focusJsReports.flatMap((item) => (item.bestLinks || []).map((link) => link.url)),
       ...focusJsReports.flatMap((item) => item.possibleLinks || []),
-    ],
+    ].filter(isRealUsefulLink),
     80
   );
 
@@ -523,7 +593,7 @@ export default async function handler(req, res) {
     usableForTrading: false,
     dataLevel: focusReport?.tradingSafety?.dataLevel || "MOCK_WITH_REAL_SOURCE_CHECK",
     confidence: focusReport?.tradingSafety?.confidence || (realFetchEnabled ? 65 : 20),
-    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "JS/API 端點追蹤中" : "安全模式，使用示範資料"),
+    label: focusReport?.tradingSafety?.label || (realFetchEnabled ? "API 連結清理中" : "安全模式，使用示範資料"),
     reason:
       focusReport?.tradingSafety?.reason ||
       "尚未把官網資料解析成持股權重，因此 ETF 加減碼仍不可當成真實買賣依據。",
@@ -532,9 +602,9 @@ export default async function handler(req, res) {
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v84 js-api-trace"
-      : "api/active-etf v84 safe-mock",
-    mode: realFetchEnabled ? "js-api-trace" : "mock",
+      ? "api/active-etf v85 clean-api-links"
+      : "api/active-etf v85 safe-mock",
+    mode: realFetchEnabled ? "clean-api-links" : "mock",
     realReady: true,
     realFetchEnabled,
     usableForTrading: overallSafety.usableForTrading,
