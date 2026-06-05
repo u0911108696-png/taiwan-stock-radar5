@@ -3257,16 +3257,16 @@ export default function App() {
         <div className="text-xs font-black text-cyan-300">ACTIVE ETF FLOW</div>
         <div className="mt-1 text-2xl font-black text-white">主動ETF加減碼雷達</div>
         <div className="mt-1 text-sm font-bold text-slate-300">
-  v70 先建立主動ETF資金雷達架構，目前使用示範資料；下一版會串接每日公告持股資料。
+  v92 主動ETF資料來源等待版：目前已確認官方頁面會出現大量 ETF 清單，暫不解析為持股；等待官方 CSV / XLS / JSON 持股資料源。
 </div>
 
 <div className="mt-3 rounded-2xl border border-yellow-400/30 bg-yellow-500/10 p-3">
   <div className="text-xs font-black text-yellow-300">DATA STATUS</div>
   <div className="mt-1 text-sm font-black text-yellow-100">
-    目前：{activeEtfSource}｜下一步：串接 SITCA / 投信每日投資組合
+    目前：v92 安全等待資料源｜尚未取得官方持股檔
   </div>
   <div className="mt-1 text-xs font-bold text-slate-300">
-    用途：先確認加碼、減碼、新買進、清倉的判斷邏輯與手機版面。
+    用途：保留主動ETF雷達版面；目前僅供觀察流程，不當成真實加減碼依據。
   </div>
 </div>
 
@@ -3336,7 +3336,7 @@ export default function App() {
 
         {!activeEtfUsableForTrading && (
           <div className="mt-3 rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-sm font-black text-red-200">
-            提醒：目前主動ETF加減碼仍是示範資料，不能當成真實買賣依據。
+            提醒：目前尚未取得官方持股檔，主動ETF加減碼維持示範資料，不能當成真實買賣依據。
           </div>
         )}
       </div>
