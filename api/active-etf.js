@@ -1,18 +1,18 @@
 const DEFAULT_REAL_FETCH_ENABLED = false;
 
-function uniq(list, limit = 100) {
-  return Array.from(new Set(list.filter(Boolean))).slice(0, limit);
+function uniq(list, limit = 120) {
+  return Array.from(new Set((list || []).filter(Boolean))).slice(0, limit);
 }
 
-function cleanText(text, limit = 1600) {
+function cleanText(text, limit = 1800) {
   return String(text || "").replace(/\s+/g, " ").slice(0, limit);
 }
 
-function getNearbyText(text, keyword, range = 400) {
+function getNearbyText(text, keyword, range = 500) {
   const source = String(text || "");
   const index = source.toLowerCase().indexOf(String(keyword || "").toLowerCase());
   if (index < 0) return "";
-  return cleanText(source.slice(Math.max(0, index - range), index + range), 1200);
+  return cleanText(source.slice(Math.max(0, index - range), index + range), 1600);
 }
 
 function normalizeLink(url, baseUrl) {
@@ -26,9 +26,27 @@ function normalizeLink(url, baseUrl) {
   }
 }
 
-function analyzeRawText(text, baseUrl, etfCode) {
+function scoreLink(url) {
+  const u = String(url || "").toLowerCase();
+  let score = 0;
+
+  if (u.includes("00982a")) score += 100;
+  if (u.includes("download")) score += 35;
+  if (u.includes("transaction")) score += 25;
+  if (u.includes("etf")) score += 20;
+  if (u.includes("fund")) score += 15;
+  if (u.includes("csv")) score += 50;
+  if (u.includes("xlsx") || u.includes("xls")) score += 50;
+  if (u.includes("pdf")) score += 25;
+  if (u.includes("api") || u.includes("ajax")) score += 40;
+  if (u.includes("portfolio") || u.includes("holding") || u.includes("constituent")) score += 40;
+  if (u.includes("composition") || u.includes("ingredient")) score += 30;
+
+  return score;
+}
+
+function extractLinks(text, baseUrl) {
   const safeText = String(text || "");
-  const lower = safeText.toLowerCase();
 
   const hrefLinks = [...safeText.matchAll(/href=["']([^"']+)["']/gi)].map((match) =>
     normalizeLink(match[1], baseUrl)
@@ -42,15 +60,35 @@ function analyzeRawText(text, baseUrl, etfCode) {
     String(match[0] || "").replace(/[),;]+$/g, "")
   );
 
-  const apiLikeStrings = uniq(
-    [...safeText.matchAll(/["']([^"']*(?:api|ajax|fund|etf|download|holding|portfolio|stock|query|nav|detail|file|pdf|csv|xlsx|xls)[^"']*)["']/gi)]
-      .map((match) => normalizeLink(match[1], baseUrl))
-      .filter((url) => url.length >= 4),
-    80
+  const apiLikeStrings = [...safeText.matchAll(/["']([^"']*(?:api|ajax|fund|etf|download|holding|portfolio|stock|query|nav|detail|file|pdf|csv|xlsx|xls|transaction|product)[^"']*)["']/gi)]
+    .map((match) => normalizeLink(match[1], baseUrl))
+    .filter((url) => String(url || "").length >= 4);
+
+  return {
+    hrefLinks: uniq(hrefLinks, 80),
+    scriptLinks: uniq(scriptLinks, 80),
+    urlLikeLinks: uniq(urlLikeLinks, 80),
+    apiLikeStrings: uniq(apiLikeStrings, 100),
+  };
+}
+
+function analyzeRawText(text, baseUrl, etfCode) {
+  const safeText = String(text || "");
+  const lower = safeText.toLowerCase();
+  const extracted = extractLinks(safeText, baseUrl);
+
+  const allLinks = uniq(
+    [
+      ...extracted.hrefLinks,
+      ...extracted.scriptLinks,
+      ...extracted.urlLikeLinks,
+      ...extracted.apiLikeStrings,
+    ],
+    180
   );
 
   const possibleLinks = uniq(
-    [...hrefLinks, ...scriptLinks, ...urlLikeLinks, ...apiLikeStrings].filter((url) => {
+    allLinks.filter((url) => {
       const u = String(url || "").toLowerCase();
       return (
         u.includes("api") ||
@@ -68,22 +106,45 @@ function analyzeRawText(text, baseUrl, etfCode) {
         u.includes("nav") ||
         u.includes("detail") ||
         u.includes("query") ||
-        u.includes("file")
+        u.includes("file") ||
+        u.includes("transaction") ||
+        u.includes("product")
       );
     }),
-    80
+    120
   );
 
   const capitalEtfLinks = uniq(
     possibleLinks.filter((url) => {
       const u = String(url || "").toLowerCase();
-      return u.includes("capitalfund.com.tw") && (u.includes("etf") || u.includes("fund") || u.includes("download") || u.includes("pdf") || u.includes("csv") || u.includes("xls"));
+      return (
+        u.includes("capitalfund.com.tw") &&
+        (
+          u.includes("etf") ||
+          u.includes("fund") ||
+          u.includes("download") ||
+          u.includes("transaction") ||
+          u.includes("product") ||
+          u.includes("pdf") ||
+          u.includes("csv") ||
+          u.includes("xls") ||
+          u.includes("xlsx") ||
+          u.includes("api") ||
+          u.includes("ajax")
+        )
+      );
     }),
-    50
+    80
   );
 
+  const bestLinks = [...possibleLinks]
+    .map((url) => ({ url, score: scoreLink(url) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 30);
+
   return {
-    rawPreview: safeText.slice(0, 700),
+    rawPreview: safeText.slice(0, 800),
     rawLength: safeText.length,
     hasTable: lower.includes("<table"),
     hasCsv: lower.includes(".csv") || lower.includes("csv"),
@@ -92,11 +153,12 @@ function analyzeRawText(text, baseUrl, etfCode) {
     hasPdf: lower.includes(".pdf") || lower.includes("pdf"),
     hasApi: lower.includes("api") || lower.includes("ajax"),
     hasEtfCode: lower.includes(String(etfCode || "").toLowerCase()),
-    hrefLinks: uniq(hrefLinks, 40),
-    scriptLinks: uniq(scriptLinks, 40),
-    apiLikeStrings: apiLikeStrings.slice(0, 60),
-    possibleLinks: possibleLinks.slice(0, 70),
+    hrefLinks: extracted.hrefLinks.slice(0, 50),
+    scriptLinks: extracted.scriptLinks.slice(0, 50),
+    apiLikeStrings: extracted.apiLikeStrings.slice(0, 80),
+    possibleLinks: possibleLinks.slice(0, 100),
     capitalEtfLinks,
+    bestLinks,
     keywordNearby: {
       etfCode: getNearbyText(safeText, etfCode),
       active: getNearbyText(safeText, "主動"),
@@ -104,13 +166,47 @@ function analyzeRawText(text, baseUrl, etfCode) {
       holding: getNearbyText(safeText, "持股"),
       portfolio: getNearbyText(safeText, "portfolio"),
       composition: getNearbyText(safeText, "投資組合"),
-      fund: getNearbyText(safeText, "fund"),
       download: getNearbyText(safeText, "download"),
+      transaction: getNearbyText(safeText, "transaction"),
+      product: getNearbyText(safeText, "product"),
+      fund: getNearbyText(safeText, "fund"),
       api: getNearbyText(safeText, "api"),
       pdf: getNearbyText(safeText, "pdf"),
       csv: getNearbyText(safeText, "csv"),
+      xls: getNearbyText(safeText, "xls"),
     },
   };
+}
+
+async function fetchTextPage(url, etfCode) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
+        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+
+    const text = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      url,
+      reason: response.ok ? "fetch success" : `http ${response.status}`,
+      rawLength: text.length,
+      analysis: analyzeRawText(text, url, etfCode),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      url,
+      reason: error?.message || "fetch failed",
+      rawLength: 0,
+      analysis: analyzeRawText("", url, etfCode),
+    };
+  }
 }
 
 async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
@@ -120,39 +216,64 @@ async function fetchActiveEtfHoldings(etf, realFetchEnabled) {
       mode: "mock",
       reason: "real fetch disabled",
       holdings: [],
+      pages: [],
       analysis: analyzeRawText("", etf.sourceUrl, etf.etfCode),
+      downloadAnalysis: null,
     };
   }
 
-  try {
-    const response = await fetch(etf.sourceUrl, {
-      headers: {
-        "user-agent": "Mozilla/5.0 Taiwan Stock Radar",
-        accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
-    });
+  const pageUrls = uniq(
+    [
+      etf.sourceUrl,
+      ...(etf.extraSourceUrls || []),
+    ],
+    8
+  );
 
-    const text = await response.text();
-    const analysis = analyzeRawText(text, etf.sourceUrl, etf.etfCode);
+  const pages = await Promise.all(pageUrls.map((url) => fetchTextPage(url, etf.etfCode)));
 
-    return {
-      ok: response.ok,
-      mode: "real",
-      reason: response.ok ? "fetch success but parser not enabled" : `http ${response.status}`,
-      rawLength: text.length,
-      holdings: [],
-      analysis,
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      mode: "real",
-      reason: error?.message || "fetch failed",
-      rawLength: 0,
-      holdings: [],
-      analysis: analyzeRawText("", etf.sourceUrl, etf.etfCode),
-    };
-  }
+  const mainPage = pages.find((page) => page.url === etf.sourceUrl) || pages[0];
+  const downloadPage =
+    pages.find((page) => String(page.url || "").includes("/transaction/download")) ||
+    pages.find((page) => page.analysis?.bestLinks?.some((item) => String(item.url || "").includes("download"))) ||
+    null;
+
+  const ok = pages.some((page) => page.ok);
+  const bestPage = pages
+    .map((page) => ({
+      ...page,
+      score:
+        (page.analysis?.hasEtfCode ? 80 : 0) +
+        (page.analysis?.hasCsv ? 35 : 0) +
+        (page.analysis?.hasXlsx ? 35 : 0) +
+        (page.analysis?.hasPdf ? 15 : 0) +
+        (page.analysis?.hasApi ? 25 : 0) +
+        Math.min(60, page.analysis?.bestLinks?.[0]?.score || 0),
+    }))
+    .sort((a, b) => b.score - a.score)[0];
+
+  return {
+    ok,
+    mode: "real",
+    reason: ok ? "fetch success but parser not enabled" : "all fetch failed",
+    rawLength: pages.reduce((sum, page) => sum + (page.rawLength || 0), 0),
+    holdings: [],
+    pages: pages.map((page) => ({
+      url: page.url,
+      ok: page.ok,
+      status: page.status,
+      reason: page.reason,
+      rawLength: page.rawLength,
+      hasEtfCode: page.analysis?.hasEtfCode || false,
+      hasCsv: page.analysis?.hasCsv || false,
+      hasXlsx: page.analysis?.hasXlsx || false,
+      hasPdf: page.analysis?.hasPdf || false,
+      hasApi: page.analysis?.hasApi || false,
+      bestLinks: page.analysis?.bestLinks || [],
+    })),
+    analysis: bestPage?.analysis || mainPage?.analysis || analyzeRawText("", etf.sourceUrl, etf.etfCode),
+    downloadAnalysis: downloadPage?.analysis || null,
+  };
 }
 
 function normalizeActiveEtfHolding(raw, etf) {
@@ -181,8 +302,9 @@ export default async function handler(req, res) {
       fetchStatus: "mock_ready",
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
+      extraSourceUrls: [],
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v78 仍保留測試。",
+      note: "目前使用示範持股；v79 保留安全測試。",
     },
     {
       etfCode: "00981A",
@@ -193,8 +315,9 @@ export default async function handler(req, res) {
       fetchStatus: "mock_ready",
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
+      extraSourceUrls: [],
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v78 仍保留測試。",
+      note: "目前使用示範持股；v79 保留安全測試。",
     },
     {
       etfCode: "00982A",
@@ -205,8 +328,14 @@ export default async function handler(req, res) {
       fetchStatus: "mock_ready",
       sourceUrl: "https://www.capitalfund.com.tw/etf",
       sourceName: "群益投信 ETF 頁",
+      extraSourceUrls: [
+        "https://www.capitalfund.com.tw/etf/transaction/download",
+        "https://www.capitalfund.com.tw/etf/product/overview",
+        "https://www.capitalfund.com.tw/etf/product/interest",
+        "https://www.capitalfund.com.tw/etf/product/cross/feature",
+      ],
       lastFetchAt: new Date().toISOString(),
-      note: "v78 改抓群益 ETF 頁，分析 00982A 與可能下載連結。",
+      note: "v79 同時分析群益 ETF 頁與下載頁，但尚未解析持股。",
     },
   ];
 
@@ -226,7 +355,9 @@ export default async function handler(req, res) {
         rawLength: result.rawLength || 0,
         holdingsCount: result.holdings?.length || 0,
         checkedAt: new Date().toISOString(),
+        pages: result.pages || [],
         analysis: result.analysis,
+        downloadAnalysis: result.downloadAnalysis,
       };
     })
   );
@@ -263,21 +394,33 @@ export default async function handler(req, res) {
     fetchReports.find((item) => item.ok) ||
     fetchReports[0];
 
+  const focusPages = focusReport?.pages || [];
+  const focusBestLinks = uniq(
+    [
+      ...(focusReport?.analysis?.bestLinks || []).map((item) => item.url),
+      ...(focusReport?.downloadAnalysis?.bestLinks || []).map((item) => item.url),
+    ],
+    40
+  );
+
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v78 capital-etf-page-analyze"
-      : "api/active-etf v78 mock safe",
-    mode: realFetchEnabled ? "capital-etf-page-analyze" : "mock",
+      ? "api/active-etf v79 multi-page-safe-analyze"
+      : "api/active-etf v79 mock safe",
+    mode: realFetchEnabled ? "multi-page-safe-analyze" : "mock",
     realReady: true,
     realFetchEnabled,
     updatedAt: new Date().toISOString(),
     message: realFetchEnabled
-      ? "v78 分析模式：00982A 改抓群益 ETF 頁，尋找 00982A / PDF / CSV / Excel / API 連結。"
-      : "v78 安全模式：真實抓取關閉，仍使用示範持股。",
+      ? "v79 分析模式：同時分析群益 ETF 頁、下載頁、產品頁，找出最可能的真實資料連結；尚未解析持股。"
+      : "v79 安全模式：真實抓取關閉，仍使用示範持股。",
     focusEtfCode: focusReport?.etfCode || "",
     focusSourceUrl: focusReport?.sourceUrl || "",
+    focusPages,
+    focusBestLinks,
     focusAnalysis: focusReport?.analysis || null,
+    focusDownloadAnalysis: focusReport?.downloadAnalysis || null,
     fetchReports,
     etfs: etfsWithFetchStatus,
     holdings,
