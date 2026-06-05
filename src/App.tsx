@@ -1670,25 +1670,80 @@ function getStockPriceValue(stock: any) {
   );
 }
 
-function getStockMa5Value(stock: any) {
+function getCloseFromKlineItem(item: any) {
   return (
+    toNumSafe(item?.close) ||
+    toNumSafe(item?.c) ||
+    toNumSafe(item?.price) ||
+    toNumSafe(item?.lastPrice) ||
+    toNumSafe(item?.tradePrice) ||
+    0
+  );
+}
+
+function getStockKlineList(stock: any) {
+  const list =
+    stock?.dailyK ||
+    stock?.dailyKline ||
+    stock?.kline ||
+    stock?.klines ||
+    stock?.candles ||
+    stock?.history ||
+    stock?.prices ||
+    stock?.chart ||
+    [];
+
+  return Array.isArray(list) ? list : [];
+}
+
+function calcMaFromKline(stock: any, days = 5) {
+  const list = getStockKlineList(stock);
+  if (!list.length) return 0;
+
+  const closes = list
+    .map((item) => getCloseFromKlineItem(item))
+    .filter((value) => Number.isFinite(value) && value > 0);
+
+  if (closes.length < days) return 0;
+
+  const last = closes.slice(-days);
+  const sum = last.reduce((acc, value) => acc + value, 0);
+  return sum / days;
+}
+
+function getStockMa5Value(stock: any) {
+  const directMa5 =
     toNumSafe(stock.ma5) ||
     toNumSafe(stock.avg5) ||
     toNumSafe(stock.ma_5) ||
     toNumSafe(stock.fiveMa) ||
     toNumSafe(stock.movingAverage5) ||
-    0
-  );
+    toNumSafe(stock.ma?.ma5) ||
+    toNumSafe(stock.ma?.m5) ||
+    0;
+
+  if (directMa5 > 0) return directMa5;
+
+  return calcMaFromKline(stock, 5);
 }
 
 function getStockPrevCloseValue(stock: any) {
-  return (
+  const directPrevClose =
     toNumSafe(stock.prevClose) ||
     toNumSafe(stock.previousClose) ||
     toNumSafe(stock.yesterdayClose) ||
     toNumSafe(stock.refPrice) ||
-    0
-  );
+    0;
+
+  if (directPrevClose > 0) return directPrevClose;
+
+  const list = getStockKlineList(stock);
+  if (list.length >= 2) {
+    const prev = getCloseFromKlineItem(list[list.length - 2]);
+    if (prev > 0) return prev;
+  }
+
+  return 0;
 }
 
 function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
@@ -1702,7 +1757,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
 
       const hasMa5 = ma5 > 0;
       const nowAboveMa5 = hasMa5 && price > ma5;
-      const wasBelowOrNearMa5 = prevClose > 0 ? prevClose <= ma5 * 1.003 : true;
+      const wasBelowOrNearMa5 = prevClose > 0 ? prevClose <= ma5 * 1.01 : true;
       const notTooHot = rise > 0 && rise <= 7.5;
 
       let score = 0;
@@ -3418,7 +3473,7 @@ const isAfterCloseMode = useMemo(() => {
   <div className="mt-3 space-y-2">
     {fiveDayBreakAlerts.length === 0 && (
       <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有偵測到剛突破 5日線的個股，或資料尚未包含 5日線。
+        目前沒有偵測到剛突破 5日線的個股；如果仍為 0，代表目前 50 強資料尚未帶入日K或 ma5。
       </div>
     )}
 
