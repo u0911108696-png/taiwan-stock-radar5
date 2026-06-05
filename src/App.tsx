@@ -1512,7 +1512,145 @@ const ACTIVE_ETF_HOLDINGS: ActiveEtfHolding[] = [
   { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "2382", name: "廣達", industry: "AI伺服器", todayWeight: 4.1, yesterdayWeight: 3.5 },
   { etfCode: "00982A", etfName: "主動群益台灣強棒", code: "3231", name: "緯創", industry: "AI伺服器", todayWeight: 0, yesterdayWeight: 2.2 },
 ];
+type NextDayCandidate = {
+  stock: Stock;
+  score: number;
+  level: "高機率候選" | "觀察候選";
+  reasons: string[];
+  warning: string;
+};
 
+function toNumSafe(value: any, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function getStockRisePercent(stock: any) {
+  return (
+    toNumSafe(stock.changePercent) ||
+    toNumSafe(stock.changeRate) ||
+    toNumSafe(stock.percent) ||
+    toNumSafe(stock.rate) ||
+    toNumSafe(stock.z) ||
+    0
+  );
+}
+
+function getStockVolumeRatio(stock: any) {
+  return (
+    toNumSafe(stock.volumeRatio) ||
+    toNumSafe(stock.volRatio) ||
+    toNumSafe(stock.volumeRate) ||
+    toNumSafe(stock.amountRatio) ||
+    1
+  );
+}
+
+function getStockCloseStrength(stock: any) {
+  const price =
+    toNumSafe(stock.price) ||
+    toNumSafe(stock.close) ||
+    toNumSafe(stock.lastPrice) ||
+    toNumSafe(stock.tradePrice);
+
+  const high =
+    toNumSafe(stock.high) ||
+    toNumSafe(stock.dayHigh) ||
+    price;
+
+  if (!price || !high) return 0.95;
+  return Math.min(1, price / high);
+}
+
+function getStockAmountValue(stock: any) {
+  return (
+    toNumSafe(stock.amount) ||
+    toNumSafe(stock.tradeValue) ||
+    toNumSafe(stock.value) ||
+    toNumSafe(stock.volume) ||
+    0
+  );
+}
+
+function buildNextDayCandidates(stocks: Stock[] = []) {
+  const list = (stocks || [])
+    .map((stock) => {
+      const rise = getStockRisePercent(stock);
+      const volumeRatio = getStockVolumeRatio(stock);
+      const closeStrength = getStockCloseStrength(stock);
+      const amount = getStockAmountValue(stock);
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (rise >= 2 && rise <= 7) {
+        score += 25;
+        reasons.push("漲幅 2%～7%，強勢但未過熱");
+      } else if (rise > 0 && rise < 2) {
+        score += 10;
+        reasons.push("小漲轉強，列觀察");
+      } else if (rise > 7) {
+        score -= 25;
+        reasons.push("漲幅過大，隔日追高風險");
+      } else {
+        score -= 30;
+        reasons.push("今日未轉強");
+      }
+
+      if (volumeRatio >= 1.3 && volumeRatio <= 3.5) {
+        score += 20;
+        reasons.push(`量能放大 ${volumeRatio.toFixed(1)} 倍`);
+      } else if (volumeRatio > 3.5) {
+        score -= 10;
+        reasons.push("爆量過熱，防隔日拉回");
+      } else {
+        score += 5;
+        reasons.push("量能普通，需等隔日確認");
+      }
+
+      if (closeStrength >= 0.97) {
+        score += 20;
+        reasons.push("收盤接近最高，尾盤偏強");
+      } else if (closeStrength >= 0.94) {
+        score += 10;
+        reasons.push("收盤位置尚可");
+      } else {
+        score -= 15;
+        reasons.push("收盤離高點遠，疑似尾盤轉弱");
+      }
+
+      if ((stock as any).industry && (stock as any).industry !== "其他") {
+        score += 10;
+        reasons.push(`產業：${(stock as any).industry}`);
+      }
+
+      if (amount > 0) {
+        score += 5;
+        reasons.push("有成交金額支撐");
+      }
+
+      const warning =
+        rise >= 6.5
+          ? "隔天若開高超過 3%，不要追高，等回測再看。"
+          : "隔天先看 9:10 後是否站穩，不要開盤直接追。";
+
+      return {
+        stock,
+        score: Math.max(0, Math.min(100, Math.round(score))),
+        level: score >= 75 ? "高機率候選" : "觀察候選",
+        reasons: reasons.slice(0, 4),
+        warning,
+      } as NextDayCandidate;
+    })
+    .filter((item) => {
+      const rise = getStockRisePercent(item.stock);
+      return item.score >= 60 && rise > 0 && rise <= 8.5;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 12);
+
+  return list;
+}
 function buildActiveEtfFlows(list: ActiveEtfHolding[] = ACTIVE_ETF_HOLDINGS): ActiveEtfFlow[] {
   const map = new Map<string, ActiveEtfFlow>();
 
@@ -2363,6 +2501,14 @@ export default function App() {
   }
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
 
+  const nextDayCandidates = useMemo(() => {
+  return buildNextDayCandidates(top50);
+}, [top50]);
+
+const isAfterCloseMode = useMemo(() => {
+  const now = new Date();
+  return now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
+}, []);
   const mainIndustries = useMemo(() => {
     const map = new Map<string, { industry: string; amount: number; volume: number }>();
 
@@ -3172,6 +3318,71 @@ export default function App() {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+        <div className="rounded-3xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-fuchsia-300">AFTER CLOSE RADAR</div>
+      <div className="mt-1 text-2xl font-black text-white">收盤後隔日強勢候選</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        {isAfterCloseMode
+          ? "現在是收盤後模式：依漲幅、量能、收盤強度與產業強弱排序。"
+          : "下午 1:30 後自動切換收盤後模式；盤中僅供預覽。"}
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">候選</div>
+      <div className="text-2xl font-black text-fuchsia-200">{nextDayCandidates.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {nextDayCandidates.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有符合條件的隔日強勢候選。
+      </div>
+    )}
+
+    {nextDayCandidates.slice(0, 5).map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜{item.level}
+            </div>
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">
+              {item.stock.industry || "其他"}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">隔日分數</div>
+            <div className="text-2xl font-black text-fuchsia-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {item.reasons.map((reason) => (
+            <div key={reason} className="text-xs font-bold text-slate-300">
+              ・{reason}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          {item.warning}
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
               <NeonPanel className="border-emerald-400/35 shadow-[0_0_38px_rgba(16,185,129,0.16)]">
                 <div className="flex items-center justify-between gap-3">
                   <div>
