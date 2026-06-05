@@ -1,25 +1,23 @@
 const DEFAULT_REAL_FETCH_ENABLED = false;
 
-function uniq(list) {
-  return Array.from(new Set(list.filter(Boolean))).slice(0, 80);
+function uniq(list, limit = 100) {
+  return Array.from(new Set(list.filter(Boolean))).slice(0, limit);
 }
 
-function cleanText(text) {
-  return String(text || "")
-    .replace(/\s+/g, " ")
-    .slice(0, 1200);
+function cleanText(text, limit = 1600) {
+  return String(text || "").replace(/\s+/g, " ").slice(0, limit);
 }
 
-function getNearbyText(text, keyword, range = 260) {
+function getNearbyText(text, keyword, range = 400) {
   const source = String(text || "");
   const index = source.toLowerCase().indexOf(String(keyword || "").toLowerCase());
   if (index < 0) return "";
-  return cleanText(source.slice(Math.max(0, index - range), index + range));
+  return cleanText(source.slice(Math.max(0, index - range), index + range), 1200);
 }
 
 function normalizeLink(url, baseUrl) {
   const value = String(url || "").trim();
-  if (!value) return "";
+  if (!value || value.startsWith("javascript:")) return value;
 
   try {
     return new URL(value, baseUrl).toString();
@@ -45,9 +43,10 @@ function analyzeRawText(text, baseUrl, etfCode) {
   );
 
   const apiLikeStrings = uniq(
-    [...safeText.matchAll(/["']([^"']*(?:api|ajax|fund|etf|download|holding|portfolio|stock|query|nav|detail)[^"']*)["']/gi)]
+    [...safeText.matchAll(/["']([^"']*(?:api|ajax|fund|etf|download|holding|portfolio|stock|query|nav|detail|file|pdf|csv|xlsx|xls)[^"']*)["']/gi)]
       .map((match) => normalizeLink(match[1], baseUrl))
-      .filter((url) => url.length >= 4)
+      .filter((url) => url.length >= 4),
+    80
   );
 
   const possibleLinks = uniq(
@@ -68,13 +67,23 @@ function analyzeRawText(text, baseUrl, etfCode) {
         u.includes("stock") ||
         u.includes("nav") ||
         u.includes("detail") ||
-        u.includes("query")
+        u.includes("query") ||
+        u.includes("file")
       );
-    })
+    }),
+    80
+  );
+
+  const capitalEtfLinks = uniq(
+    possibleLinks.filter((url) => {
+      const u = String(url || "").toLowerCase();
+      return u.includes("capitalfund.com.tw") && (u.includes("etf") || u.includes("fund") || u.includes("download") || u.includes("pdf") || u.includes("csv") || u.includes("xls"));
+    }),
+    50
   );
 
   return {
-    rawPreview: safeText.slice(0, 600),
+    rawPreview: safeText.slice(0, 700),
     rawLength: safeText.length,
     hasTable: lower.includes("<table"),
     hasCsv: lower.includes(".csv") || lower.includes("csv"),
@@ -83,18 +92,23 @@ function analyzeRawText(text, baseUrl, etfCode) {
     hasPdf: lower.includes(".pdf") || lower.includes("pdf"),
     hasApi: lower.includes("api") || lower.includes("ajax"),
     hasEtfCode: lower.includes(String(etfCode || "").toLowerCase()),
-    hrefLinks: uniq(hrefLinks).slice(0, 30),
-    scriptLinks: uniq(scriptLinks).slice(0, 30),
-    apiLikeStrings: apiLikeStrings.slice(0, 40),
-    possibleLinks: possibleLinks.slice(0, 50),
+    hrefLinks: uniq(hrefLinks, 40),
+    scriptLinks: uniq(scriptLinks, 40),
+    apiLikeStrings: apiLikeStrings.slice(0, 60),
+    possibleLinks: possibleLinks.slice(0, 70),
+    capitalEtfLinks,
     keywordNearby: {
       etfCode: getNearbyText(safeText, etfCode),
       active: getNearbyText(safeText, "主動"),
+      capitalStrong: getNearbyText(safeText, "強棒"),
       holding: getNearbyText(safeText, "持股"),
       portfolio: getNearbyText(safeText, "portfolio"),
+      composition: getNearbyText(safeText, "投資組合"),
       fund: getNearbyText(safeText, "fund"),
       download: getNearbyText(safeText, "download"),
       api: getNearbyText(safeText, "api"),
+      pdf: getNearbyText(safeText, "pdf"),
+      csv: getNearbyText(safeText, "csv"),
     },
   };
 }
@@ -168,7 +182,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.nomurafunds.com.tw/",
       sourceName: "野村投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v77 分析官網連結與 script。",
+      note: "目前使用示範持股；v78 仍保留測試。",
     },
     {
       etfCode: "00981A",
@@ -180,7 +194,7 @@ export default async function handler(req, res) {
       sourceUrl: "https://www.ezmoney.com.tw/",
       sourceName: "統一投信官網",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v77 分析官網連結與 script。",
+      note: "目前使用示範持股；v78 仍保留測試。",
     },
     {
       etfCode: "00982A",
@@ -189,10 +203,10 @@ export default async function handler(req, res) {
       mode: "mock",
       status: "準備串接",
       fetchStatus: "mock_ready",
-      sourceUrl: "https://www.capitalfund.com.tw/",
-      sourceName: "群益投信官網",
+      sourceUrl: "https://www.capitalfund.com.tw/etf",
+      sourceName: "群益投信 ETF 頁",
       lastFetchAt: new Date().toISOString(),
-      note: "目前使用示範持股；v77 優先分析群益官網連結與 script。",
+      note: "v78 改抓群益 ETF 頁，分析 00982A 與可能下載連結。",
     },
   ];
 
@@ -252,16 +266,17 @@ export default async function handler(req, res) {
   res.status(200).json({
     ok: true,
     source: realFetchEnabled
-      ? "api/active-etf v77 link-analyze"
-      : "api/active-etf v77 mock safe",
-    mode: realFetchEnabled ? "link-analyze" : "mock",
+      ? "api/active-etf v78 capital-etf-page-analyze"
+      : "api/active-etf v78 mock safe",
+    mode: realFetchEnabled ? "capital-etf-page-analyze" : "mock",
     realReady: true,
     realFetchEnabled,
     updatedAt: new Date().toISOString(),
     message: realFetchEnabled
-      ? "v77 分析模式：擴大抓取 href / script / api 字串 / 可能下載連結，優先觀察 00982A 群益。"
-      : "v77 安全模式：真實抓取關閉，仍使用示範持股。",
+      ? "v78 分析模式：00982A 改抓群益 ETF 頁，尋找 00982A / PDF / CSV / Excel / API 連結。"
+      : "v78 安全模式：真實抓取關閉，仍使用示範持股。",
     focusEtfCode: focusReport?.etfCode || "",
+    focusSourceUrl: focusReport?.sourceUrl || "",
     focusAnalysis: focusReport?.analysis || null,
     fetchReports,
     etfs: etfsWithFetchStatus,
