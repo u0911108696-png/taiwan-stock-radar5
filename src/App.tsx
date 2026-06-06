@@ -3732,69 +3732,7 @@ const isAfterCloseMode = useMemo(() => {
         依產業資金、成交金額、量能、5日線突破與明日候選合併評分。
       </div>
     </div>
-<div className="rounded-3xl border border-orange-400/30 bg-orange-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-orange-300">STEALTH MONEY RADAR</div>
-      <div className="mt-1 text-2xl font-black text-white">資金偷偷變多雷達</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        找漲幅還不大、量能與成交金額慢慢變強，可能隔日補漲的個股。
-      </div>
-    </div>
 
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">偷偷</div>
-      <div className="text-2xl font-black text-orange-200">{stealthMoneyWatchList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {stealthMoneyWatchList.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有明顯資金偷偷變多的個股。
-      </div>
-    )}
-
-    {stealthMoneyWatchList.slice(0, 5).map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜資金偷偷變多
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-orange-200">
-              {item.stock.industry || "其他"}｜量比 {item.volumeRatio.toFixed(1)}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">偷增分數</div>
-            <div className="text-2xl font-black text-orange-200">{item.score}</div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          提醒：這是資金觀察，不是買進訊號；隔天 9:10 後確認是否續強。
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
     <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
       <div className="text-xs font-black text-slate-400">核心</div>
       <div className="text-2xl font-black text-yellow-200">{capitalCoreWatchList.length}</div>
