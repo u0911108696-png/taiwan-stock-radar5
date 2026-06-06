@@ -1817,7 +1817,6 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
         ma5,
         score,
         reason:
-          reason:
   price > 0 && ma5 > 0
     ? `現價 ${price.toFixed(2)} 站上 5日線 ${ma5.toFixed(2)}｜量比 ${volumeRatio.toFixed(1)}`
     : "尚未取得完整 5日線資料",
