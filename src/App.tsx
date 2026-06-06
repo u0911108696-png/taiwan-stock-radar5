@@ -1803,7 +1803,13 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
       if (nowAboveMa5) score += 40;
       if (wasBelowOrNearMa5) score += 25;
       if (notTooHot) score += 20;
-      if (volumeRatio >= 1.2) score += 15;
+      if (volumeRatio >= 1.5 && volumeRatio <= 3.5) {
+  score += 20;
+} else if (volumeRatio >= 1.2) {
+  score += 10;
+} else {
+  score -= 20;
+}
 
       return {
         stock,
@@ -1811,14 +1817,15 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
         ma5,
         score,
         reason:
-          price > 0 && ma5 > 0
-            ? `現價 ${price.toFixed(2)} 站上 5日線 ${ma5.toFixed(2)}`
-            : "尚未取得完整 5日線資料",
+          reason:
+  price > 0 && ma5 > 0
+    ? `現價 ${price.toFixed(2)} 站上 5日線 ${ma5.toFixed(2)}｜量比 ${volumeRatio.toFixed(1)}`
+    : "尚未取得完整 5日線資料",
       } as FiveDayBreakAlert;
     })
     .filter((item) => {
       const rise = getStockRisePercent(item.stock);
-      return item.ma5 > 0 && item.price > item.ma5 && item.score >= 70 && rise > 0 && rise <= 7.5;
+      return item.ma5 > 0 && item.price > item.ma5 && item.score >= 80 && rise > 0 && rise <= 7.5 && getStockVolumeRatio(item.stock) >= 1.2;
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
@@ -2722,7 +2729,35 @@ const top50WithMa5Kline = useMemo(() => {
 const fiveDayBreakAlerts = useMemo(() => {
   return buildFiveDayBreakAlerts(top50WithMa5Kline);
 }, [top50WithMa5Kline]);
+const mergedNextDayWatchList = useMemo(() => {
+  const ma5Items = fiveDayBreakAlerts.map((item) => ({
+    code: item.stock.code,
+    name: stockDisplayName(item.stock),
+    industry: item.stock.industry || "其他",
+    score: item.score + 8,
+    tag: "5日線突破",
+    reason: item.reason,
+    warning: "剛突破不等於立刻買；明天 9:10 後看量能與分K是否站穩。",
+    stock: item.stock,
+  }));
 
+  const nextDayItems = nextDayCandidates.map((item) => ({
+    code: item.stock.code,
+    name: stockDisplayName(item.stock),
+    industry: item.stock.industry || "其他",
+    score: item.score,
+    tag: item.level,
+    reason: item.reasons.join("、"),
+    warning: item.warning,
+    stock: item.stock,
+  }));
+
+  return Array.from(
+    new Map([...ma5Items, ...nextDayItems].map((item) => [item.code, item])).values()
+  )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+}, [fiveDayBreakAlerts, nextDayCandidates]);
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
   return now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
@@ -3536,6 +3571,65 @@ const isAfterCloseMode = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-cyan-300">NEXT DAY MASTER LIST</div>
+      <div className="mt-1 text-2xl font-black text-white">明日優先觀察合併排序</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        合併「5日線突破」與「收盤後隔日強勢候選」，依分數排序。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">觀察</div>
+      <div className="text-2xl font-black text-cyan-200">{mergedNextDayWatchList.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {mergedNextDayWatchList.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有明日優先觀察名單。
+      </div>
+    )}
+
+    {mergedNextDayWatchList.slice(0, 5).map((item, index) => (
+      <button
+        key={item.code}
+        onClick={() => setSelectedCode(item.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜{item.tag}
+            </div>
+            <div className="text-lg font-black text-white">
+              {item.code} {item.name}
+            </div>
+            <div className="mt-1 text-xs font-bold text-cyan-200">
+              {item.industry}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">總分</div>
+            <div className="text-2xl font-black text-cyan-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 text-xs font-bold text-slate-300">
+          ・{item.reason}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          {item.warning}
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
 <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
