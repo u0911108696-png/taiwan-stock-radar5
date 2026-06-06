@@ -3786,6 +3786,49 @@ const isAfterCloseMode = useMemo(() => {
     ))}
   </div>
 </div>
+<div className="rounded-2xl border border-orange-400/30 bg-orange-500/10 p-3">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-orange-300">STEALTH MONEY</div>
+      <div className="text-lg font-black text-white">資金偷偷變多</div>
+      <div className="mt-1 text-xs font-bold text-slate-300">
+        漲幅不大、量能與成交金額慢慢變強的觀察股。
+      </div>
+    </div>
+
+    <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">偷偷</div>
+      <div className="text-2xl font-black text-orange-200">{stealthMoneyWatchList.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+    {stealthMoneyWatchList.length === 0 && (
+      <div className="min-w-full rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有明顯資金偷偷變多的個股。
+      </div>
+    )}
+
+    {stealthMoneyWatchList.slice(0, 3).map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="min-w-[150px] rounded-xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="text-xs font-black text-slate-400">#{index + 1}｜偷增</div>
+        <div className="mt-1 text-lg font-black text-white">
+          {item.stock.code}
+        </div>
+        <div className="text-sm font-black text-white">
+          {stockDisplayName(item.stock)}
+        </div>
+        <div className="mt-1 text-xs font-bold text-orange-200">
+          分數 {item.score}｜量比 {item.volumeRatio.toFixed(1)}
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
 <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
