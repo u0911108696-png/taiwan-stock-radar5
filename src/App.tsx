@@ -1745,7 +1745,46 @@ function getStockPrevCloseValue(stock: any) {
 
   return 0;
 }
+function normalizeKlineRows(data: any) {
+  const rows =
+    data?.candles ||
+    data?.klines ||
+    data?.kline ||
+    data?.dailyK ||
+    data?.dailyKline ||
+    data?.data ||
+    data?.rows ||
+    data?.chart ||
+    [];
 
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .map((item) => ({
+      date: item?.date || item?.t || item?.time || item?.d || "",
+      open: toNumSafe(item?.open || item?.o),
+      high: toNumSafe(item?.high || item?.h),
+      low: toNumSafe(item?.low || item?.l),
+      close: toNumSafe(item?.close || item?.c || item?.price),
+      volume: toNumSafe(item?.volume || item?.v),
+    }))
+    .filter((item) => item.close > 0);
+}
+
+async function fetchDailyKlineForMa5(code: string) {
+  try {
+    const res = await fetch(`/api/kline?code=${encodeURIComponent(code)}&days=20&v=98`, {
+      cache: "no-store",
+    });
+
+    if (!res.ok) return [];
+
+    const data = await res.json();
+    return normalizeKlineRows(data);
+  } catch {
+    return [];
+  }
+}
 function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
   return (stocks || [])
     .map((stock) => {
@@ -2633,13 +2672,56 @@ export default function App() {
     setTimeout(() => contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
+  const ma5KlineCodes = useMemo(() => {
+  return top50.slice(0, 10).map((item) => item.code).join(",");
+}, [top50]);
 
+const [ma5KlineMap, setMa5KlineMap] = useState<Record<string, any[]>>({});
+useEffect(() => {
+  const codes = ma5KlineCodes.split(",").filter(Boolean);
+  if (!codes.length) return;
+
+  let cancelled = false;
+
+  async function loadMa5Klines() {
+    const result: Record<string, any[]> = {};
+
+    await Promise.all(
+      codes.map(async (code) => {
+        const rows = await fetchDailyKlineForMa5(code);
+        if (rows.length >= 5) {
+          result[code] = rows;
+        }
+      })
+    );
+
+    if (!cancelled) {
+      setMa5KlineMap((prev) => ({
+        ...prev,
+        ...result,
+      }));
+    }
+  }
+
+  loadMa5Klines();
+
+  return () => {
+    cancelled = true;
+  };
+}, [ma5KlineCodes]);
   const nextDayCandidates = useMemo(() => {
   return buildNextDayCandidates(top50);
 }, [top50]);
+const top50WithMa5Kline = useMemo(() => {
+  return top50.map((stock) => ({
+    ...stock,
+    dailyK: ma5KlineMap[stock.code] || (stock as any).dailyK || (stock as any).kline || [],
+  }));
+}, [top50, ma5KlineMap]);
+
 const fiveDayBreakAlerts = useMemo(() => {
-  return buildFiveDayBreakAlerts(top50);
-}, [top50]);
+  return buildFiveDayBreakAlerts(top50WithMa5Kline);
+}, [top50WithMa5Kline]);
 
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
@@ -3473,7 +3555,7 @@ const isAfterCloseMode = useMemo(() => {
   <div className="mt-3 space-y-2">
     {fiveDayBreakAlerts.length === 0 && (
       <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有偵測到剛突破 5日線的個股；如果仍為 0，代表目前 50 強資料尚未帶入日K或 ma5。
+        目前沒有偵測到剛突破 5日線的個股；系統已嘗試抓前 10 檔日K計算 ma5。
       </div>
     )}
 
