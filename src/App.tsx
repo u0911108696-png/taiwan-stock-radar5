@@ -2778,7 +2778,72 @@ const isAfterCloseMode = useMemo(() => {
   }, [top50]);
 
   const industryRanking = useMemo(() => getIndustryRanking(top50, settings, moneyHistory), [top50, settings, moneyHistory]);
+  const capitalCoreWatchList = useMemo(() => {
+  const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
+  return top50
+    .map((stock) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      const amountRank = amountRankPercent(stock, top50);
+      const volumeRank = volumeRankPercent(stock, top50);
+      const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+      const isHotIndustry = hotIndustries.includes(stock.industry);
+      const isNextDay = mergedNextDayWatchList.some((item) => item.code === stock.code);
+      const isMa5Break = fiveDayBreakAlerts.some((item) => item.stock.code === stock.code);
+
+      if (isHotIndustry) {
+        score += 25;
+        reasons.push(`資金主線產業：${stock.industry}`);
+      }
+
+      if (amountRank >= 70) {
+        score += 20;
+        reasons.push("成交金額排名靠前");
+      }
+
+      if (volumeRank >= 70) {
+        score += 15;
+        reasons.push("量能排名靠前");
+      }
+
+      if (moneyLabel === "資金慢慢增加" || moneyLabel === "資金突然放大") {
+        score += 20;
+        reasons.push(moneyLabel);
+      }
+
+      if (isMa5Break) {
+        score += 15;
+        reasons.push("剛突破5日線");
+      }
+
+      if (isNextDay) {
+        score += 15;
+        reasons.push("列入明日優先觀察");
+      }
+
+      if (stock.changePercent > 8) {
+        score -= 25;
+        reasons.push("短線漲太多，防追高");
+      }
+
+      if (stock.price < stock.openPrice) {
+        score -= 20;
+        reasons.push("跌破開盤價，轉弱");
+      }
+
+      return {
+        stock,
+        score: Math.max(0, Math.min(100, Math.round(score))),
+        reasons: reasons.slice(0, 4),
+        moneyLabel,
+      };
+    })
+    .filter((item) => item.score >= 55)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+}, [top50, industryRanking, moneyHistory, mergedNextDayWatchList, fiveDayBreakAlerts]);
   function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -3570,6 +3635,69 @@ const isAfterCloseMode = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-yellow-300">CAPITAL RADAR CORE</div>
+      <div className="mt-1 text-2xl font-black text-white">資金雷達核心個股</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        依產業資金、成交金額、量能、5日線突破與明日候選合併評分。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">核心</div>
+      <div className="text-2xl font-black text-yellow-200">{capitalCoreWatchList.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {capitalCoreWatchList.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有明確資金核心個股。
+      </div>
+    )}
+
+    {capitalCoreWatchList.slice(0, 5).map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜資金核心
+            </div>
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-yellow-200">
+              {item.stock.industry || "其他"}｜{item.moneyLabel}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">資金分數</div>
+            <div className="text-2xl font-black text-yellow-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {item.reasons.map((reason) => (
+            <div key={reason} className="text-xs font-bold text-slate-300">
+              ・{reason}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-red-400/10 p-2 text-xs font-black text-red-200">
+          提醒：資金流入不等於立刻買；隔天開高超過 3% 不追。
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
 <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
