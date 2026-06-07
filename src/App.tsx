@@ -1571,7 +1571,141 @@ function getStockAmountValue(stock: any) {
     0
   );
 }
+type OpenDirectionSignal = {
+  stock: Stock;
+  status: "偏多上攻" | "觀察" | "轉弱下跌" | "防守";
+  color: "green" | "yellow" | "red" | "danger";
+  score: number;
+  reasons: string[];
+  action: string;
+};
 
+function getOpenPriceValue(stock: any) {
+  return (
+    toNumSafe(stock.openPrice) ||
+    toNumSafe(stock.open) ||
+    toNumSafe(stock.o) ||
+    0
+  );
+}
+
+function getCostValue(stock: any) {
+  return (
+    toNumSafe(stock.cost) ||
+    toNumSafe(stock.buyPrice) ||
+    toNumSafe(stock.avgCost) ||
+    toNumSafe(stock.averageCost) ||
+    0
+  );
+}
+
+function buildOpenDirectionSignals(stocks: Stock[] = [], industryRanking: any[] = []) {
+  const hotIndustries = (industryRanking || []).slice(0, 5).map((item) => item.industry);
+
+  return (stocks || [])
+    .map((stock) => {
+      const price = getStockPriceValue(stock);
+      const openPrice = getOpenPriceValue(stock);
+      const prevClose = getStockPrevCloseValue(stock);
+      const ma5 = getStockMa5Value(stock);
+      const cost = getCostValue(stock);
+      const volumeRatio = getStockVolumeRatio(stock);
+      const rise = getStockRisePercent(stock);
+
+      let score = 50;
+      const reasons: string[] = [];
+
+      const abovePrev = prevClose > 0 && price > prevClose;
+      const aboveOpen = openPrice > 0 && price > openPrice;
+      const belowPrev = prevClose > 0 && price < prevClose;
+      const belowOpen = openPrice > 0 && price < openPrice;
+      const belowMa5 = ma5 > 0 && price < ma5;
+      const belowCost = cost > 0 && price < cost;
+      const hotIndustry = hotIndustries.includes((stock as any).industry);
+
+      if (abovePrev) {
+        score += 15;
+        reasons.push("現價站上昨收");
+      }
+
+      if (aboveOpen) {
+        score += 15;
+        reasons.push("現價站上開盤價");
+      }
+
+      if (volumeRatio >= 1.2 && volumeRatio <= 3.5) {
+        score += 15;
+        reasons.push(`量比 ${volumeRatio.toFixed(1)} 續強`);
+      } else if (volumeRatio > 3.5) {
+        score += 5;
+        reasons.push("量能過大，防拉高出貨");
+      } else {
+        reasons.push("量能普通");
+      }
+
+      if (hotIndustry) {
+        score += 10;
+        reasons.push(`仍在主線產業：${(stock as any).industry}`);
+      }
+
+      if (belowOpen) {
+        score -= 20;
+        reasons.push("跌破開盤價");
+      }
+
+      if (belowPrev) {
+        score -= 20;
+        reasons.push("跌破昨收");
+      }
+
+      if (belowMa5) {
+        score -= 25;
+        reasons.push("跌破5日線");
+      }
+
+      if (belowCost) {
+        score -= 25;
+        reasons.push("跌破成本，進入防守");
+      }
+
+      if (rise > 4.5) {
+        score -= 10;
+        reasons.push("開高偏多但不追高");
+      }
+
+      let status: OpenDirectionSignal["status"] = "觀察";
+      let color: OpenDirectionSignal["color"] = "yellow";
+      let action = "等 9:10 後確認方向，不急著加碼。";
+
+      if (belowCost || belowMa5 || (belowOpen && belowPrev && volumeRatio >= 1.2)) {
+        status = "防守";
+        color = "danger";
+        action = "先保護本金，不加碼；跌破防守線要減碼觀察。";
+      } else if (belowOpen || belowPrev) {
+        status = "轉弱下跌";
+        color = "red";
+        action = "轉弱中，不加碼；等重新站回開盤價再看。";
+      } else if (abovePrev && aboveOpen && volumeRatio >= 1.2) {
+        status = "偏多上攻";
+        color = "green";
+        action = "可續抱觀察；開高超過 3% 不追，只看不追。";
+      }
+
+      return {
+        stock,
+        status,
+        color,
+        score: Math.max(0, Math.min(100, Math.round(score))),
+        reasons: reasons.slice(0, 4),
+        action,
+      };
+    })
+    .sort((a, b) => {
+      const order = { danger: 4, red: 3, yellow: 2, green: 1 };
+      return order[b.color] - order[a.color] || b.score - a.score;
+    })
+    .slice(0, 10);
+}
 function buildNextDayCandidates(stocks: Stock[] = []) {
   const list = (stocks || [])
     .map((stock) => {
@@ -3029,7 +3163,48 @@ const mainMoneyFlow = useMemo(() => {
     focusStocks,
   };
 }, [industryRanking, top50, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
- function stockIndustryStatus(stock: Stock) {
+ const openWatchBaseList = useMemo(() => {
+  const pool = [
+    ...(portfolioHoldings || []),
+    ...(watchlist || []),
+  ];
+
+  const codes = Array.from(
+    new Set(
+      pool
+        .map((item: any) => String(item.code || item.stockCode || "").trim())
+        .filter(Boolean)
+    )
+  );
+
+  const stocksFromCodes = codes
+    .map((code) => {
+      const realtimeStock =
+        stocks.find((item) => item.code === code) ||
+        top50.find((item) => item.code === code);
+
+      const holding = (portfolioHoldings || []).find((item: any) => String(item.code || item.stockCode) === code);
+      const watch = (watchlist || []).find((item: any) => String(item.code || item.stockCode) === code);
+
+      if (!realtimeStock && !holding && !watch) return null;
+
+      return {
+        ...(realtimeStock || {}),
+        ...(watch || {}),
+        ...(holding || {}),
+        code,
+        name: (realtimeStock as any)?.name || (watch as any)?.name || (holding as any)?.name || code,
+      } as Stock;
+    })
+    .filter(Boolean) as Stock[];
+
+  return stocksFromCodes.slice(0, 20);
+}, [portfolioHoldings, watchlist, stocks, top50]);
+
+const openDirectionSignals = useMemo(() => {
+  return buildOpenDirectionSignals(openWatchBaseList, industryRanking);
+}, [openWatchBaseList, industryRanking]);
+function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
 
@@ -3820,6 +3995,93 @@ const mainMoneyFlow = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-red-400/30 bg-red-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-red-300">MY STOCK OPEN RADAR</div>
+      <div className="mt-1 text-2xl font-black text-white">庫存 / 自選開盤方向</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        優先保護庫存股：偏多、觀察、轉弱、防守，一眼判斷。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">追蹤</div>
+      <div className="text-2xl font-black text-red-200">{openDirectionSignals.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {openDirectionSignals.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有庫存或自選股資料可判斷。
+      </div>
+    )}
+
+    {openDirectionSignals.slice(0, 5).map((item) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div
+              className={
+                item.color === "green"
+                  ? "text-xs font-black text-emerald-300"
+                  : item.color === "yellow"
+                    ? "text-xs font-black text-yellow-300"
+                    : item.color === "red"
+                      ? "text-xs font-black text-red-300"
+                      : "text-xs font-black text-rose-300"
+              }
+            >
+              {item.status}
+            </div>
+
+            <div className="mt-1 text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+
+            <div className="mt-1 text-xs font-bold text-slate-400">
+              {(item.stock as any).industry || "其他"}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">方向分數</div>
+            <div
+              className={
+                item.color === "green"
+                  ? "text-2xl font-black text-emerald-200"
+                  : item.color === "yellow"
+                    ? "text-2xl font-black text-yellow-200"
+                    : item.color === "red"
+                      ? "text-2xl font-black text-red-200"
+                      : "text-2xl font-black text-rose-200"
+              }
+            >
+              {item.score}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {item.reasons.map((reason) => (
+            <div key={reason} className="text-xs font-bold text-slate-300">
+              ・{reason}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          {item.action}
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
 <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
