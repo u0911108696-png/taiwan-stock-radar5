@@ -2954,6 +2954,81 @@ const homeSummary = useMemo(() => {
 const tomorrowTop3 = useMemo(() => {
   return mergedNextDayWatchList.slice(0, 3);
 }, [mergedNextDayWatchList]);
+const mainMoneyFlow = useMemo(() => {
+  const topIndustries = industryRanking.slice(0, 3).map((item) => item.industry);
+  const topIndustry = topIndustries[0] || "尚未明確";
+
+  const industryStocks = top50
+    .filter((stock) => topIndustries.includes(stock.industry))
+    .slice(0, 8);
+
+  const moneyStocks = capitalCoreWatchList.slice(0, 5);
+  const stealthStocks = stealthMoneyWatchList.slice(0, 5);
+  const tomorrowStocks = mergedNextDayWatchList.slice(0, 5);
+
+  const intersectionCodes = new Set<string>();
+
+  moneyStocks.forEach((item) => intersectionCodes.add(item.stock.code));
+  stealthStocks.forEach((item) => intersectionCodes.add(item.stock.code));
+  tomorrowStocks.forEach((item) => intersectionCodes.add(item.code));
+
+  const focusStocks = Array.from(intersectionCodes)
+    .map((code) => {
+      const stock =
+        top50.find((item) => item.code === code) ||
+        moneyStocks.find((item) => item.stock.code === code)?.stock ||
+        stealthStocks.find((item) => item.stock.code === code)?.stock;
+
+      const tomorrowItem = tomorrowStocks.find((item) => item.code === code);
+      const moneyItem = moneyStocks.find((item) => item.stock.code === code);
+      const stealthItem = stealthStocks.find((item) => item.stock.code === code);
+
+      let score = 0;
+      const tags: string[] = [];
+
+      if (moneyItem) {
+        score += moneyItem.score;
+        tags.push("資金核心");
+      }
+
+      if (stealthItem) {
+        score += stealthItem.score;
+        tags.push("偷偷變多");
+      }
+
+      if (tomorrowItem) {
+        score += tomorrowItem.score;
+        tags.push("明日觀察");
+      }
+
+      if (stock && topIndustries.includes(stock.industry)) {
+        score += 15;
+        tags.push("主線產業");
+      }
+
+      return {
+        code,
+        name: stock ? stockDisplayName(stock) : code,
+        industry: stock?.industry || "其他",
+        score: Math.round(score / Math.max(1, tags.length)),
+        tags: tags.slice(0, 3),
+        stock,
+      };
+    })
+    .filter((item) => item.stock)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+
+  return {
+    topIndustry,
+    topIndustries,
+    industryStocks,
+    moneyStocks,
+    stealthStocks,
+    tomorrowStocks,
+    focusStocks,
+  };
+}, [industryRanking, top50, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
  function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -3745,6 +3820,99 @@ const tomorrowTop3 = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-cyan-300">MAIN MONEY FLOW</div>
+      <div className="mt-1 text-2xl font-black text-white">主線資金流向核心</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        先看資金流到哪個產業，再看流進哪些個股。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">主線</div>
+      <div className="text-lg font-black text-cyan-200">{mainMoneyFlow.topIndustry}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 grid grid-cols-2 gap-2">
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">資金產業</div>
+      <div className="mt-1 text-sm font-black text-cyan-200">
+        {mainMoneyFlow.topIndustries.length
+          ? mainMoneyFlow.topIndustries.join(" / ")
+          : "尚未明確"}
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">資金個股</div>
+      <div className="mt-1 text-sm font-black text-yellow-200">
+        {mainMoneyFlow.moneyStocks[0]
+          ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
+          : "尚未明確"}
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">偷偷變多</div>
+      <div className="mt-1 text-sm font-black text-orange-200">
+        {mainMoneyFlow.stealthStocks[0]
+          ? `${mainMoneyFlow.stealthStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.stealthStocks[0].stock)}`
+          : "尚未明確"}
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">主動ETF</div>
+      <div className="mt-1 text-sm font-black text-fuchsia-200">
+        等待官方持股檔
+      </div>
+    </div>
+  </div>
+
+  <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+    <div className="text-xs font-black text-slate-400">資金交集股</div>
+
+    <div className="mt-2 space-y-2">
+      {mainMoneyFlow.focusStocks.length === 0 && (
+        <div className="text-sm font-bold text-slate-400">
+          目前沒有明確資金交集股。
+        </div>
+      )}
+
+      {mainMoneyFlow.focusStocks.slice(0, 3).map((item, index) => (
+        <button
+          key={item.code}
+          onClick={() => setSelectedCode(item.code)}
+          className="flex w-full items-center justify-between rounded-xl bg-black/30 px-3 py-2 text-left"
+        >
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜{item.tags.join(" + ")}
+            </div>
+            <div className="text-base font-black text-white">
+              {item.code} {item.name}
+            </div>
+            <div className="text-xs font-bold text-cyan-200">
+              {item.industry}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">交集分</div>
+            <div className="text-xl font-black text-cyan-200">{item.score}</div>
+          </div>
+        </button>
+      ))}
+    </div>
+  </div>
+
+  <div className="mt-3 rounded-2xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+    主線邏輯：產業資金 → 個股資金 → ETF持股變化 → 明日9:10確認。
+  </div>
+</div>
 <div className="rounded-3xl border border-white/10 bg-white/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
