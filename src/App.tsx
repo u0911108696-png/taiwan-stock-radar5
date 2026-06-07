@@ -3804,7 +3804,7 @@ function stockIndustryStatus(stock: Stock) {
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="TWSE即時" value={`${twseCount} 檔`} tone="text-cyan-300" />
             <DetailRow label="Yahoo補價" value={`${yahooCount} 檔`} tone="text-blue-300" />
-            <DetailRow label="保護中" value={`${protectedCount} 檔`} tone={protectedCount > 0 ? "text-yellow-300" : "text-emerald-300"} />
+            <DetailRow label="保護中" value={`${protectedCount} 檔`} tone={protectedCount > 
           </div>
         </section>
         <section className="mt-4 grid grid-cols-3 gap-2">
