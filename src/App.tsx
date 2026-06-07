@@ -2951,6 +2951,9 @@ const homeSummary = useMemo(() => {
     warning,
   };
 }, [industryRanking, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
+const tomorrowTop3 = useMemo(() => {
+  return mergedNextDayWatchList.slice(0, 3);
+}, [mergedNextDayWatchList]);
  function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -3784,13 +3787,66 @@ const homeSummary = useMemo(() => {
     實戰規則：開高超過 3% 不追；9:10 後確認量能與分K站穩。
   </div>
 </div>
+<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-cyan-300">TOMORROW TOP 3</div>
+      <div className="text-2xl font-black text-white">明日先看 TOP 3</div>
+      <div className="mt-1 text-xs font-bold text-slate-300">
+        依資金、5日線突破、隔日候選合併排序。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">檔數</div>
+      <div className="text-2xl font-black text-cyan-200">{tomorrowTop3.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 grid grid-cols-1 gap-2">
+    {tomorrowTop3.length === 0 && (
+      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有明日 TOP 3 候選。
+      </div>
+    )}
+
+    {tomorrowTop3.map((item, index) => (
+      <button
+        key={item.code}
+        onClick={() => setSelectedCode(item.code)}
+        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div>
+          <div className="text-xs font-black text-slate-400">
+            #{index + 1}｜{item.tag}
+          </div>
+          <div className="text-lg font-black text-white">
+            {item.code} {item.name}
+          </div>
+          <div className="mt-1 text-xs font-bold text-cyan-200">
+            {item.industry}
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div className="text-xs font-black text-slate-400">總分</div>
+          <div className="text-2xl font-black text-cyan-200">{item.score}</div>
+        </div>
+      </button>
+    ))}
+  </div>
+
+  <div className="mt-3 rounded-2xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+    明天 9:10 後確認：量能續強、分K站穩、開高超過 3% 不追。
+  </div>
+</div>
 <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
       <div className="text-xs font-black text-yellow-300">CAPITAL RADAR CORE</div>
       <div className="mt-1 text-2xl font-black text-white">資金雷達核心個股</div>
       <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        依產業資金、成交金額、量能、5日線突破與明日候選合併評分。
+        資金、量能、突破、隔日候選綜合分數。
       </div>
     </div>
 
@@ -3853,7 +3909,7 @@ const homeSummary = useMemo(() => {
       <div className="text-xs font-black text-orange-300">STEALTH MONEY</div>
       <div className="text-lg font-black text-white">資金偷偷變多</div>
       <div className="mt-1 text-xs font-bold text-slate-300">
-        漲幅不大、量能與成交金額慢慢變強的觀察股。
+        還沒大漲，但量能與金額慢慢變強。
       </div>
     </div>
 
