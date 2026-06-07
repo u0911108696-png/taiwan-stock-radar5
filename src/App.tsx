@@ -3687,7 +3687,7 @@ const tomorrowTop3 = useMemo(() => {
             <div className="mt-2 text-sm font-bold text-slate-300">{homeAction}</div>
           </div>
 
-          className="mt-3 grid grid-cols-2 gap-2"
+          <div className="mt-3 grid grid-cols-2 gap-2">
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="TWSE即時" value={`${twseCount} 檔`} tone="text-cyan-300" />
             <DetailRow label="Yahoo補價" value={`${yahooCount} 檔`} tone="text-blue-300" />
