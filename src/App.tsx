@@ -3668,11 +3668,11 @@ const tomorrowTop3 = useMemo(() => {
           </div>
         </header>
 
-        <section className="mt-4 rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-5 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
+        <section className="mt-4 rounded-[2rem] border border-cyan-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-cyan-950/30 p-4 shadow-[0_0_45px_rgba(34,211,238,0.16)]">
           <div className="flex items-start justify-between gap-3">
             <div>
               <div className="text-xs font-black tracking-[0.2em] text-cyan-300">MAIN DECISION</div>
-              <div className={`mt-2 text-5xl font-black ${marketModeTone}`}>{marketMode}</div>
+              <div className={`mt-2 text-4xl font-black ${marketModeTone}`}>{marketMode}</div>
             </div>
 
             <div className="rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-right">
@@ -3681,13 +3681,13 @@ const tomorrowTop3 = useMemo(() => {
             </div>
           </div>
 
-          <div className="mt-4 rounded-[1.5rem] border border-cyan-400/20 bg-black/35 p-4">
+          <div className="mt-4 rounded-[1.5rem] border border-cyan-400/20 bg-black/35 p-3">
             <div className="text-xs font-bold text-slate-500">現在動作</div>
             <div className="mt-1 text-2xl font-black text-white">{homeDecision}</div>
             <div className="mt-2 text-sm font-bold text-slate-300">{homeAction}</div>
           </div>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
+          className="mt-3 grid grid-cols-2 gap-2"
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="TWSE即時" value={`${twseCount} 檔`} tone="text-cyan-300" />
             <DetailRow label="Yahoo補價" value={`${yahooCount} 檔`} tone="text-blue-300" />
@@ -3695,7 +3695,7 @@ const tomorrowTop3 = useMemo(() => {
           </div>
         </section>
         <section className="mt-4 grid grid-cols-3 gap-2">
-          <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-red-400/40 bg-red-950/25 p-4 text-left shadow-[0_0_30px_rgba(239,68,68,0.15)]">
+          <button onClick={() => setPopup("alerts")} className="rounded-[1.5rem] border border-red-400/40 bg-red-950/25 p-3 text-left shadow-[0_0_30px_rgba(239,68,68,0.15)]">
             <div className="text-xs font-black text-red-300">RED</div>
             <div className="mt-1 text-4xl font-black text-red-200">{redAlerts.length}</div>
             <div className="mt-1 text-xs font-bold text-slate-400">先避開</div>
