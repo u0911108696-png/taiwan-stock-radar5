@@ -3029,45 +3029,7 @@ const mainMoneyFlow = useMemo(() => {
     focusStocks,
   };
 }, [industryRanking, top50, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
- const openWatchBaseList = useMemo(() => {
-  const pool = [
-    ...(portfolioHoldings || []),
-    ...(watchlist || []),
-  ];
-
-  const codes = Array.from(
-    new Set(
-      pool
-        .map((item: any) => String(item.code || item.stockCode || "").trim())
-        .filter(Boolean)
-    )
-  );
-
-  const stocksFromCodes = codes
-    .map((code) => {
-      const realtimeStock =
-        stocks.find((item) => item.code === code) ||
-        top50.find((item) => item.code === code);
-
-      const holding = (portfolioHoldings || []).find((item: any) => String(item.code || item.stockCode) === code);
-      const watch = (watchlist || []).find((item: any) => String(item.code || item.stockCode) === code);
-
-      if (!realtimeStock && !holding && !watch) return null;
-
-      return {
-        ...(realtimeStock || {}),
-        ...(watch || {}),
-        ...(holding || {}),
-        code,
-        name: (realtimeStock as any)?.name || (watch as any)?.name || (holding as any)?.name || code,
-      } as Stock;
-    })
-    .filter(Boolean) as Stock[];
-
-  return stocksFromCodes.slice(0, 20);
-}, [portfolioHoldings, watchlist, stocks, top50]);
-
-function stockIndustryStatus(stock: Stock) {
+ function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
 
@@ -3804,7 +3766,7 @@ function stockIndustryStatus(stock: Stock) {
             <DetailRow label="最強主線" value={topIndustry ? topIndustry.industry : "--"} tone="text-yellow-300" />
             <DetailRow label="TWSE即時" value={`${twseCount} 檔`} tone="text-cyan-300" />
             <DetailRow label="Yahoo補價" value={`${yahooCount} 檔`} tone="text-blue-300" />
-            <DetailRow label="保護中" value={`${protectedCount} 檔`} tone={protectedCount > 
+            <DetailRow label="保護中" value={`${protectedCount} 檔`} tone={protectedCount > 0 ? "text-yellow-300" : "text-emerald-300"} />
           </div>
         </section>
         <section className="mt-4 grid grid-cols-3 gap-2">
@@ -3858,7 +3820,6 @@ function stockIndustryStatus(stock: Stock) {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
-
 <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
