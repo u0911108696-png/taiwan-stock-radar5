@@ -3201,9 +3201,6 @@ const mainMoneyFlow = useMemo(() => {
   return stocksFromCodes.slice(0, 20);
 }, [portfolioHoldings, watchlist, stocks, top50]);
 
-const openDirectionSignals = useMemo(() => {
-  return buildOpenDirectionSignals(openWatchBaseList, industryRanking);
-}, [openWatchBaseList, industryRanking]);
 function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -3995,93 +3992,7 @@ function stockIndustryStatus(stock: Stock) {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
-<div className="rounded-3xl border border-red-400/30 bg-red-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-red-300">MY STOCK OPEN RADAR</div>
-      <div className="mt-1 text-2xl font-black text-white">庫存 / 自選開盤方向</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        優先保護庫存股：偏多、觀察、轉弱、防守，一眼判斷。
-      </div>
-    </div>
 
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">追蹤</div>
-      <div className="text-2xl font-black text-red-200">{openDirectionSignals.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {openDirectionSignals.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有庫存或自選股資料可判斷。
-      </div>
-    )}
-
-    {openDirectionSignals.slice(0, 5).map((item) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div
-              className={
-                item.color === "green"
-                  ? "text-xs font-black text-emerald-300"
-                  : item.color === "yellow"
-                    ? "text-xs font-black text-yellow-300"
-                    : item.color === "red"
-                      ? "text-xs font-black text-red-300"
-                      : "text-xs font-black text-rose-300"
-              }
-            >
-              {item.status}
-            </div>
-
-            <div className="mt-1 text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-
-            <div className="mt-1 text-xs font-bold text-slate-400">
-              {(item.stock as any).industry || "其他"}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">方向分數</div>
-            <div
-              className={
-                item.color === "green"
-                  ? "text-2xl font-black text-emerald-200"
-                  : item.color === "yellow"
-                    ? "text-2xl font-black text-yellow-200"
-                    : item.color === "red"
-                      ? "text-2xl font-black text-red-200"
-                      : "text-2xl font-black text-rose-200"
-              }
-            >
-              {item.score}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.action}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
 <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
