@@ -2932,6 +2932,25 @@ const isAfterCloseMode = useMemo(() => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
 }, [top50, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
+const homeSummary = useMemo(() => {
+  const topIndustry = industryRanking[0]?.industry || "尚未明確";
+  const coreStock = capitalCoreWatchList[0]?.stock;
+  const stealthStock = stealthMoneyWatchList[0]?.stock;
+  const nextStock = mergedNextDayWatchList[0];
+
+  const warning =
+    nextStock?.score >= 80
+      ? "可觀察，仍需等 9:10 確認"
+      : "觀察為主，不追高";
+
+  return {
+    topIndustry,
+    coreText: coreStock ? `${coreStock.code} ${stockDisplayName(coreStock)}` : "尚未明確",
+    stealthText: stealthStock ? `${stealthStock.code} ${stockDisplayName(stealthStock)}` : "尚未明確",
+    nextText: nextStock ? `${nextStock.code} ${nextStock.name}` : "尚未明確",
+    warning,
+  };
+}, [industryRanking, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
  function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -3723,6 +3742,48 @@ const isAfterCloseMode = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
             <div className="space-y-4">
+<div className="rounded-3xl border border-white/10 bg-white/10 p-4">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-cyan-300">TODAY MONEY SUMMARY</div>
+      <div className="mt-1 text-2xl font-black text-white">今日資金一眼看懂</div>
+      <div className="mt-1 text-sm font-bold text-slate-300">
+        先看資金主線，再看明日候選，避免追高。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">建議</div>
+      <div className="text-sm font-black text-yellow-200">{homeSummary.warning}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 grid grid-cols-2 gap-2">
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">資金主線產業</div>
+      <div className="mt-1 text-lg font-black text-cyan-200">{homeSummary.topIndustry}</div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">資金核心股</div>
+      <div className="mt-1 text-lg font-black text-yellow-200">{homeSummary.coreText}</div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">偷偷變多</div>
+      <div className="mt-1 text-lg font-black text-orange-200">{homeSummary.stealthText}</div>
+    </div>
+
+    <div className="rounded-2xl bg-black/30 p-3">
+      <div className="text-xs font-black text-slate-400">明日先看</div>
+      <div className="mt-1 text-lg font-black text-fuchsia-200">{homeSummary.nextText}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 rounded-2xl bg-red-400/10 p-3 text-xs font-black text-red-200">
+    實戰規則：開高超過 3% 不追；9:10 後確認量能與分K站穩。
+  </div>
+</div>
 <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
   <div className="flex items-start justify-between gap-3">
     <div>
