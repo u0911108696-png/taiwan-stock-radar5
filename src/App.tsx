@@ -1871,6 +1871,145 @@ function buildHighWinCandidates(
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 }
+
+function buildHighWinRejectedCandidates(
+  stocks: Stock[] = [],
+  industryRanking: IndustryItem[] = [],
+  moneyHistory: Record<string, MoneyHistory> = {},
+  fiveDayBreakAlerts: FiveDayBreakAlert[] = []
+): HighWinCandidate[] {
+  const mainIndustries = industryRanking.slice(0, 3).map((item) => item.industry);
+  const ma5BreakCodes = new Set(fiveDayBreakAlerts.map((item) => item.stock.code));
+
+  return (stocks || [])
+    .map((stock) => {
+      let score = 0;
+      const reasons: string[] = [];
+      const rejectReasons: string[] = [];
+
+      const rise = getStockRisePercent(stock);
+      const volumeRatio = getStockVolumeRatio(stock);
+      const closeStrength = getStockCloseStrength(stock);
+      const amountValue = estimatedAmount(stock);
+      const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+      const isMainIndustry = mainIndustries.includes(stock.industry);
+      const isMa5Break = ma5BreakCodes.has(stock.code);
+
+      if (isMainIndustry) {
+        score += 20;
+        reasons.push(`主線產業：${stock.industry}`);
+      } else {
+        score -= 5;
+        reasons.push("非前三主線");
+      }
+
+      if (rise >= 1.5 && rise <= 6.5) {
+        score += 18;
+        reasons.push("漲幅強但未過熱");
+      } else if (rise > 0 && rise < 1.5) {
+        score += 8;
+        reasons.push("小漲轉強");
+      } else if (rise > 6.5) {
+        score -= 25;
+        rejectReasons.push("漲幅偏熱");
+      } else {
+        score -= 30;
+        rejectReasons.push("今日未轉強");
+      }
+
+      if (volumeRatio >= 1.2 && volumeRatio <= 3.2) {
+        score += 16;
+        reasons.push(`量能健康 ${volumeRatio.toFixed(1)}倍`);
+      } else if (volumeRatio > 3.2) {
+        score -= 15;
+        rejectReasons.push("爆量過熱");
+      } else {
+        score -= 5;
+        rejectReasons.push("量能不足");
+      }
+
+      if (closeStrength >= 0.97) {
+        score += 15;
+        reasons.push("收盤接近高點");
+      } else if (closeStrength >= 0.94) {
+        score += 8;
+        reasons.push("收盤位置尚可");
+      } else {
+        score -= 18;
+        rejectReasons.push("尾盤轉弱");
+      }
+
+      if (amountValue >= 300000000) {
+        score += 12;
+        reasons.push("成交金額有支撐");
+      } else if (amountValue >= 100000000) {
+        score += 6;
+        reasons.push("成交金額尚可");
+      } else {
+        score -= 8;
+        rejectReasons.push("成交金額不足");
+      }
+
+      if (stock.price >= stock.openPrice) {
+        score += 10;
+        reasons.push("守住開盤價");
+      } else {
+        score -= 35;
+        rejectReasons.push("跌破開盤價");
+      }
+
+      if (stock.price >= stock.previousClose) {
+        score += 8;
+        reasons.push("守住昨收");
+      } else {
+        score -= 35;
+        rejectReasons.push("跌破昨收");
+      }
+
+      if (moneyLabel === "資金慢慢增加") {
+        score += 16;
+        reasons.push("資金慢慢增加");
+      } else if (moneyLabel === "資金突然放大") {
+        score += 8;
+        reasons.push("資金突然放大");
+      } else if (moneyLabel === "資金開始減少") {
+        score -= 35;
+        rejectReasons.push("資金開始減少");
+      } else if (moneyLabel === "資金放大但股價不漲") {
+        score -= 30;
+        rejectReasons.push("爆量不漲");
+      }
+
+      if (isMa5Break) {
+        score += 12;
+        reasons.push("突破5日線");
+      }
+
+      const finalScore = Math.max(0, Math.min(100, Math.round(score)));
+
+      if (stock.price > 300) {
+        rejectReasons.unshift("股價超過300，自動剔除");
+      }
+
+      if (finalScore < 65) {
+        rejectReasons.push("未達65分");
+      }
+
+      const warning = rejectReasons.slice(0, 3).join("｜") || "條件不足，暫不列入主攻。";
+
+      return {
+        stock,
+        score: finalScore,
+        level: "剔除",
+        reasons: reasons.slice(0, 5),
+        warning,
+      } as HighWinCandidate;
+    })
+    .filter((item) => item.warning.includes("股價超過300") || item.score < 65 || item.warning.includes("跌破") || item.warning.includes("過熱"))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+}
+
 type FiveDayBreakAlert = {
   stock: Stock;
   price: number;
@@ -3001,12 +3140,19 @@ const isAfterCloseMode = useMemo(() => {
 
   const industryRanking = useMemo(() => getIndustryRanking(top50, settings, moneyHistory), [top50, settings, moneyHistory]);
   const highWinTomorrowList = useMemo(() => {
-  const baseList = buildHighWinCandidates(
+  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
+
+const highWinRejectedList = useMemo(() => {
+  const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
+
+  return buildHighWinRejectedCandidates(
     top50WithMa5Kline,
     industryRanking,
     moneyHistory,
     fiveDayBreakAlerts
-  );
+  ).filter((item) => !pickedCodes.has(item.stock.code));
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, highWinTomorrowList]);
 
   const nextDayBoostList = mergedNextDayWatchList
     .filter((item) => item.stock && item.stock.price > 0 && item.stock.price <= 300)
@@ -4096,13 +4242,47 @@ const mainMoneyFlow = useMemo(() => {
       </div>
 
       <div className="mt-3 space-y-2">
-        {highWinTomorrowList.length === 0 && (
-          <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
-            明日不硬做：目前沒有達到65分以上的高勝率候選。
-          </div>
-        )}
+            {highWinTomorrowList.length === 0 && (
+      <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
+        明日不硬做：目前沒有達到65分以上的高勝率候選。
+      </div>
+    )}
 
-        {highWinTomorrowList.map((item, index) => (
+    {highWinTomorrowList.length === 0 && highWinRejectedList.length > 0 && (
+      <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3">
+        <div className="text-sm font-black text-red-200">剔除原因</div>
+        <div className="mt-2 space-y-2">
+          {highWinRejectedList.slice(0, 5).map((item) => (
+            <button
+              key={item.stock.code}
+              onClick={() => setSelectedCode(item.stock.code)}
+              className="w-full rounded-xl bg-black/30 px-3 py-2 text-left"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-base font-black text-white">
+                    {item.stock.code} {stockDisplayName(item.stock)}
+                  </div>
+                  <div className="mt-1 text-xs font-bold text-red-200">
+                    {item.warning}
+                  </div>
+                  <div className="mt-1 text-xs font-bold text-slate-400">
+                    股價 {formatPrice(item.stock.price)}｜{item.stock.industry}
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <div className="text-xs font-black text-slate-400">原始分</div>
+                  <div className="text-xl font-black text-yellow-200">{item.score}</div>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    )}
+
+    {highWinTomorrowList.map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
