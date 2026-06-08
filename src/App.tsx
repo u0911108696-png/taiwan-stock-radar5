@@ -3001,8 +3001,42 @@ const isAfterCloseMode = useMemo(() => {
 
   const industryRanking = useMemo(() => getIndustryRanking(top50, settings, moneyHistory), [top50, settings, moneyHistory]);
   const highWinTomorrowList = useMemo(() => {
-  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
+  const baseList = buildHighWinCandidates(
+    top50WithMa5Kline,
+    industryRanking,
+    moneyHistory,
+    fiveDayBreakAlerts
+  );
+
+  const nextDayBoostList = mergedNextDayWatchList
+    .filter((item) => item.stock && item.stock.price > 0 && item.stock.price <= 300)
+    .map((item) => {
+      const stock = item.stock as Stock;
+      const score = Math.max(65, Math.min(100, item.score));
+
+      return {
+        stock,
+        score,
+        level: score >= 90 ? "明日主攻" : "觀察",
+        reasons: [
+          `明日觀察分 ${item.score}`,
+          item.tag,
+          item.reason,
+          "股價300以下",
+        ],
+        warning:
+          score >= 90
+            ? "明天9:10後確認站穩開盤價與量能延續；開高超過3%不追。"
+            : "65分以上列觀察；明天只等9:10確認，不追高。",
+      } as HighWinCandidate;
+    });
+
+  return Array.from(
+    new Map([...baseList, ...nextDayBoostList].map((item) => [item.stock.code, item])).values()
+  )
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
