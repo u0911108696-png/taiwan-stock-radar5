@@ -195,9 +195,10 @@ const defaultSettings: Settings = {
 const codeToChineseName: Record<string, string> = {
   "2330": "台積電",
   "2303": "聯電",
+  "2316": "楠梓電",
+  "2344": "華邦電",
   "2317": "鴻海",
   "2454": "聯發科",
-  "2344": "華邦電",
   "2408": "南亞科",
   "2337": "旺宏",
   "3481": "群創",
@@ -4732,6 +4733,17 @@ const mainMoneyFlow = useMemo(() => {
                         </div>
 
                         <div className="mt-2 text-xs font-bold text-cyan-300">
+                         <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
+  <div className="flex items-center justify-between gap-2">
+    <span>股價狀態</span>
+    <span className="text-cyan-200">
+      {sourceLabel(stock.priceSource)}｜{dataFreshText(stock.updatedAt)}
+    </span>
+  </div>
+  <div className="mt-1 text-slate-400">
+    最後更新：{stock.updatedAt || lastSuccessAt || "--"}
+  </div>
+</div>
                           點擊看個股資料 / K線20項訊號
                         </div>
                       </button>
