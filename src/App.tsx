@@ -2978,9 +2978,7 @@ const mergedNextDayWatchList = useMemo(() => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
 }, [fiveDayBreakAlerts, nextDayCandidates]);
-const highWinTomorrowList = useMemo(() => {
-  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
+
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
   return now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
@@ -3002,6 +3000,11 @@ const isAfterCloseMode = useMemo(() => {
   }, [top50]);
 
   const industryRanking = useMemo(() => getIndustryRanking(top50, settings, moneyHistory), [top50, settings, moneyHistory]);
+
+  const highWinTomorrowList = useMemo(() => {
+  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
+  }, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
+
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
@@ -4234,7 +4237,7 @@ const mainMoneyFlow = useMemo(() => {
       <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
       <div className="text-2xl font-black text-white">明日主攻前10名</div>
       <div className="mt-1 text-xs font-bold text-slate-300">
-        90分以上主攻，75～89分觀察；股價超過300自動剔除。
+         90分以上主攻，75～89分觀察；股價超過300自動剔除。
       </div>
     </div>
 
