@@ -1749,7 +1749,7 @@ function buildHighWinCandidates(
       const abovePrev = stock.price >= stock.previousClose;
 
       if (priceOk) {
-        score += 15;
+        score += 20;
         reasons.push("股價300以下");
       } else {
         score -= 100;
@@ -1757,10 +1757,10 @@ function buildHighWinCandidates(
       }
 
       if (isMainIndustry) {
-        score += 20;
+        score += 25;
         reasons.push(`主線產業：${stock.industry}`);
       } else {
-        score -= 10;
+        score -= 0;
         reasons.push("非前三主線");
       }
 
@@ -1778,15 +1778,15 @@ function buildHighWinCandidates(
         reasons.push("今日未轉強");
       }
 
-      if (volumeRatio >= 1.2 && volumeRatio <= 3.2) {
-        score += 16;
+      if (volumeRatio >= 1.1 && volumeRatio <= 3.5) {
+        score += 20;
         reasons.push(`量能健康 ${volumeRatio.toFixed(1)}倍`);
-      } else if (volumeRatio > 3.2) {
-        score -= 15;
+      } else if (volumeRatio > 3.5) {
+        score -= 10;
         reasons.push("爆量過熱");
       } else {
-        score -= 5;
-        reasons.push("量能不足");
+        score += 0;
+        reasons.push("量能普通");
       }
 
       if (closeStrength >= 0.97) {
@@ -1801,14 +1801,14 @@ function buildHighWinCandidates(
       }
 
       if (amountValue >= 300000000) {
-        score += 12;
+        score += 18;
         reasons.push("成交金額有支撐");
       } else if (amountValue >= 100000000) {
-        score += 6;
+        score += 12;
         reasons.push("成交金額尚可");
       } else {
-        score -= 8;
-        reasons.push("成交金額不足");
+        score += 0;
+        reasons.push("成交金額偏低");
       }
 
       if (aboveOpen) {
@@ -1842,7 +1842,7 @@ function buildHighWinCandidates(
       }
 
       if (isMa5Break) {
-        score += 12;
+        score += 18;
         reasons.push("突破5日線");
       }
 
@@ -1850,13 +1850,13 @@ function buildHighWinCandidates(
 
       let level: HighWinCandidate["level"] = "剔除";
       if (finalScore >= 90) level = "明日主攻";
-      else if (finalScore >= 75) level = "觀察";
+      else if (finalScore >= 65) level = "觀察";
 
       const warning =
         level === "明日主攻"
           ? "明天9:10後確認站穩開盤價與量能延續；開高超過3%不追。"
           : level === "觀察"
-            ? "條件接近，但還不夠強；明天只等回測確認。"
+            ? "65分以上列觀察；明天只等9:10確認，不追高。"
             : "條件不足，明天不列入主攻。";
 
       return {
@@ -4051,7 +4051,7 @@ const mainMoneyFlow = useMemo(() => {
           <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
           <div className="text-2xl font-black text-white">明日主攻前10名</div>
           <div className="mt-1 text-xs font-bold text-slate-300">
-            90分以上主攻，75～89分觀察；股價超過300自動剔除。
+            90分以上主攻，65～89分觀察；股價超過300自動剔除。
           </div>
         </div>
 
@@ -4064,7 +4064,7 @@ const mainMoneyFlow = useMemo(() => {
       <div className="mt-3 space-y-2">
         {highWinTomorrowList.length === 0 && (
           <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
-            明日不硬做：目前沒有達到75分以上的高勝率候選。
+            明日不硬做：目前沒有達到65分以上的高勝率候選。
           </div>
         )}
 
