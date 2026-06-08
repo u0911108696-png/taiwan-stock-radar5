@@ -4807,8 +4807,10 @@ const mainMoneyFlow = useMemo(() => {
     </div>
   )}
 </div>
-                          點擊看個股資料 / K線20項訊號
-                        </div>
+
+<div className="mt-2 text-xs font-bold text-cyan-300">
+  點擊看個股資料 / K線20項訊號
+</div>
                       </button>
                     );
                   })}
