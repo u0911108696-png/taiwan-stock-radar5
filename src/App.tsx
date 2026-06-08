@@ -1585,7 +1585,13 @@ type NextDayCandidate = {
   reasons: string[];
   warning: string;
 };
-
+type HighWinCandidate = {
+  stock: Stock;
+  score: number;
+  level: "明日主攻" | "觀察" | "剔除";
+  reasons: string[];
+  warning: string;
+};
 function toNumSafe(value: any, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -1716,6 +1722,154 @@ const warning =
     .slice(0, 12);
 
   return list;
+}
+function buildHighWinCandidates(
+  stocks: Stock[] = [],
+  industryRanking: IndustryItem[] = [],
+  moneyHistory: Record<string, MoneyHistory> = {},
+  fiveDayBreakAlerts: FiveDayBreakAlert[] = []
+): HighWinCandidate[] {
+  const mainIndustries = industryRanking.slice(0, 3).map((item) => item.industry);
+  const ma5BreakCodes = new Set(fiveDayBreakAlerts.map((item) => item.stock.code));
+
+  return (stocks || [])
+    .map((stock) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      const rise = getStockRisePercent(stock);
+      const volumeRatio = getStockVolumeRatio(stock);
+      const closeStrength = getStockCloseStrength(stock);
+      const amountValue = estimatedAmount(stock);
+      const moneyLabel = moneyTrendLabel(stock, moneyHistory);
+      const isMainIndustry = mainIndustries.includes(stock.industry);
+      const isMa5Break = ma5BreakCodes.has(stock.code);
+      const priceOk = stock.price > 0 && stock.price <= 300;
+      const aboveOpen = stock.price >= stock.openPrice;
+      const abovePrev = stock.price >= stock.previousClose;
+
+      if (priceOk) {
+        score += 15;
+        reasons.push("股價300以下");
+      } else {
+        score -= 100;
+        reasons.push("股價超過300，剔除");
+      }
+
+      if (isMainIndustry) {
+        score += 20;
+        reasons.push(`主線產業：${stock.industry}`);
+      } else {
+        score -= 10;
+        reasons.push("非前三主線");
+      }
+
+      if (rise >= 1.5 && rise <= 6.5) {
+        score += 18;
+        reasons.push("漲幅強但未過熱");
+      } else if (rise > 0 && rise < 1.5) {
+        score += 8;
+        reasons.push("小漲轉強");
+      } else if (rise > 6.5) {
+        score -= 25;
+        reasons.push("漲幅偏熱，防追高");
+      } else {
+        score -= 30;
+        reasons.push("今日未轉強");
+      }
+
+      if (volumeRatio >= 1.2 && volumeRatio <= 3.2) {
+        score += 16;
+        reasons.push(`量能健康 ${volumeRatio.toFixed(1)}倍`);
+      } else if (volumeRatio > 3.2) {
+        score -= 15;
+        reasons.push("爆量過熱");
+      } else {
+        score -= 5;
+        reasons.push("量能不足");
+      }
+
+      if (closeStrength >= 0.97) {
+        score += 15;
+        reasons.push("收盤接近高點");
+      } else if (closeStrength >= 0.94) {
+        score += 8;
+        reasons.push("收盤位置尚可");
+      } else {
+        score -= 18;
+        reasons.push("尾盤轉弱");
+      }
+
+      if (amountValue >= 300000000) {
+        score += 12;
+        reasons.push("成交金額有支撐");
+      } else if (amountValue >= 100000000) {
+        score += 6;
+        reasons.push("成交金額尚可");
+      } else {
+        score -= 8;
+        reasons.push("成交金額不足");
+      }
+
+      if (aboveOpen) {
+        score += 10;
+        reasons.push("守住開盤價");
+      } else {
+        score -= 35;
+        reasons.push("跌破開盤價");
+      }
+
+      if (abovePrev) {
+        score += 8;
+        reasons.push("守住昨收");
+      } else {
+        score -= 35;
+        reasons.push("跌破昨收");
+      }
+
+      if (moneyLabel === "資金慢慢增加") {
+        score += 16;
+        reasons.push("資金慢慢增加");
+      } else if (moneyLabel === "資金突然放大") {
+        score += 8;
+        reasons.push("資金突然放大");
+      } else if (moneyLabel === "資金開始減少") {
+        score -= 35;
+        reasons.push("資金開始減少");
+      } else if (moneyLabel === "資金放大但股價不漲") {
+        score -= 30;
+        reasons.push("爆量不漲");
+      }
+
+      if (isMa5Break) {
+        score += 12;
+        reasons.push("突破5日線");
+      }
+
+      const finalScore = Math.max(0, Math.min(100, Math.round(score)));
+
+      let level: HighWinCandidate["level"] = "剔除";
+      if (finalScore >= 90) level = "明日主攻";
+      else if (finalScore >= 75) level = "觀察";
+
+      const warning =
+        level === "明日主攻"
+          ? "明天9:10後確認站穩開盤價與量能延續；開高超過3%不追。"
+          : level === "觀察"
+            ? "條件接近，但還不夠強；明天只等回測確認。"
+            : "條件不足，明天不列入主攻。";
+
+      return {
+        stock,
+        score: finalScore,
+        level,
+        reasons: reasons.slice(0, 6),
+        warning,
+      };
+    })
+    .filter((item) => item.level !== "剔除")
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 10);
 }
 type FiveDayBreakAlert = {
   stock: Stock;
@@ -2824,6 +2978,9 @@ const mergedNextDayWatchList = useMemo(() => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
 }, [fiveDayBreakAlerts, nextDayCandidates]);
+const highWinTomorrowList = useMemo(() => {
+  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
 const isAfterCloseMode = useMemo(() => {
   const now = new Date();
   return now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
@@ -4071,8 +4228,69 @@ const mainMoneyFlow = useMemo(() => {
     ))}
   </div>
 
-  <div className="mt-3 rounded-2xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-    明天 9:10 後確認：量能續強、分K站穩、開高超過 3% 不追。
+  <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+  <div className="flex items-center justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
+      <div className="text-2xl font-black text-white">明日主攻前10名</div>
+      <div className="mt-1 text-xs font-bold text-slate-300">
+        90分以上主攻，75～89分觀察；股價超過300自動剔除。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">符合</div>
+      <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {highWinTomorrowList.length === 0 && (
+      <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
+        明日不硬做：目前沒有達到75分以上的高勝率候選。
+      </div>
+    )}
+
+    {highWinTomorrowList.map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜{item.level}
+            </div>
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-emerald-200">
+              {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">勝率分</div>
+            <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
+              {item.score}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {item.reasons.slice(0, 4).map((reason) => (
+            <div key={reason} className="text-xs font-bold text-slate-300">
+              ・{reason}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          {item.warning}
+        </div>
+      </button>
+    ))}
   </div>
 </div>
 <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
