@@ -3140,19 +3140,12 @@ const isAfterCloseMode = useMemo(() => {
 
   const industryRanking = useMemo(() => getIndustryRanking(top50, settings, moneyHistory), [top50, settings, moneyHistory]);
   const highWinTomorrowList = useMemo(() => {
-  return buildHighWinCandidates(top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts);
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts]);
-
-const highWinRejectedList = useMemo(() => {
-  const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
-
-  return buildHighWinRejectedCandidates(
+  const baseList = buildHighWinCandidates(
     top50WithMa5Kline,
     industryRanking,
     moneyHistory,
     fiveDayBreakAlerts
-  ).filter((item) => !pickedCodes.has(item.stock.code));
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, highWinTomorrowList]);
+  );
 
   const nextDayBoostList = mergedNextDayWatchList
     .filter((item) => item.stock && item.stock.price > 0 && item.stock.price <= 300)
@@ -3183,6 +3176,17 @@ const highWinRejectedList = useMemo(() => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 }, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
+
+const highWinRejectedList = useMemo(() => {
+  const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
+
+  return buildHighWinRejectedCandidates(
+    top50WithMa5Kline,
+    industryRanking,
+    moneyHistory,
+    fiveDayBreakAlerts
+  ).filter((item) => !pickedCodes.has(item.stock.code));
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, highWinTomorrowList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
