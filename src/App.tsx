@@ -4781,9 +4781,7 @@ const mainMoneyFlow = useMemo(() => {
                           </div>
                         </div>
 
-                        <div className="mt-2 text-xs font-bold text-cyan-300">
-                         <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
-  <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
+                        <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
   <div className="flex items-center justify-between gap-2">
     <span>股價狀態</span>
     <span
