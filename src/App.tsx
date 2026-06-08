@@ -365,7 +365,24 @@ function open910Tone(status: string) {
   if (status.includes("收盤")) return "text-slate-300";
   return "text-cyan-300";
 }
+function isTaiwanMarketClosed() {
+  const minutes = taiwanMinutesNow();
+  const end = 13 * 60 + 30;
+  return minutes > end;
+}
 
+function marketRefreshSeconds(settings: Settings) {
+  if (isTaiwanMarketClosed()) return 60;
+  return settings.refreshSeconds;
+}
+
+function marketStatusText(updating: boolean, error: string, usingCache: boolean) {
+  if (isTaiwanMarketClosed()) return "收盤後穩定模式";
+  if (updating) return "更新中";
+  if (error) return "API錯誤";
+  if (usingCache) return "使用快取";
+  return "即時正常";
+}
 function cleanCode(value: string) {
   return String(value || "").replace(/\D/g, "").slice(0, 6);
 }
@@ -3497,7 +3514,7 @@ const mainMoneyFlow = useMemo(() => {
       setError(err?.message || "資料更新失敗，已保留上次成功資料");
     } finally {
       setUpdating(false);
-      setAutoSeconds(settings.refreshSeconds);
+      setAutoSeconds(marketRefreshSeconds(settings));
     }
   }
 
@@ -3687,9 +3704,9 @@ const mainMoneyFlow = useMemo(() => {
     const timer = window.setInterval(() => {
       setAutoSeconds((sec) => {
         if (sec <= 1) {
-          loadStocks();
-          return settings.refreshSeconds;
-        }
+  loadStocks();
+  return marketRefreshSeconds(settings);
+}
 
         return sec - 1;
       });
@@ -3709,7 +3726,7 @@ const mainMoneyFlow = useMemo(() => {
       favoriteCodes.forEach((code) => {
         refreshOneStock(code);
       });
-    }, 5000);
+    }, isTaiwanMarketClosed() ? 60000 : 5000);
 
     return () => window.clearInterval(timer);
   }, [favoriteCodes.join(",")]);
@@ -3727,7 +3744,7 @@ const mainMoneyFlow = useMemo(() => {
 
     const timer = window.setInterval(() => {
       run();
-    }, 5000);
+    }, isTaiwanMarketClosed() ? 60000 : 5000);
 
     return () => {
       cancelled = true;
@@ -3843,7 +3860,7 @@ const mainMoneyFlow = useMemo(() => {
           <div className="flex items-center justify-between gap-3">
             <div>
               <div className="text-sm font-black text-blue-100">
-                即時狀態：{updating ? "更新中" : error ? "API錯誤" : usingCache ? "使用快取" : "即時正常"}
+                即時狀態：{marketStatusText(updating, error, usingCache)}
               </div>
               <div className="mt-1 text-xs font-bold text-slate-400">
                 最後成功：{lastSuccessAt || "尚未成功"}｜下一次：{settings.refreshSeconds === 0 ? "手動" : `${autoSeconds}秒後`}
