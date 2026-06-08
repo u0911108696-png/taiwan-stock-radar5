@@ -418,7 +418,55 @@ function dataFreshText(updatedAt?: string) {
   if (age <= 60) return "稍慢";
   return "偏舊";
 }
+function getStockTimeMs(stock: any) {
+  const t = stock?.updatedAt || stock?.time || stock?.timestamp || "";
+  const ms = new Date(t).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
 
+function isBadPriceSource(stock: any) {
+  const src = String(stock?.priceSource || "").trim();
+  return !src || src === "--" || src === "mock" || src === "fallback";
+}
+
+function buildStablePriceStock(stock: Stock, cache: Record<string, Stock>) {
+  const code = stock.code;
+  const oldStock = cache[code];
+  const nowPrice = Number(stock.price || 0);
+  const oldPrice = Number(oldStock?.price || 0);
+  const nowTime = getStockTimeMs(stock);
+  const oldTime = getStockTimeMs(oldStock);
+
+  if (!oldStock) {
+    cache[code] = stock;
+    return { ...stock, stableNote: stock.stableNote || "首次資料" };
+  }
+
+  if (!nowPrice || nowPrice <= 0) {
+    return { ...oldStock, stableNote: "保留上一筆：新價無效" };
+  }
+
+  if (oldPrice > 0 && nowTime > 0 && oldTime > 0 && nowTime < oldTime) {
+    return { ...oldStock, stableNote: "保留上一筆：新資料較舊" };
+  }
+
+  if (oldPrice > 0 && isBadPriceSource(stock) && !isBadPriceSource(oldStock)) {
+    return { ...oldStock, stableNote: "保留上一筆：來源較弱" };
+  }
+
+  if (oldPrice > 0) {
+    const jumpPercent = Math.abs((nowPrice - oldPrice) / oldPrice) * 100;
+    const timeGap = nowTime && oldTime ? Math.abs(nowTime - oldTime) / 1000 : 0;
+
+    if (jumpPercent >= 3.5 && timeGap < 45 && isBadPriceSource(stock)) {
+      return { ...oldStock, stableNote: "防跳價保護：等待下一筆確認" };
+    }
+  }
+
+  const stableStock = { ...stock, stableNote: "正常更新" };
+  cache[code] = stableStock;
+  return stableStock;
+}
 function sourceLabel(source?: string) {
   if (!source) return "資料源 --";
   if (source.includes("TWSE")) return "TWSE即時成交";
@@ -2647,6 +2695,7 @@ export default function App() {
   const [activeEtfConfidence, setActiveEtfConfidence] = useState(0);
   const [activeEtfWarning, setActiveEtfWarning] = useState("尚未取得主動ETF實戰狀態。");
   const [tab, setTab] = useState<TabKey>("home");
+  const stablePriceCacheRef = useRef<Record<string, Stock>>({});
   const [popup, setPopup] = useState<PopupKey>("");
   const [selectedCode, setSelectedCode] = useState("");
   const [selectedKlineCode, setSelectedKlineCode] = useState("");
@@ -4672,7 +4721,7 @@ const mainMoneyFlow = useMemo(() => {
                   )}
 
                   {positionRows.map((row) => {
-                    const stock = row.stock;
+                    const stock = buildStablePriceStock(row.stock, stablePriceCacheRef.current);
                     const sharesUnit = row.position.shares * 1000;
                     const cost = row.position.buyPrice * sharesUnit;
                     const marketValue = stock.price * sharesUnit;
@@ -4734,15 +4783,29 @@ const mainMoneyFlow = useMemo(() => {
 
                         <div className="mt-2 text-xs font-bold text-cyan-300">
                          <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
+  <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-black text-slate-300">
   <div className="flex items-center justify-between gap-2">
     <span>股價狀態</span>
-    <span className="text-cyan-200">
+    <span
+      className={
+        dataFreshText(stock.updatedAt).includes("偏舊") || isBadPriceSource(stock)
+          ? "text-yellow-200"
+          : "text-cyan-200"
+      }
+    >
       {sourceLabel(stock.priceSource)}｜{dataFreshText(stock.updatedAt)}
     </span>
   </div>
+
   <div className="mt-1 text-slate-400">
     最後更新：{stock.updatedAt || lastSuccessAt || "--"}
   </div>
+
+  {stock.stableNote && stock.stableNote !== "正常更新" && (
+    <div className="mt-1 rounded-lg bg-yellow-400/10 px-2 py-1 text-yellow-200">
+      {stock.stableNote}
+    </div>
+  )}
 </div>
                           點擊看個股資料 / K線20項訊號
                         </div>
