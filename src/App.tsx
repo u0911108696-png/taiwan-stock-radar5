@@ -4044,736 +4044,559 @@ const mainMoneyFlow = useMemo(() => {
 
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
-            <div className="space-y-4">
-<div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
-      <div className="text-2xl font-black text-white">明日主攻前10名</div>
-      <div className="mt-1 text-xs font-bold text-slate-300">
-        90分以上主攻，75～89分觀察；股價超過300自動剔除。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">符合</div>
-      <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {highWinTomorrowList.length === 0 && (
-      <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
-        明日不硬做：目前沒有達到75分以上的高勝率候選。
-      </div>
-    )}
-
-    {highWinTomorrowList.map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.level}
-            </div>
-
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-
-            <div className="mt-1 text-xs font-bold text-emerald-200">
-              {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">勝率分</div>
-            <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
-              {item.score}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.slice(0, 4).map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.warning}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-<div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
-      <div className="text-2xl font-black text-white">明日主攻前10名</div>
-      <div className="mt-1 text-xs font-bold text-slate-300">
-        90分以上主攻，75～89分觀察；股價超過300自動剔除。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">符合</div>
-      <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {highWinTomorrowList.length === 0 && (
-      <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
-        明日不硬做：目前沒有達到75分以上的高勝率候選。
-      </div>
-    )}
-
-    {highWinTomorrowList.map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.level}
-            </div>
-
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-
-            <div className="mt-1 text-xs font-bold text-emerald-200">
-              {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">勝率分</div>
-            <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
-              {item.score}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.slice(0, 4).map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.warning}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-
-<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
-<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-cyan-300">MAIN MONEY FLOW</div>
-      <div className="mt-1 text-2xl font-black text-white">主線資金流向核心</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        先看資金流到哪個產業，再看流進哪些個股。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">主線</div>
-      <div className="text-lg font-black text-cyan-200">{mainMoneyFlow.topIndustry}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 grid grid-cols-2 gap-2">
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">資金產業</div>
-      <div className="mt-1 text-sm font-black text-cyan-200">
-        {mainMoneyFlow.topIndustries.length
-          ? mainMoneyFlow.topIndustries.join(" / ")
-          : "尚未明確"}
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">資金個股</div>
-      <div className="mt-1 text-sm font-black text-yellow-200">
-        {mainMoneyFlow.moneyStocks[0]
-          ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
-          : "尚未明確"}
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">偷偷變多</div>
-      <div className="mt-1 text-sm font-black text-orange-200">
-        {mainMoneyFlow.stealthStocks[0]
-          ? `${mainMoneyFlow.stealthStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.stealthStocks[0].stock)}`
-          : "尚未明確"}
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">主動ETF</div>
-      <div className="mt-1 text-sm font-black text-fuchsia-200">
-        等待官方持股檔
-      </div>
-    </div>
-  </div>
-
-  <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-3">
-    <div className="text-xs font-black text-slate-400">資金交集股</div>
-
-    <div className="mt-2 space-y-2">
-      {mainMoneyFlow.focusStocks.length === 0 && (
-        <div className="text-sm font-bold text-slate-400">
-          目前沒有明確資金交集股。
-        </div>
-      )}
-
-      {mainMoneyFlow.focusStocks.slice(0, 3).map((item, index) => (
-        <button
-          key={item.code}
-          onClick={() => setSelectedCode(item.code)}
-          className="flex w-full items-center justify-between rounded-xl bg-black/30 px-3 py-2 text-left"
-        >
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.tags.join(" + ")}
-            </div>
-            <div className="text-base font-black text-white">
-              {item.code} {item.name}
-            </div>
-            <div className="text-xs font-bold text-cyan-200">
-              {item.industry}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">交集分</div>
-            <div className="text-xl font-black text-cyan-200">{item.score}</div>
-          </div>
-        </button>
-      ))}
-    </div>
-  </div>
-
-  <div className="mt-3 rounded-2xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-    主線邏輯：產業資金 → 個股資金 → ETF持股變化 → 明日9:10確認。
-  </div>
-</div>
-<div className="rounded-3xl border border-white/10 bg-white/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-cyan-300">TODAY MONEY SUMMARY</div>
-      <div className="mt-1 text-2xl font-black text-white">今日資金一眼看懂</div>
-      <div className="mt-1 text-sm font-bold text-slate-300">
-        先看資金主線，再看明日候選，避免追高。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">建議</div>
-      <div className="text-sm font-black text-yellow-200">{homeSummary.warning}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 grid grid-cols-2 gap-2">
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">資金主線產業</div>
-      <div className="mt-1 text-lg font-black text-cyan-200">{homeSummary.topIndustry}</div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">資金核心股</div>
-      <div className="mt-1 text-lg font-black text-yellow-200">{homeSummary.coreText}</div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">偷偷變多</div>
-      <div className="mt-1 text-lg font-black text-orange-200">{homeSummary.stealthText}</div>
-    </div>
-
-    <div className="rounded-2xl bg-black/30 p-3">
-      <div className="text-xs font-black text-slate-400">明日先看</div>
-      <div className="mt-1 text-lg font-black text-fuchsia-200">{homeSummary.nextText}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 rounded-2xl bg-red-400/10 p-3 text-xs font-black text-red-200">
-    實戰規則：開高超過 3% 不追；9:10 後確認量能與分K站穩。
-  </div>
-</div>
-<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-cyan-300">TOMORROW TOP 3</div>
-      <div className="text-2xl font-black text-white">明日先看 TOP 3</div>
-      <div className="mt-1 text-xs font-bold text-slate-300">
-        依資金、5日線突破、隔日候選合併排序。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">檔數</div>
-      <div className="text-2xl font-black text-cyan-200">{tomorrowTop3.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 grid grid-cols-1 gap-2">
-    {tomorrowTop3.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有明日 TOP 3 候選。
-      </div>
-    )}
-
-    {tomorrowTop3.map((item, index) => (
-      <button
-        key={item.code}
-        onClick={() => setSelectedCode(item.code)}
-        className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
+  <div className="space-y-4">
+    <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-xs font-black text-slate-400">
-            #{index + 1}｜{item.tag}
-          </div>
-          <div className="text-lg font-black text-white">
-            {item.code} {item.name}
-          </div>
-          <div className="mt-1 text-xs font-bold text-cyan-200">
-            {item.industry}
+          <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
+          <div className="text-2xl font-black text-white">明日主攻前10名</div>
+          <div className="mt-1 text-xs font-bold text-slate-300">
+            90分以上主攻，75～89分觀察；股價超過300自動剔除。
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="text-xs font-black text-slate-400">總分</div>
-          <div className="text-2xl font-black text-cyan-200">{item.score}</div>
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">符合</div>
+          <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
         </div>
-      </button>
-    ))}
-  </div>
-
-  <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
-      <div className="text-2xl font-black text-white">明日主攻前10名</div>
-      <div className="mt-1 text-xs font-bold text-slate-300">
-         90分以上主攻，75～89分觀察；股價超過300自動剔除。
       </div>
-    </div>
 
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">符合</div>
-      <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {highWinTomorrowList.length === 0 && (
-      <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
-        明日不硬做：目前沒有達到75分以上的高勝率候選。
-      </div>
-    )}
-
-    {highWinTomorrowList.map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.level}
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-emerald-200">
-              {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
-            </div>
+      <div className="mt-3 space-y-2">
+        {highWinTomorrowList.length === 0 && (
+          <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
+            明日不硬做：目前沒有達到75分以上的高勝率候選。
           </div>
+        )}
 
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">勝率分</div>
-            <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
-              {item.score}
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.slice(0, 4).map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.warning}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-<div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-yellow-300">CAPITAL RADAR CORE</div>
-      <div className="mt-1 text-2xl font-black text-white">資金雷達核心個股</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        資金、量能、突破、隔日候選綜合分數。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">核心</div>
-      <div className="text-2xl font-black text-yellow-200">{capitalCoreWatchList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {capitalCoreWatchList.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有明確資金核心個股。
-      </div>
-    )}
-
-    {capitalCoreWatchList.slice(0, 5).map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜資金核心
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-yellow-200">
-              {item.stock.industry || "其他"}｜{item.moneyLabel}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">資金分數</div>
-            <div className="text-2xl font-black text-yellow-200">{item.score}</div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-red-400/10 p-2 text-xs font-black text-red-200">
-          提醒：資金流入不等於立刻買；隔天開高超過 3% 不追。
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-<div className="rounded-2xl border border-orange-400/30 bg-orange-500/10 p-3">
-  <div className="flex items-center justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-orange-300">STEALTH MONEY</div>
-      <div className="text-lg font-black text-white">資金偷偷變多</div>
-      <div className="mt-1 text-xs font-bold text-slate-300">
-        還沒大漲，但量能與金額慢慢變強。
-      </div>
-    </div>
-
-    <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">偷偷</div>
-      <div className="text-2xl font-black text-orange-200">{stealthMoneyWatchList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-    {stealthMoneyWatchList.length === 0 && (
-      <div className="min-w-full rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有明顯資金偷偷變多的個股。
-      </div>
-    )}
-
-    {stealthMoneyWatchList.slice(0, 3).map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="min-w-[150px] rounded-xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="text-xs font-black text-slate-400">#{index + 1}｜偷增</div>
-        <div className="mt-1 text-lg font-black text-white">
-          {item.stock.code}
-        </div>
-        <div className="text-sm font-black text-white">
-          {stockDisplayName(item.stock)}
-        </div>
-        <div className="mt-1 text-xs font-bold text-orange-200">
-          分數 {item.score}｜量比 {item.volumeRatio.toFixed(1)}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-<div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-cyan-300">NEXT DAY MASTER LIST</div>
-      <div className="mt-1 text-2xl font-black text-white">明日優先觀察合併排序</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        合併「5日線突破」與「收盤後隔日強勢候選」，依分數排序。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">觀察</div>
-      <div className="text-2xl font-black text-cyan-200">{mergedNextDayWatchList.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {mergedNextDayWatchList.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有明日優先觀察名單。
-      </div>
-    )}
-
-    {mergedNextDayWatchList.slice(0, 5).map((item, index) => (
-      <button
-        key={item.code}
-        onClick={() => setSelectedCode(item.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.tag}
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.code} {item.name}
-            </div>
-            <div className="mt-1 text-xs font-bold text-cyan-200">
-              {item.industry}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">總分</div>
-            <div className="text-2xl font-black text-cyan-200">{item.score}</div>
-          </div>
-        </div>
-
-        <div className="mt-2 text-xs font-bold text-slate-300">
-          ・{item.reason}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.warning}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-<div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-emerald-300">MA5 BREAK WATCH</div>
-      <div className="mt-1 text-2xl font-black text-white">剛突破5日線提示</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        僅做畫面提示，不跳通知；先確認有沒有取得 5日線資料，避免白畫面。
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">突破</div>
-      <div className="text-2xl font-black text-emerald-200">{fiveDayBreakAlerts.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {fiveDayBreakAlerts.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有偵測到剛突破 5日線的個股；系統已嘗試抓前 10 檔日K計算 ma5。
-      </div>
-    )}
-
-    {fiveDayBreakAlerts.slice(0, 3).map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜5日線突破
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-emerald-200">
-              {item.reason}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">突破分數</div>
-            <div className="text-2xl font-black text-emerald-200">{item.score}</div>
-          </div>
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          提醒：剛突破不等於立刻買，先看量能、分K是否站穩，開高過多不追。
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-        <div className="rounded-3xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-4">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <div className="text-xs font-black text-fuchsia-300">AFTER CLOSE RADAR</div>
-      <div className="mt-1 text-2xl font-black text-white">收盤後隔日強勢候選</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        {isAfterCloseMode
-          ? "現在是收盤後模式：依漲幅、量能、收盤強度與產業強弱排序。"
-          : "下午 1:30 後自動切換收盤後模式；盤中僅供預覽。"}
-      </div>
-    </div>
-
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">候選</div>
-      <div className="text-2xl font-black text-fuchsia-200">{nextDayCandidates.length}</div>
-    </div>
-  </div>
-
-  <div className="mt-3 space-y-2">
-    {nextDayCandidates.length === 0 && (
-      <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-        目前沒有符合條件的隔日強勢候選。
-      </div>
-    )}
-
-    {nextDayCandidates.slice(0, 5).map((item, index) => (
-      <button
-        key={item.stock.code}
-        onClick={() => setSelectedCode(item.stock.code)}
-        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-xs font-black text-slate-400">
-              #{index + 1}｜{item.level}
-            </div>
-            <div className="text-lg font-black text-white">
-              {item.stock.code} {stockDisplayName(item.stock)}
-            </div>
-            <div className="mt-1 text-xs font-bold text-slate-400">
-              {item.stock.industry || "其他"}
-            </div>
-          </div>
-
-          <div className="text-right">
-            <div className="text-xs font-black text-slate-400">隔日分數</div>
-            <div className="text-2xl font-black text-fuchsia-200">{item.score}</div>
-          </div>
-        </div>
-
-        <div className="mt-2 space-y-1">
-          {item.reasons.map((reason) => (
-            <div key={reason} className="text-xs font-bold text-slate-300">
-              ・{reason}
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-          {item.warning}
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-              <NeonPanel className="border-emerald-400/35 shadow-[0_0_38px_rgba(16,185,129,0.16)]">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-black tracking-[0.18em] text-emerald-300">FOCUS LIST</div>
-                    <h3 className="mt-1 text-2xl font-black text-white">今日只看這幾檔</h3>
-                  </div>
-                  <button onClick={() => setPopup("entry")} className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200">
-                    看全部
-                  </button>
+        {highWinTomorrowList.map((item, index) => (
+          <button
+            key={item.stock.code}
+            onClick={() => setSelectedCode(item.stock.code)}
+            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜{item.level}
                 </div>
 
-                <div className="mt-4 space-y-3">
-                  {focusRows.length === 0 && (
-                    <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明確重點候選，先不要硬做。
-                    </div>
-                  )}
-
-                  {focusRows.map((row, index) => {
-                    const firstAlert = allAlerts.find((alert) => alert.code === row.stock.code);
-                    return (
-                      <FocusStockCard
-                        key={row.stock.code}
-                        stock={row.stock}
-                        plan={row.plan}
-                        alert={firstAlert}
-                        rank={index + 1}
-                        onClick={() => setSelectedCode(row.stock.code)}
-                      />
-                    );
-                  })}
-                </div>
-              </NeonPanel>
-
-              <NeonPanel className="border-red-400/35 shadow-[0_0_38px_rgba(239,68,68,0.16)]">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-xs font-black tracking-[0.18em] text-red-300">AVOID LIST</div>
-                    <h3 className="mt-1 text-2xl font-black text-white">不要碰清單</h3>
-                  </div>
-                  <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
-                    看全部
-                  </button>
+                <div className="text-lg font-black text-white">
+                  {item.stock.code} {stockDisplayName(item.stock)}
                 </div>
 
-                <div className="mt-4 space-y-3">
-                  {avoidAlerts.length === 0 && (
-                    <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
-                      目前沒有明顯不要碰清單。
-                    </div>
-                  )}
-
-                  {avoidAlerts.slice(0, 5).map((alert) => (
-                    <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
-                  ))}
+                <div className="mt-1 text-xs font-bold text-emerald-200">
+                  {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
                 </div>
-              </NeonPanel>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">勝率分</div>
+                <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
+                  {item.score}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-2 space-y-1">
+              {item.reasons.slice(0, 4).map((reason) => (
+                <div key={reason} className="text-xs font-bold text-slate-300">
+                  ・{reason}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+              {item.warning}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-cyan-300">MAIN MONEY FLOW</div>
+          <div className="mt-1 text-2xl font-black text-white">主線資金流向核心</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            先看資金流到哪個產業，再看流進哪些個股。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">主線</div>
+          <div className="text-lg font-black text-cyan-200">{mainMoneyFlow.topIndustry}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">資金產業</div>
+          <div className="mt-1 text-sm font-black text-cyan-200">
+            {mainMoneyFlow.topIndustries.length ? mainMoneyFlow.topIndustries.join(" / ") : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">資金個股</div>
+          <div className="mt-1 text-sm font-black text-yellow-200">
+            {mainMoneyFlow.moneyStocks[0]
+              ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
+              : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">偷偷變多</div>
+          <div className="mt-1 text-sm font-black text-orange-200">
+            {mainMoneyFlow.stealthStocks[0]
+              ? `${mainMoneyFlow.stealthStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.stealthStocks[0].stock)}`
+              : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">主動ETF</div>
+          <div className="mt-1 text-sm font-black text-fuchsia-200">
+            等待官方持股檔
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+        <div className="text-xs font-black text-slate-400">資金交集股</div>
+
+        <div className="mt-2 space-y-2">
+          {mainMoneyFlow.focusStocks.length === 0 && (
+            <div className="text-sm font-bold text-slate-400">
+              目前沒有明確資金交集股。
             </div>
           )}
+
+          {mainMoneyFlow.focusStocks.slice(0, 3).map((item, index) => (
+            <button
+              key={item.code}
+              onClick={() => setSelectedCode(item.code)}
+              className="flex w-full items-center justify-between rounded-xl bg-black/30 px-3 py-2 text-left"
+            >
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜{item.tags.join(" + ")}
+                </div>
+                <div className="text-base font-black text-white">
+                  {item.code} {item.name}
+                </div>
+                <div className="text-xs font-bold text-cyan-200">
+                  {item.industry}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">交集分</div>
+                <div className="text-xl font-black text-cyan-200">{item.score}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+        主線邏輯：產業資金 → 個股資金 → ETF持股變化 → 明日9:10確認。
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-white/10 bg-white/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-cyan-300">TODAY MONEY SUMMARY</div>
+          <div className="mt-1 text-2xl font-black text-white">今日資金一眼看懂</div>
+          <div className="mt-1 text-sm font-bold text-slate-300">
+            先看資金主線，再看明日候選，避免追高。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">建議</div>
+          <div className="text-sm font-black text-yellow-200">{homeSummary.warning}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">資金主線產業</div>
+          <div className="mt-1 text-lg font-black text-cyan-200">{homeSummary.topIndustry}</div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">資金核心股</div>
+          <div className="mt-1 text-lg font-black text-yellow-200">{homeSummary.coreText}</div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">偷偷變多</div>
+          <div className="mt-1 text-lg font-black text-orange-200">{homeSummary.stealthText}</div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">明日先看</div>
+          <div className="mt-1 text-lg font-black text-fuchsia-200">{homeSummary.nextText}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-red-400/10 p-3 text-xs font-black text-red-200">
+        實戰規則：開高超過 3% 不追；9:10 後確認量能與分K站穩。
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-yellow-300">CAPITAL RADAR CORE</div>
+          <div className="mt-1 text-2xl font-black text-white">資金雷達核心個股</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            資金、量能、突破、隔日候選綜合分數。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">核心</div>
+          <div className="text-2xl font-black text-yellow-200">{capitalCoreWatchList.length}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {capitalCoreWatchList.length === 0 && (
+          <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+            目前沒有明確資金核心個股。
+          </div>
+        )}
+
+        {capitalCoreWatchList.slice(0, 5).map((item, index) => (
+          <button
+            key={item.stock.code}
+            onClick={() => setSelectedCode(item.stock.code)}
+            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜資金核心
+                </div>
+                <div className="text-lg font-black text-white">
+                  {item.stock.code} {stockDisplayName(item.stock)}
+                </div>
+                <div className="mt-1 text-xs font-bold text-yellow-200">
+                  {item.stock.industry || "其他"}｜{item.moneyLabel}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">資金分數</div>
+                <div className="text-2xl font-black text-yellow-200">{item.score}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 space-y-1">
+              {item.reasons.map((reason) => (
+                <div key={reason} className="text-xs font-bold text-slate-300">
+                  ・{reason}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 rounded-xl bg-red-400/10 p-2 text-xs font-black text-red-200">
+              提醒：資金流入不等於立刻買；隔天開高超過 3% 不追。
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-2xl border border-orange-400/30 bg-orange-500/10 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-orange-300">STEALTH MONEY</div>
+          <div className="text-lg font-black text-white">資金偷偷變多</div>
+          <div className="mt-1 text-xs font-bold text-slate-300">
+            還沒大漲，但量能與金額慢慢變強。
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">偷偷</div>
+          <div className="text-2xl font-black text-orange-200">{stealthMoneyWatchList.length}</div>
+        </div>
+      </div>
+
+      <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+        {stealthMoneyWatchList.length === 0 && (
+          <div className="min-w-full rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+            目前沒有明顯資金偷偷變多的個股。
+          </div>
+        )}
+
+        {stealthMoneyWatchList.slice(0, 3).map((item, index) => (
+          <button
+            key={item.stock.code}
+            onClick={() => setSelectedCode(item.stock.code)}
+            className="min-w-[150px] rounded-xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="text-xs font-black text-slate-400">#{index + 1}｜偷增</div>
+            <div className="mt-1 text-lg font-black text-white">
+              {item.stock.code}
+            </div>
+            <div className="text-sm font-black text-white">
+              {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-orange-200">
+              分數 {item.score}｜量比 {item.volumeRatio.toFixed(1)}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-cyan-300">NEXT DAY MASTER LIST</div>
+          <div className="mt-1 text-2xl font-black text-white">明日優先觀察合併排序</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            合併「5日線突破」與「收盤後隔日強勢候選」，依分數排序。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">觀察</div>
+          <div className="text-2xl font-black text-cyan-200">{mergedNextDayWatchList.length}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {mergedNextDayWatchList.length === 0 && (
+          <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+            目前沒有明日優先觀察名單。
+          </div>
+        )}
+
+        {mergedNextDayWatchList.slice(0, 5).map((item, index) => (
+          <button
+            key={item.code}
+            onClick={() => setSelectedCode(item.code)}
+            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜{item.tag}
+                </div>
+                <div className="text-lg font-black text-white">
+                  {item.code} {item.name}
+                </div>
+                <div className="mt-1 text-xs font-bold text-cyan-200">
+                  {item.industry}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">總分</div>
+                <div className="text-2xl font-black text-cyan-200">{item.score}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 text-xs font-bold text-slate-300">
+              ・{item.reason}
+            </div>
+
+            <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+              {item.warning}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-emerald-300">MA5 BREAK WATCH</div>
+          <div className="mt-1 text-2xl font-black text-white">剛突破5日線提示</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            僅做畫面提示，不跳通知；先確認有沒有取得 5日線資料，避免白畫面。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">突破</div>
+          <div className="text-2xl font-black text-emerald-200">{fiveDayBreakAlerts.length}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {fiveDayBreakAlerts.length === 0 && (
+          <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+            目前沒有偵測到剛突破 5日線的個股；系統已嘗試抓前 10 檔日K計算 ma5。
+          </div>
+        )}
+
+        {fiveDayBreakAlerts.slice(0, 3).map((item, index) => (
+          <button
+            key={item.stock.code}
+            onClick={() => setSelectedCode(item.stock.code)}
+            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜5日線突破
+                </div>
+                <div className="text-lg font-black text-white">
+                  {item.stock.code} {stockDisplayName(item.stock)}
+                </div>
+                <div className="mt-1 text-xs font-bold text-emerald-200">
+                  {item.reason}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">突破分數</div>
+                <div className="text-2xl font-black text-emerald-200">{item.score}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+              提醒：剛突破不等於立刻買，先看量能、分K是否站穩，開高過多不追。
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <div className="rounded-3xl border border-fuchsia-400/30 bg-fuchsia-500/10 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-fuchsia-300">AFTER CLOSE RADAR</div>
+          <div className="mt-1 text-2xl font-black text-white">收盤後隔日強勢候選</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            {isAfterCloseMode
+              ? "現在是收盤後模式：依漲幅、量能、收盤強度與產業強弱排序。"
+              : "下午 1:30 後自動切換收盤後模式；盤中僅供預覽。"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">候選</div>
+          <div className="text-2xl font-black text-fuchsia-200">{nextDayCandidates.length}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {nextDayCandidates.length === 0 && (
+          <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+            目前沒有符合條件的隔日強勢候選。
+          </div>
+        )}
+
+        {nextDayCandidates.slice(0, 5).map((item, index) => (
+          <button
+            key={item.stock.code}
+            onClick={() => setSelectedCode(item.stock.code)}
+            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜{item.level}
+                </div>
+                <div className="text-lg font-black text-white">
+                  {item.stock.code} {stockDisplayName(item.stock)}
+                </div>
+                <div className="mt-1 text-xs font-bold text-slate-400">
+                  {item.stock.industry || "其他"}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">隔日分數</div>
+                <div className="text-2xl font-black text-fuchsia-200">{item.score}</div>
+              </div>
+            </div>
+
+            <div className="mt-2 space-y-1">
+              {item.reasons.map((reason) => (
+                <div key={reason} className="text-xs font-bold text-slate-300">
+                  ・{reason}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+              {item.warning}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+
+    <NeonPanel className="border-emerald-400/35 shadow-[0_0_38px_rgba(16,185,129,0.16)]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black tracking-[0.18em] text-emerald-300">FOCUS LIST</div>
+          <h3 className="mt-1 text-2xl font-black text-white">今日只看這幾檔</h3>
+        </div>
+        <button onClick={() => setPopup("entry")} className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-xs font-black text-emerald-200">
+          看全部
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {focusRows.length === 0 && (
+          <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
+            目前沒有明確重點候選，先不要硬做。
+          </div>
+        )}
+
+        {focusRows.map((row, index) => {
+          const firstAlert = allAlerts.find((alert) => alert.code === row.stock.code);
+          return (
+            <FocusStockCard
+              key={row.stock.code}
+              stock={row.stock}
+              plan={row.plan}
+              alert={firstAlert}
+              rank={index + 1}
+              onClick={() => setSelectedCode(row.stock.code)}
+            />
+          );
+        })}
+      </div>
+    </NeonPanel>
+
+    <NeonPanel className="border-red-400/35 shadow-[0_0_38px_rgba(239,68,68,0.16)]">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-xs font-black tracking-[0.18em] text-red-300">AVOID LIST</div>
+          <h3 className="mt-1 text-2xl font-black text-white">不要碰清單</h3>
+        </div>
+        <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
+          看全部
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {avoidAlerts.length === 0 && (
+          <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
+            目前沒有明顯不要碰清單。
+          </div>
+        )}
+
+        {avoidAlerts.slice(0, 5).map((alert) => (
+          <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
+        ))}
+      </div>
+    </NeonPanel>
+  </div>
+)}
           {tab === "top50" && (
             <div className="space-y-3">
               {entryRows.map((row) => (
