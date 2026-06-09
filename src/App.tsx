@@ -3187,31 +3187,9 @@ const isAfterCloseMode = useMemo(() => {
   )
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
-}, [
-  top50WithMa5Kline,
-  industryRanking,
-  moneyHistory,
-  fiveDayBreakAlerts,
-  mergedNextDayWatchList,
-]);
+}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
 
 const highWinRejectedList = useMemo(() => {
-  const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
-
-  return buildHighWinRejectedCandidates(
-    top50WithMa5Kline,
-    industryRanking,
-    moneyHistory,
-    fiveDayBreakAlerts
-  ).filter((item) => !pickedCodes.has(item.stock.code));
-}, [
-  top50WithMa5Kline,
-  industryRanking,
-  moneyHistory,
-  fiveDayBreakAlerts,
-  highWinTomorrowList,
-]);
-
   const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
 
   return buildHighWinRejectedCandidates(
@@ -3225,15 +3203,30 @@ const yesterdayHighWinCompareList = useMemo(() => {
   if (typeof window === "undefined") return [];
 
   const history = safeParse<
-    Record<string, { createdAt: string; list: HighWinHistoryItem[] }>
-  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
+    Record<
+      string,
+      {
+        createdAt: string;
+        list: HighWinCandidate[];
+      }
+    >
+  >(localStorage.getItem("taiwan-stock-radar-high-win-history"), {});
 
-  const yesterdayKey = dateKeyOffset(-1);
+  const now = new Date();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+
+  const yesterdayKey = yesterday.toLocaleDateString("sv-SE", {
+    timeZone: "Asia/Taipei",
+  });
+
   const yesterdayList = history[yesterdayKey]?.list || [];
 
   return yesterdayList.slice(0, 10).map((item, index) => {
     const todayRank =
-      highWinTomorrowList.findIndex((row) => row.stock.code === item.code) + 1;
+      highWinTomorrowList.findIndex(
+        (todayItem) => todayItem.stock.code === item.stock.code
+      ) + 1;
 
     return {
       ...item,
