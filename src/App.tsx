@@ -4322,89 +4322,97 @@ const mainMoneyFlow = useMemo(() => {
           {tab === "home" && (
   <div className="space-y-4">
     <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
-          <div className="text-2xl font-black text-white">明日主攻前10名</div>
-          <div className="mt-1 text-xs font-bold text-slate-300">
-            90分以上主攻，65～89分觀察；股價超過300自動剔除。
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-  <div className="text-xs font-black text-slate-400">符合</div>
-  <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
-</div>
-
-  <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-    <div className="text-xs font-black text-slate-400">昨日延續</div>
-    <div className="text-2xl font-black text-cyan-200">{yesterdayContinuedCount}</div>
-  </div>
-</div>
-      </div>
-<div className="mt-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3">
   <div className="flex items-start justify-between gap-3">
     <div>
-      <div className="text-xs font-black text-cyan-300">YESTERDAY CHECK</div>
-      <div className="mt-1 text-lg font-black text-white">昨日主攻續航</div>
+      <div className="text-xs font-black text-emerald-300">HIGH WIN TOMORROW</div>
+      <div className="text-2xl font-black text-white">明日主攻前10名</div>
       <div className="mt-1 text-xs font-bold text-slate-300">
-        對比昨天主攻10檔，今天是否繼續留在主攻名單。
+        90分以上主攻，65～89分觀察；股價超過300自動剔除。
       </div>
     </div>
 
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">續攻</div>
-      <div className="text-2xl font-black text-cyan-200">
-        {yesterdayContinuedCount}/{yesterdayHighWinCompareList.length || 0}
+    <div className="grid grid-cols-2 gap-2">
+      <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+        <div className="text-xs font-black text-slate-400">符合</div>
+        <div className="text-2xl font-black text-emerald-200">
+          {highWinTomorrowList.length}
+        </div>
       </div>
+
+      <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+        <div className="text-xs font-black text-slate-400">續攻</div>
+        <div className="text-2xl font-black text-cyan-200">
+          {yesterdayHighWinCompareList.filter((item) => item.continued).length}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div className="mt-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <div className="text-xs font-black text-cyan-300">YESTERDAY CHECK</div>
+        <div className="mt-1 text-lg font-black text-white">昨日主攻續航</div>
+        <div className="mt-1 text-xs font-bold text-slate-300">
+          對比昨天主攻10檔，今天是否繼續留在主攻名單。
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+        <div className="text-xs font-black text-slate-400">續攻</div>
+        <div className="text-2xl font-black text-cyan-200">
+          {yesterdayHighWinCompareList.filter((item) => item.continued).length}/
+          {yesterdayHighWinCompareList.length || 0}
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-3 space-y-2">
+      {yesterdayHighWinCompareList.length === 0 && (
+        <div className="rounded-xl bg-black/30 p-3 text-xs font-bold text-slate-400">
+          尚未有昨天主攻紀錄；今天會開始保存，明天就能自動對比。
+        </div>
+      )}
+
+      {yesterdayHighWinCompareList.map((item) => (
+        <button
+          key={item.code}
+          onClick={() => setSelectedCode(item.code)}
+          className="flex w-full items-center justify-between gap-2 rounded-xl bg-black/30 px-3 py-2 text-left"
+        >
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              昨日 #{item.yesterdayRank}｜{item.industry}
+            </div>
+            <div className="text-sm font-black text-white">
+              {item.code} {item.name}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">
+              昨日分數 {item.score}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div
+              className={
+                item.continued
+                  ? "text-sm font-black text-emerald-300"
+                  : "text-sm font-black text-red-300"
+              }
+            >
+              {item.continued ? "續攻" : "掉出"}
+            </div>
+            <div className="mt-1 text-xs font-bold text-slate-400">
+              {item.continued ? `今天 #${item.todayRank}` : "今天未入榜"}
+            </div>
+          </div>
+        </button>
+      ))}
     </div>
   </div>
 
   <div className="mt-3 space-y-2">
-    {yesterdayHighWinCompareList.length === 0 && (
-      <div className="rounded-xl bg-black/30 p-3 text-xs font-bold text-slate-400">
-        尚未有昨天主攻紀錄；今天會開始保存，明天就能自動對比。
-      </div>
-    )}
-
-    {yesterdayHighWinCompareList.map((item) => (
-      <button
-        key={item.code}
-        onClick={() => setSelectedCode(item.code)}
-        className="flex w-full items-center justify-between gap-2 rounded-xl bg-black/30 px-3 py-2 text-left"
-      >
-        <div>
-          <div className="text-xs font-black text-slate-400">
-            昨日 #{item.yesterdayRank}｜{item.industry}
-          </div>
-          <div className="text-sm font-black text-white">
-            {item.code} {item.name}
-          </div>
-          <div className="mt-1 text-xs font-bold text-slate-400">
-            昨日分數 {item.score}
-          </div>
-        </div>
-
-        <div className="text-right">
-          <div
-            className={
-              item.continued
-                ? "text-sm font-black text-emerald-300"
-                : "text-sm font-black text-red-300"
-            }
-          >
-            {item.continued ? "續攻" : "掉出"}
-          </div>
-          <div className="mt-1 text-xs font-bold text-slate-400">
-            {item.continued ? `今天 #${item.todayRank}` : "今天未入榜"}
-          </div>
-        </div>
-      </button>
-    ))}
-  </div>
-</div>
-      <div className="mt-3 space-y-2">
-            {highWinTomorrowList.length === 0 && (
+    {highWinTomorrowList.length === 0 && (
       <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
         明日不硬做：目前沒有達到65分以上的高勝率候選。
       </div>
@@ -4435,7 +4443,9 @@ const mainMoneyFlow = useMemo(() => {
 
                 <div className="text-right">
                   <div className="text-xs font-black text-slate-400">原始分</div>
-                  <div className="text-xl font-black text-yellow-200">{item.score}</div>
+                  <div className="text-xl font-black text-yellow-200">
+                    {item.score}
+                  </div>
                 </div>
               </div>
             </button>
@@ -4445,49 +4455,55 @@ const mainMoneyFlow = useMemo(() => {
     )}
 
     {highWinTomorrowList.map((item, index) => (
-          <button
-            key={item.stock.code}
-            onClick={() => setSelectedCode(item.stock.code)}
-            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="text-xs font-black text-slate-400">
-                  #{index + 1}｜{item.level}
-                </div>
-
-                <div className="text-lg font-black text-white">
-                  {item.stock.code} {stockDisplayName(item.stock)}
-                </div>
-
-                <div className="mt-1 text-xs font-bold text-emerald-200">
-                  {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
-                </div>
-              </div>
-
-              <div className="text-right">
-                <div className="text-xs font-black text-slate-400">勝率分</div>
-                <div className={item.score >= 90 ? "text-2xl font-black text-red-300" : "text-2xl font-black text-yellow-200"}>
-                  {item.score}
-                </div>
-              </div>
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              #{index + 1}｜{item.level}
             </div>
 
-            <div className="mt-2 space-y-1">
-              {item.reasons.slice(0, 4).map((reason) => (
-                <div key={reason} className="text-xs font-bold text-slate-300">
-                  ・{reason}
-                </div>
-              ))}
+            <div className="text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
             </div>
 
-            <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
-              {item.warning}
+            <div className="mt-1 text-xs font-bold text-emerald-200">
+              {item.stock.industry}｜股價 {formatPrice(item.stock.price)}
             </div>
-          </button>
-        ))}
-      </div>
-    </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">勝率分</div>
+            <div
+              className={
+                item.score >= 90
+                  ? "text-2xl font-black text-red-300"
+                  : "text-2xl font-black text-yellow-200"
+              }
+            >
+              {item.score}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          {item.reasons.slice(0, 4).map((reason) => (
+            <div key={reason} className="text-xs font-bold text-slate-300">
+              ・{reason}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 p-2 text-xs font-black text-yellow-200">
+          {item.warning}
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
 
     <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
       <div className="flex items-start justify-between gap-3">
