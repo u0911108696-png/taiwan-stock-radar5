@@ -4676,14 +4676,14 @@ const mainMoneyFlow = useMemo(() => {
         </div>
       </div>
 
-      <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+      <div className="mt-2 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {stealthMoneyWatchList.length === 0 && (
           <div className="min-w-full rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
             目前沒有明顯資金偷偷變多的個股。
           </div>
         )}
 
-        {stealthMoneyWatchList.slice(0, 3).map((item, index) => (
+        {stealthMoneyWatchList.slice(0, 10).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
