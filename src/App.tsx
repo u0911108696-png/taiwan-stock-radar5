@@ -3211,7 +3211,6 @@ const highWinRejectedList = useMemo(() => {
   fiveDayBreakAlerts,
   highWinTomorrowList,
 ]);
-
 const yesterdayHighWinCompareList = useMemo(() => {
   if (typeof window === "undefined") return [];
 
@@ -3220,34 +3219,65 @@ const yesterdayHighWinCompareList = useMemo(() => {
       string,
       {
         createdAt: string;
-        list: HighWinCandidate[];
+        list: HighWinHistoryItem[];
       }
     >
-  >(localStorage.getItem("taiwan-stock-radar-high-win-history"), {});
+  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
 
-  const now = new Date();
-  const yesterday = new Date(now);
-  yesterday.setDate(now.getDate() - 1);
-
-  const yesterdayKey = yesterday.toLocaleDateString("sv-SE", {
-    timeZone: "Asia/Taipei",
-  });
-
+  const yesterdayKey = dateKeyOffset(-1);
   const yesterdayList = history[yesterdayKey]?.list || [];
 
   return yesterdayList.slice(0, 10).map((item, index) => {
     const todayRank =
       highWinTomorrowList.findIndex(
-        (todayItem) => todayItem.stock.code === item.stock.code
+        (todayItem) => todayItem.stock.code === item.code
       ) + 1;
 
     return {
-      ...item,
+      code: item.code,
+      name: item.name,
+      industry: item.industry,
+      score: item.score,
+      level: item.level,
       yesterdayRank: index + 1,
       continued: todayRank > 0,
       todayRank,
     };
   });
+}, [highWinTomorrowList]);
+
+const yesterdayContinuedCount = useMemo(() => {
+  return yesterdayHighWinCompareList.filter((item) => item.continued).length;
+}, [yesterdayHighWinCompareList]);
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  if (highWinTomorrowList.length === 0) return;
+
+  const history = safeParse<
+    Record<
+      string,
+      {
+        createdAt: string;
+        list: HighWinHistoryItem[];
+      }
+    >
+  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
+
+  const key = todayKey();
+
+  history[key] = {
+    createdAt: nowText(),
+    list: highWinTomorrowList.slice(0, 10).map((item) => ({
+      code: item.stock.code,
+      name: stockDisplayName(item.stock),
+      industry: item.stock.industry,
+      score: item.score,
+      level: item.level,
+      savedAt: nowText(),
+    })),
+  };
+
+  localStorage.setItem(HIGH_WIN_HISTORY_KEY, JSON.stringify(history));
 }, [highWinTomorrowList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
@@ -4308,7 +4338,7 @@ const mainMoneyFlow = useMemo(() => {
 
   <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
     <div className="text-xs font-black text-slate-400">昨日延續</div>
-    <div className="text-2xl font-black text-cyan-200">{yesterdayContinueCount}</div>
+    <div className="text-2xl font-black text-cyan-200">{yesterdayContinuedCount}</div>
   </div>
 </div>
       </div>
