@@ -3249,36 +3249,6 @@ const yesterdayHighWinCompareList = useMemo(() => {
 const yesterdayContinuedCount = useMemo(() => {
   return yesterdayHighWinCompareList.filter((item) => item.continued).length;
 }, [yesterdayHighWinCompareList]);
-useEffect(() => {
-  if (typeof window === "undefined") return;
-  if (highWinTomorrowList.length === 0) return;
-
-  const history = safeParse<
-    Record<
-      string,
-      {
-        createdAt: string;
-        list: HighWinHistoryItem[];
-      }
-    >
-  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
-
-  const key = todayKey();
-
-  history[key] = {
-    createdAt: nowText(),
-    list: highWinTomorrowList.slice(0, 10).map((item) => ({
-      code: item.stock.code,
-      name: stockDisplayName(item.stock),
-      industry: item.stock.industry,
-      score: item.score,
-      level: item.level,
-      savedAt: nowText(),
-    })),
-  };
-
-  localStorage.setItem(HIGH_WIN_HISTORY_KEY, JSON.stringify(history));
-}, [highWinTomorrowList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
