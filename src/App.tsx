@@ -3187,7 +3187,13 @@ const isAfterCloseMode = useMemo(() => {
   )
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
+}, [
+  top50WithMa5Kline,
+  industryRanking,
+  moneyHistory,
+  fiveDayBreakAlerts,
+  mergedNextDayWatchList,
+]);
 
 const highWinRejectedList = useMemo(() => {
   const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
@@ -3198,7 +3204,14 @@ const highWinRejectedList = useMemo(() => {
     moneyHistory,
     fiveDayBreakAlerts
   ).filter((item) => !pickedCodes.has(item.stock.code));
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, highWinTomorrowList]);
+}, [
+  top50WithMa5Kline,
+  industryRanking,
+  moneyHistory,
+  fiveDayBreakAlerts,
+  highWinTomorrowList,
+]);
+
 const yesterdayHighWinCompareList = useMemo(() => {
   if (typeof window === "undefined") return [];
 
@@ -3235,42 +3248,6 @@ const yesterdayHighWinCompareList = useMemo(() => {
       todayRank,
     };
   });
-}, [highWinTomorrowList]);
-
-const yesterdayContinuedCount = useMemo(() => {
-  return yesterdayHighWinCompareList.filter((item) => item.continued).length;
-}, [yesterdayHighWinCompareList]);
-
-useEffect(() => {
-  if (typeof window === "undefined") return;
-  if (highWinTomorrowList.length === 0) return;
-
-  const today = todayKey();
-
-  const history = safeParse<
-    Record<string, { createdAt: string; list: HighWinHistoryItem[] }>
-  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
-
-  history[today] = {
-    createdAt: nowText(),
-    list: highWinTomorrowList.slice(0, 10).map((item) => ({
-      code: item.stock.code,
-      name: stockDisplayName(item.stock),
-      industry: item.stock.industry || "其他",
-      score: item.score,
-      level: item.level,
-      savedAt: nowText(),
-    })),
-  };
-
-  const keepKeys = Object.keys(history).sort().slice(-7);
-  const nextHistory: Record<string, { createdAt: string; list: HighWinHistoryItem[] }> = {};
-
-  keepKeys.forEach((key) => {
-    nextHistory[key] = history[key];
-  });
-
-  localStorage.setItem(HIGH_WIN_HISTORY_KEY, JSON.stringify(nextHistory));
 }, [highWinTomorrowList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
