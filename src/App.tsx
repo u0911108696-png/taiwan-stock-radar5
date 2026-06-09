@@ -3187,7 +3187,30 @@ const isAfterCloseMode = useMemo(() => {
   )
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
-}, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
+}, [
+  top50WithMa5Kline,
+  industryRanking,
+  moneyHistory,
+  fiveDayBreakAlerts,
+  mergedNextDayWatchList,
+]);
+
+const highWinRejectedList = useMemo(() => {
+  const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
+
+  return buildHighWinRejectedCandidates(
+    top50WithMa5Kline,
+    industryRanking,
+    moneyHistory,
+    fiveDayBreakAlerts
+  ).filter((item) => !pickedCodes.has(item.stock.code));
+}, [
+  top50WithMa5Kline,
+  industryRanking,
+  moneyHistory,
+  fiveDayBreakAlerts,
+  highWinTomorrowList,
+]);
 
   const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
 
