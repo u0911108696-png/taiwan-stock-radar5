@@ -3188,8 +3188,81 @@ const isAfterCloseMode = useMemo(() => {
     .sort((a, b) => b.score - a.score)
     .slice(0, 10);
 }, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, mergedNextDayWatchList]);
+const YESTERDAY_HIGH_WIN_KEY = "taiwan-stock-radar-yesterday-high-win-v119";
+const TODAY_HIGH_WIN_KEY = "taiwan-stock-radar-today-high-win-v119";
 
-const highWinRejectedList = useMemo(() => {
+type StoredHighWinItem = {
+  code: string;
+  name: string;
+  industry: string;
+  score: number;
+  level: string;
+  dateKey: string;
+};
+
+const [yesterdayHighWinList, setYesterdayHighWinList] = useState<StoredHighWinItem[]>([]);
+
+function saveTodayHighWinList(list: HighWinCandidate[]) {
+  const today = todayKey();
+
+  const savedToday = safeParse<{
+    dateKey: string;
+    items: StoredHighWinItem[];
+  }>(localStorage.getItem(TODAY_HIGH_WIN_KEY), {
+    dateKey: "",
+    items: [],
+  });
+
+  if (savedToday.dateKey && savedToday.dateKey !== today) {
+    localStorage.setItem(
+      YESTERDAY_HIGH_WIN_KEY,
+      JSON.stringify({
+        dateKey: savedToday.dateKey,
+        items: savedToday.items,
+      })
+    );
+
+    setYesterdayHighWinList(savedToday.items || []);
+  }
+
+  const items: StoredHighWinItem[] = list.slice(0, 10).map((item) => ({
+    code: item.stock.code,
+    name: stockDisplayName(item.stock),
+    industry: item.stock.industry || "其他",
+    score: item.score,
+    level: item.level,
+    dateKey: today,
+  }));
+
+  localStorage.setItem(
+    TODAY_HIGH_WIN_KEY,
+    JSON.stringify({
+      dateKey: today,
+      items,
+    })
+  );
+}
+
+const yesterdayCompareList = useMemo(() => {
+  return yesterdayHighWinList.map((old) => {
+    const todayItem = highWinTomorrowList.find((item) => item.stock.code === old.code);
+    const todayObserve = highWinTomorrowList.some((item) => item.stock.code === old.code);
+
+    return {
+      ...old,
+      todayScore: todayItem?.score || 0,
+      status: todayObserve ? "延續主攻" : "今日淘汰",
+    };
+  });
+}, [yesterdayHighWinList, highWinTomorrowList]);
+
+const yesterdayContinueCount = useMemo(() => {
+  return yesterdayCompareList.filter((item) => item.status === "延續主攻").length;
+}, [yesterdayCompareList]);
+const highWinRejectedList = useMemo(() => {useEffect(() => {
+  if (highWinTomorrowList.length === 0) return;
+  saveTodayHighWinList(highWinTomorrowList);
+}, [highWinTomorrowList]);
   const pickedCodes = new Set(highWinTomorrowList.map((item) => item.stock.code));
 
   return buildHighWinRejectedCandidates(
@@ -4089,7 +4162,15 @@ const mainMoneyFlow = useMemo(() => {
     setPositions(safeParse(localStorage.getItem(POSITIONS_KEY), {}));
     setMoneyHistory(safeParse(localStorage.getItem(MONEY_HISTORY_KEY), {}));
     setSnapshot(safeParse(localStorage.getItem(SNAPSHOT_KEY), null));
+    const savedYesterdayHighWin = safeParse<{
+  dateKey: string;
+  items: StoredHighWinItem[];
+}>(localStorage.getItem(YESTERDAY_HIGH_WIN_KEY), {
+  dateKey: "",
+  items: [],
+});
 
+setYesterdayHighWinList(savedYesterdayHighWin.items || []);
     const cached = safeParse<any>(localStorage.getItem(CACHE_KEY), null);
     if (cached && Array.isArray(cached.stocks)) {
       setStocks(cached.stocks);
@@ -4309,10 +4390,17 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-          <div className="text-xs font-black text-slate-400">符合</div>
-          <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
-        </div>
+        <div className="grid grid-cols-2 gap-2">
+  <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+    <div className="text-xs font-black text-slate-400">符合</div>
+    <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
+  </div>
+
+  <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+    <div className="text-xs font-black text-slate-400">昨日延續</div>
+    <div className="text-2xl font-black text-cyan-200">{yesterdayContinueCount}</div>
+  </div>
+</div>
       </div>
 <div className="mt-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3">
   <div className="flex items-start justify-between gap-3">
@@ -4381,7 +4469,57 @@ const mainMoneyFlow = useMemo(() => {
         明日不硬做：目前沒有達到65分以上的高勝率候選。
       </div>
     )}
+{yesterdayCompareList.length > 0 && (
+  <div className="rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3">
+    <div className="flex items-center justify-between gap-2">
+      <div>
+        <div className="text-sm font-black text-cyan-200">昨日主攻對比</div>
+        <div className="mt-1 text-xs font-bold text-slate-400">
+          昨天主攻10檔，今天還在名單內＝延續主攻
+        </div>
+      </div>
 
+      <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
+        <div className="text-xs font-black text-slate-400">延續</div>
+        <div className="text-xl font-black text-cyan-200">{yesterdayContinueCount}</div>
+      </div>
+    </div>
+
+    <div className="mt-2 space-y-2">
+      {yesterdayCompareList.slice(0, 10).map((item, index) => (
+        <button
+          key={item.code}
+          onClick={() => setSelectedCode(item.code)}
+          className="flex w-full items-center justify-between rounded-xl bg-black/30 px-3 py-2 text-left"
+        >
+          <div>
+            <div className="text-xs font-black text-slate-400">
+              昨日 #{index + 1}｜{item.industry}
+            </div>
+            <div className="text-base font-black text-white">
+              {item.code} {item.name}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div
+              className={
+                item.status === "延續主攻"
+                  ? "text-sm font-black text-emerald-300"
+                  : "text-sm font-black text-red-300"
+              }
+            >
+              {item.status}
+            </div>
+            <div className="text-xs font-bold text-slate-400">
+              昨 {item.score}｜今 {item.todayScore || "--"}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  </div>
+)}
     {highWinTomorrowList.length === 0 && highWinRejectedList.length > 0 && (
       <div className="rounded-2xl border border-red-400/30 bg-red-500/10 p-3">
         <div className="text-sm font-black text-red-200">剔除原因</div>
