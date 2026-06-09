@@ -4683,7 +4683,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {stealthMoneyWatchList.slice(0, 10).map((item, index) => (
+        {stealthMoneyWatchList.slice(0, 8).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
