@@ -3249,6 +3249,35 @@ const yesterdayHighWinCompareList = useMemo(() => {
 const yesterdayContinuedCount = useMemo(() => {
   return yesterdayHighWinCompareList.filter((item) => item.continued).length;
 }, [yesterdayHighWinCompareList]);
+const yesterdayHitStats = useMemo(() => {
+  const total = yesterdayHighWinCompareList.length;
+
+  const upCount = yesterdayHighWinCompareList.filter((item) => {
+    const nowStock = top50.find((stock) => stock.code === item.code);
+    return nowStock && nowStock.changePercent > 0;
+  }).length;
+
+  const strongCount = yesterdayHighWinCompareList.filter((item) => {
+    const nowStock = top50.find((stock) => stock.code === item.code);
+    return nowStock && nowStock.changePercent >= 1;
+  }).length;
+
+  const continuedCount = yesterdayHighWinCompareList.filter((item) => item.continued).length;
+
+  const hitRate = total > 0 ? Math.round((upCount / total) * 100) : 0;
+  const strongRate = total > 0 ? Math.round((strongCount / total) * 100) : 0;
+  const continuedRate = total > 0 ? Math.round((continuedCount / total) * 100) : 0;
+
+  return {
+    total,
+    upCount,
+    strongCount,
+    continuedCount,
+    hitRate,
+    strongRate,
+    continuedRate,
+  };
+}, [yesterdayHighWinCompareList, top50]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
@@ -4336,7 +4365,40 @@ const mainMoneyFlow = useMemo(() => {
         </div>
       </div>
     </div>
+  </div>
+</div>
 
+<div className="mt-3 grid grid-cols-3 gap-2">
+  <div className="rounded-2xl bg-black/40 p-3 text-center">
+    <div className="text-xs font-black text-slate-400">續攻率</div>
+    <div className="mt-1 text-xl font-black text-cyan-200">
+      {yesterdayHitStats.continuedRate}%
+    </div>
+    <div className="mt-1 text-[11px] font-bold text-slate-400">
+      {yesterdayHitStats.continuedCount}/{yesterdayHitStats.total}
+    </div>
+  </div>
+
+  <div className="rounded-2xl bg-black/40 p-3 text-center">
+    <div className="text-xs font-black text-slate-400">上漲率</div>
+    <div className="mt-1 text-xl font-black text-red-200">
+      {yesterdayHitStats.hitRate}%
+    </div>
+    <div className="mt-1 text-[11px] font-bold text-slate-400">
+      {yesterdayHitStats.upCount}/{yesterdayHitStats.total}
+    </div>
+  </div>
+
+  <div className="rounded-2xl bg-black/40 p-3 text-center">
+    <div className="text-xs font-black text-slate-400">強漲率</div>
+    <div className="mt-1 text-xl font-black text-emerald-200">
+      {yesterdayHitStats.strongRate}%
+    </div>
+    <div className="mt-1 text-[11px] font-bold text-slate-400">
+      {yesterdayHitStats.strongCount}/{yesterdayHitStats.total}
+    </div>
+  </div>
+</div>
     <div className="mt-3 space-y-2">
       {yesterdayHighWinCompareList.length === 0 && (
         <div className="rounded-xl bg-black/30 p-3 text-xs font-bold text-slate-400">
