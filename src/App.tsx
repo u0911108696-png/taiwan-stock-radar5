@@ -186,7 +186,7 @@ const SETTINGS_KEY = "taiwan-stock-radar-v66-settings";
 const CACHE_KEY = "taiwan-stock-radar-v66-cache";
 const MONEY_HISTORY_KEY = "taiwan-stock-radar-v66-money-history";
 const SNAPSHOT_KEY = "taiwan-stock-radar-v66-snapshot";
-
+const HIGH_WIN_HISTORY_KEY = "taiwan-stock-radar-high-win-history-v117";
 const defaultSettings: Settings = {
   refreshSeconds: 15,
   hotPercent: 8,
@@ -334,7 +334,11 @@ function nowText() {
 function todayKey() {
   return new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
 }
-
+function dateKeyOffset(days: number) {
+  const now = new Date();
+  now.setDate(now.getDate() + days);
+  return now.toLocaleDateString("sv-SE", { timeZone: "Asia/Taipei" });
+}
 function taiwanMinutesNow() {
   const text = new Date().toLocaleTimeString("zh-TW", {
     timeZone: "Asia/Taipei",
@@ -1591,6 +1595,14 @@ type HighWinCandidate = {
   level: "明日主攻" | "觀察" | "剔除";
   reasons: string[];
   warning: string;
+};
+type HighWinHistoryItem = {
+  code: string;
+  name: string;
+  industry: string;
+  score: number;
+  level: string;
+  savedAt: string;
 };
 function toNumSafe(value: any, fallback = 0) {
   const n = Number(value);
@@ -3187,6 +3199,64 @@ const highWinRejectedList = useMemo(() => {
     fiveDayBreakAlerts
   ).filter((item) => !pickedCodes.has(item.stock.code));
 }, [top50WithMa5Kline, industryRanking, moneyHistory, fiveDayBreakAlerts, highWinTomorrowList]);
+const yesterdayHighWinCompareList = useMemo(() => {
+  if (typeof window === "undefined") return [];
+
+  const history = safeParse<
+    Record<string, { createdAt: string; list: HighWinHistoryItem[] }>
+  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
+
+  const yesterdayKey = dateKeyOffset(-1);
+  const yesterdayList = history[yesterdayKey]?.list || [];
+
+  return yesterdayList.slice(0, 10).map((item, index) => {
+    const todayRank =
+      highWinTomorrowList.findIndex((row) => row.stock.code === item.code) + 1;
+
+    return {
+      ...item,
+      yesterdayRank: index + 1,
+      continued: todayRank > 0,
+      todayRank,
+    };
+  });
+}, [highWinTomorrowList]);
+
+const yesterdayContinuedCount = useMemo(() => {
+  return yesterdayHighWinCompareList.filter((item) => item.continued).length;
+}, [yesterdayHighWinCompareList]);
+
+useEffect(() => {
+  if (typeof window === "undefined") return;
+  if (highWinTomorrowList.length === 0) return;
+
+  const today = todayKey();
+
+  const history = safeParse<
+    Record<string, { createdAt: string; list: HighWinHistoryItem[] }>
+  >(localStorage.getItem(HIGH_WIN_HISTORY_KEY), {});
+
+  history[today] = {
+    createdAt: nowText(),
+    list: highWinTomorrowList.slice(0, 10).map((item) => ({
+      code: item.stock.code,
+      name: stockDisplayName(item.stock),
+      industry: item.stock.industry || "其他",
+      score: item.score,
+      level: item.level,
+      savedAt: nowText(),
+    })),
+  };
+
+  const keepKeys = Object.keys(history).sort().slice(-7);
+  const nextHistory: Record<string, { createdAt: string; list: HighWinHistoryItem[] }> = {};
+
+  keepKeys.forEach((key) => {
+    nextHistory[key] = history[key];
+  });
+
+  localStorage.setItem(HIGH_WIN_HISTORY_KEY, JSON.stringify(nextHistory));
+}, [highWinTomorrowList]);
   const capitalCoreWatchList = useMemo(() => {
   const hotIndustries = industryRanking.slice(0, 5).map((item) => item.industry);
 
@@ -4244,7 +4314,67 @@ const mainMoneyFlow = useMemo(() => {
           <div className="text-2xl font-black text-emerald-200">{highWinTomorrowList.length}</div>
         </div>
       </div>
+<div className="mt-3 rounded-2xl border border-cyan-400/30 bg-cyan-500/10 p-3">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-cyan-300">YESTERDAY CHECK</div>
+      <div className="mt-1 text-lg font-black text-white">昨日主攻續航</div>
+      <div className="mt-1 text-xs font-bold text-slate-300">
+        對比昨天主攻10檔，今天是否繼續留在主攻名單。
+      </div>
+    </div>
 
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">續攻</div>
+      <div className="text-2xl font-black text-cyan-200">
+        {yesterdayContinuedCount}/{yesterdayHighWinCompareList.length || 0}
+      </div>
+    </div>
+  </div>
+
+  <div className="mt-3 space-y-2">
+    {yesterdayHighWinCompareList.length === 0 && (
+      <div className="rounded-xl bg-black/30 p-3 text-xs font-bold text-slate-400">
+        尚未有昨天主攻紀錄；今天會開始保存，明天就能自動對比。
+      </div>
+    )}
+
+    {yesterdayHighWinCompareList.map((item) => (
+      <button
+        key={item.code}
+        onClick={() => setSelectedCode(item.code)}
+        className="flex w-full items-center justify-between gap-2 rounded-xl bg-black/30 px-3 py-2 text-left"
+      >
+        <div>
+          <div className="text-xs font-black text-slate-400">
+            昨日 #{item.yesterdayRank}｜{item.industry}
+          </div>
+          <div className="text-sm font-black text-white">
+            {item.code} {item.name}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            昨日分數 {item.score}
+          </div>
+        </div>
+
+        <div className="text-right">
+          <div
+            className={
+              item.continued
+                ? "text-sm font-black text-emerald-300"
+                : "text-sm font-black text-red-300"
+            }
+          >
+            {item.continued ? "續攻" : "掉出"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            {item.continued ? `今天 #${item.todayRank}` : "今天未入榜"}
+          </div>
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
       <div className="mt-3 space-y-2">
             {highWinTomorrowList.length === 0 && (
       <div className="rounded-2xl border border-yellow-400/30 bg-yellow-400/10 p-3 text-sm font-black text-yellow-200">
