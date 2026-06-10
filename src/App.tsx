@@ -4311,7 +4311,7 @@ const mainMoneyFlow = useMemo(() => {
 
         <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">主線</div>
-          <div className="text-lg font-black text-cyan-200">
+          <div className="max-w-[72px] truncate text-lg font-black text-cyan-200">
             {mainMoneyFlow.topIndustry}
           </div>
         </div>
@@ -4320,19 +4320,21 @@ const mainMoneyFlow = useMemo(() => {
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="rounded-2xl bg-black/30 p-3">
           <div className="text-xs font-black text-slate-400">錢流進產業</div>
-          <div className="mt-1 text-base font-black text-cyan-200">
-            {mainMoneyFlow.topIndustries.length
-              ? mainMoneyFlow.topIndustries.join(" / ")
-              : "尚未明確"}
-          </div>
+          <div className="mt-1 line-clamp-2 text-sm font-black leading-6 text-cyan-200">
+  {mainMoneyFlow.topIndustries.length
+    ? mainMoneyFlow.topIndustries.join(" / ")
+    : "尚未明確"}
+</div>
         </div>
 
         <div className="rounded-2xl bg-black/30 p-3">
           <div className="text-xs font-black text-slate-400">資金核心股</div>
           <div className="mt-1 text-base font-black text-yellow-200">
             {mainMoneyFlow.moneyStocks[0]
-              ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
-              : "尚未明確"}
+  ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
+  : mainMoneyFlow.industryStocks[0]
+    ? `${mainMoneyFlow.industryStocks[0].code} ${stockDisplayName(mainMoneyFlow.industryStocks[0])}`
+    : "尚未明確"}
           </div>
         </div>
 
@@ -4379,7 +4381,7 @@ const mainMoneyFlow = useMemo(() => {
             </div>
           )}
 
-          {mainMoneyFlow.focusStocks.slice(0, 3).map((item, index) => (
+          {mainMoneyFlow.focusStocks.filter((item) => item.score >= 50).slice(0, 3).map((item, index) => (
             <button
               key={item.code}
               onClick={() => setSelectedCode(item.code)}
