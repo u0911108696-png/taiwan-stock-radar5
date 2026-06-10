@@ -4299,6 +4299,119 @@ const mainMoneyFlow = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4">
           {tab === "home" && (
   <div className="space-y-4">
+    <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4 shadow-[0_0_35px_rgba(34,211,238,0.14)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black text-cyan-300">WHERE MONEY GOES</div>
+          <div className="mt-1 text-2xl font-black text-white">錢往哪裡走</div>
+          <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+            先看資金流進哪個產業，再看流進哪些個股。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">主線</div>
+          <div className="text-lg font-black text-cyan-200">
+            {mainMoneyFlow.topIndustry}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">錢流進產業</div>
+          <div className="mt-1 text-base font-black text-cyan-200">
+            {mainMoneyFlow.topIndustries.length
+              ? mainMoneyFlow.topIndustries.join(" / ")
+              : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">資金核心股</div>
+          <div className="mt-1 text-base font-black text-yellow-200">
+            {mainMoneyFlow.moneyStocks[0]
+              ? `${mainMoneyFlow.moneyStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.moneyStocks[0].stock)}`
+              : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">偷偷變多</div>
+          <div className="mt-1 text-base font-black text-orange-200">
+            {mainMoneyFlow.stealthStocks[0]
+              ? `${mainMoneyFlow.stealthStocks[0].stock.code} ${stockDisplayName(mainMoneyFlow.stealthStocks[0].stock)}`
+              : "尚未明確"}
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/30 p-3">
+          <div className="text-xs font-black text-slate-400">明日先看</div>
+          <div className="mt-1 text-base font-black text-fuchsia-200">
+            {mainMoneyFlow.tomorrowStocks[0]
+              ? `${mainMoneyFlow.tomorrowStocks[0].code} ${mainMoneyFlow.tomorrowStocks[0].name}`
+              : "尚未明確"}
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-white/10 bg-black/30 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-black text-slate-400">資金交集股</div>
+            <div className="mt-1 text-sm font-bold text-slate-300">
+              同時出現在資金核心、偷偷變多、明日觀察的股票。
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-cyan-400/10 px-3 py-2 text-right">
+            <div className="text-xs font-black text-slate-400">交集</div>
+            <div className="text-2xl font-black text-cyan-200">
+              {mainMoneyFlow.focusStocks.length}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          {mainMoneyFlow.focusStocks.length === 0 && (
+            <div className="rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+              目前沒有明確資金交集股。
+            </div>
+          )}
+
+          {mainMoneyFlow.focusStocks.slice(0, 3).map((item, index) => (
+            <button
+              key={item.code}
+              onClick={() => setSelectedCode(item.code)}
+              className="flex w-full items-center justify-between rounded-xl bg-black/30 px-3 py-2 text-left"
+            >
+              <div>
+                <div className="text-xs font-black text-slate-400">
+                  #{index + 1}｜{item.tags.join(" + ")}
+                </div>
+                <div className="text-base font-black text-white">
+                  {item.code} {item.name}
+                </div>
+                <div className="text-xs font-bold text-cyan-200">
+                  {item.industry}
+                </div>
+              </div>
+
+              <div className="text-right">
+                <div className="text-xs font-black text-slate-400">資金分</div>
+                <div className="text-xl font-black text-cyan-200">
+                  {item.score}
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl bg-yellow-400/10 p-3 text-xs font-black text-yellow-200">
+        實戰規則：錢流進主線不等於立刻買；明天 9:10 後確認站穩開盤價，開高超過 3% 不追。
+      </div>
+    </div>
     <div className="rounded-3xl border border-emerald-400/30 bg-emerald-500/10 p-4">
       <div className="flex items-center justify-between gap-3">
         <div>
