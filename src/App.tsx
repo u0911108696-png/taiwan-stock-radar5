@@ -4299,6 +4299,125 @@ const mainMoneyFlow = useMemo(() => {
         <section ref={contentRef} className="mt-4 scroll-mt-4 [overflow-anchor:none]">
           {tab === "home" && (
   <div className="space-y-4">
+    <div className="rounded-3xl border border-fuchsia-400/30 bg-gradient-to-br from-slate-950 via-slate-950 to-fuchsia-950/30 p-4 shadow-[0_0_35px_rgba(217,70,239,0.16)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-black tracking-[0.18em] text-fuchsia-300">ONE SCREEN DASHBOARD</div>
+          <div className="mt-1 text-2xl font-black text-white">今日一屏總覽</div>
+          <div className="mt-1 text-xs font-bold leading-5 text-slate-300">
+            先看錢往哪裡走，再看明日主攻、資金核心、偷偷變多、突破與風險。
+          </div>
+        </div>
+
+        <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+          <div className="text-xs font-black text-slate-400">狀態</div>
+          <div className={`mt-1 text-sm font-black ${marketModeTone}`}>{marketMode}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/10 p-3">
+        <div className="text-xs font-black text-cyan-300">錢往哪裡走</div>
+        <div className="mt-1 line-clamp-2 text-lg font-black leading-6 text-white">
+          {stableMainMoneyFlow.topIndustries.length
+            ? stableMainMoneyFlow.topIndustries.join(" / ")
+            : mainMoneyFlow.topIndustries.length
+              ? mainMoneyFlow.topIndustries.join(" / ")
+              : "尚未明確"}
+        </div>
+        <div className="mt-1 text-xs font-bold text-yellow-200">
+          {homeSummary.warning}
+        </div>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          onClick={() => {
+            if (stableHighWinTomorrowList[0]) setSelectedCode(stableHighWinTomorrowList[0].stock.code);
+          }}
+          className="rounded-2xl border border-red-400/20 bg-red-500/10 p-3 text-left active:scale-95"
+        >
+          <div className="text-xs font-black text-red-300">明日主攻</div>
+          <div className="mt-1 truncate text-base font-black text-white">
+            {stableHighWinTomorrowList[0]
+              ? `${stableHighWinTomorrowList[0].stock.code} ${stockDisplayName(stableHighWinTomorrowList[0].stock)}`
+              : "尚未明確"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            {stableHighWinTomorrowList[0] ? `勝率分 ${stableHighWinTomorrowList[0].score}` : "等下一次資料"}
+          </div>
+        </button>
+
+        <button
+          onClick={() => {
+            if (capitalCoreWatchList[0]) setSelectedCode(capitalCoreWatchList[0].stock.code);
+          }}
+          className="rounded-2xl border border-yellow-400/20 bg-yellow-500/10 p-3 text-left active:scale-95"
+        >
+          <div className="text-xs font-black text-yellow-300">資金核心</div>
+          <div className="mt-1 truncate text-base font-black text-white">
+            {capitalCoreWatchList[0]
+              ? `${capitalCoreWatchList[0].stock.code} ${stockDisplayName(capitalCoreWatchList[0].stock)}`
+              : stableMainMoneyFlow.industryStocks[0]
+                ? `${stableMainMoneyFlow.industryStocks[0].code} ${stockDisplayName(stableMainMoneyFlow.industryStocks[0])}`
+                : "尚未明確"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            {capitalCoreWatchList[0] ? `資金分 ${capitalCoreWatchList[0].score}` : "看主線產業"}
+          </div>
+        </button>
+
+        <button
+          onClick={() => {
+            if (stealthMoneyWatchList[0]) setSelectedCode(stealthMoneyWatchList[0].stock.code);
+          }}
+          className="rounded-2xl border border-orange-400/20 bg-orange-500/10 p-3 text-left active:scale-95"
+        >
+          <div className="text-xs font-black text-orange-300">偷偷變多</div>
+          <div className="mt-1 truncate text-base font-black text-white">
+            {stealthMoneyWatchList[0]
+              ? `${stealthMoneyWatchList[0].stock.code} ${stockDisplayName(stealthMoneyWatchList[0].stock)}`
+              : "尚未明確"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            {stealthMoneyWatchList[0] ? `量比 ${stealthMoneyWatchList[0].volumeRatio.toFixed(1)}` : "等待量能轉強"}
+          </div>
+        </button>
+
+        <button
+          onClick={() => {
+            if (fiveDayBreakAlerts[0]) setSelectedCode(fiveDayBreakAlerts[0].stock.code);
+          }}
+          className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-left active:scale-95"
+        >
+          <div className="text-xs font-black text-emerald-300">5日線突破</div>
+          <div className="mt-1 truncate text-base font-black text-white">
+            {fiveDayBreakAlerts[0]
+              ? `${fiveDayBreakAlerts[0].stock.code} ${stockDisplayName(fiveDayBreakAlerts[0].stock)}`
+              : "尚未明確"}
+          </div>
+          <div className="mt-1 text-xs font-bold text-slate-400">
+            {fiveDayBreakAlerts[0] ? `突破分 ${fiveDayBreakAlerts[0].score}` : "目前沒有突破"}
+          </div>
+        </button>
+      </div>
+
+      <button
+        onClick={() => setPopup("avoid")}
+        className="mt-3 flex w-full items-center justify-between rounded-2xl border border-red-400/30 bg-red-500/10 p-3 text-left active:scale-95"
+      >
+        <div>
+          <div className="text-xs font-black text-red-300">不要碰紅燈</div>
+          <div className="mt-1 text-base font-black text-white">
+            紅燈 {redAlerts.length} 檔｜先避開風險
+          </div>
+        </div>
+        <div className="text-3xl font-black text-red-300">{redAlerts.length}</div>
+      </button>
+
+      <div className="mt-3 rounded-2xl bg-yellow-400/10 p-3 text-xs font-black leading-5 text-yellow-200">
+        實戰規則：第一屏只看方向，不直接追價；明天 9:10 後確認站穩開盤價，開高超過 3% 不追。
+      </div>
+    </div>
     <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4 shadow-[0_0_35px_rgba(34,211,238,0.14)]">
       <div className="flex items-start justify-between gap-3">
         <div>
