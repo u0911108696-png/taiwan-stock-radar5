@@ -4202,7 +4202,7 @@ const mainMoneyFlow = useMemo(() => {
     <div className="min-h-screen overflow-x-hidden bg-black text-white">
       <div className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(circle_at_20%_0%,rgba(34,211,238,0.18),transparent_28%),radial-gradient(circle_at_90%_15%,rgba(239,68,68,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.12),transparent_30%)]" />
 
-      <div className="relative z-10 mx-auto max-w-3xl px-4 pb-36 pt-10">
+      <div className="relative z-10 mx-auto max-w-3xl px-4 pb-36 pt-10 [overflow-anchor:none]">
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -4296,7 +4296,7 @@ const mainMoneyFlow = useMemo(() => {
           <QuickActionButton title="查詢" sub="全個股" onClick={() => setPopup("search")} />
         </section>
 
-        <section ref={contentRef} className="mt-4 scroll-mt-4">
+        <section ref={contentRef} className="mt-4 scroll-mt-4 [overflow-anchor:none]">
           {tab === "home" && (
   <div className="space-y-4">
     <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4 shadow-[0_0_35px_rgba(34,211,238,0.14)]">
