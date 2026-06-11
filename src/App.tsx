@@ -4559,7 +4559,7 @@ const mainMoneyFlow = useMemo(() => {
         </div>
       </div>
 
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {mergedNextDayWatchList.length === 0 && (
           <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
             目前沒有明日優先觀察名單。
@@ -4570,7 +4570,7 @@ const mainMoneyFlow = useMemo(() => {
           <button
             key={item.code}
             onClick={() => setSelectedCode(item.code)}
-            className="w-full rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+            className="min-w-[220px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
