@@ -3045,7 +3045,7 @@ export default function App() {
 
   const initedRef = useRef(false);
   const contentRef = useRef<HTMLDivElement | null>(null);
-
+  const HOME_CARD_LIMIT = 3;
   function jumpToContent() {
     setTimeout(() => contentRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
   }
@@ -4206,7 +4206,7 @@ const mainMoneyFlow = useMemo(() => {
         <header className="rounded-[2rem] border border-cyan-400/30 bg-slate-950/80 p-5 shadow-[0_0_45px_rgba(34,211,238,0.18)]">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v70</div>
+              <div className="text-xs font-black tracking-[0.25em] text-cyan-300">TW STOCK RADAR v124</div>
               <h1 className="mt-2 text-3xl font-black tracking-tight text-white">盤中主線雷達</h1>
               <p className="mt-2 text-sm font-bold leading-6 text-slate-300">
                 K線20項訊號｜買點區｜停損線｜ATR移動線｜MA5 / MA10
@@ -4458,7 +4458,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {capitalCoreWatchList.slice(0, 5).map((item, index) => (
+        {capitalCoreWatchList.slice(0, HOME_CARD_LIMIT).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
@@ -4522,7 +4522,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {stealthMoneyWatchList.slice(0, 10).map((item, index) => (
+        {stealthMoneyWatchList.slice(0, HOME_CARD_LIMIT).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
@@ -4566,7 +4566,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {mergedNextDayWatchList.slice(0, 5).map((item, index) => (
+        {mergedNextDayWatchList.slice(0, HOME_CARD_LIMIT).map((item, index) => (
           <button
             key={item.code}
             onClick={() => setSelectedCode(item.code)}
@@ -4684,7 +4684,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {nextDayCandidates.slice(0, 5).map((item, index) => (
+        {nextDayCandidates.slice(0, HOME_CARD_LIMIT).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
@@ -4743,7 +4743,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {focusRows.map((row, index) => {
+        {focusRows.slice(0, HOME_CARD_LIMIT).map((row, index) => {
           const firstAlert = allAlerts.find((alert) => alert.code === row.stock.code);
           return (
             <FocusStockCard
@@ -4777,7 +4777,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {avoidAlerts.slice(0, 5).map((alert) => (
+        {avoidAlerts.slice(0, HOME_CARD_LIMIT).map((alert) => (
           <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
         ))}
       </div>
