@@ -4570,7 +4570,7 @@ const mainMoneyFlow = useMemo(() => {
           <button
             key={item.code}
             onClick={() => setSelectedCode(item.code)}
-            className="min-w-[220px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+            className="min-w-[250px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
