@@ -2496,7 +2496,7 @@ function FocusStockCard({
 
 function AvoidStockCard({ alert, onClick }: { alert: AlertItem; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`w-full rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
+    <button onClick={onClick} className={`min-w-[250px] rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-black text-red-300">AVOID｜不要碰</div>
@@ -4770,7 +4770,7 @@ const mainMoneyFlow = useMemo(() => {
         </button>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {avoidAlerts.length === 0 && (
           <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
             目前沒有明顯不要碰清單。
