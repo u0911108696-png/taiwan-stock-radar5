@@ -2496,7 +2496,7 @@ function FocusStockCard({
 
 function AvoidStockCard({ alert, onClick }: { alert: AlertItem; onClick: () => void }) {
   return (
-    <button onClick={onClick} className={`min-w-[250px] rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}
+    <button onClick={onClick} className={`min-w-[250px] rounded-[1.6rem] border p-4 text-left active:scale-95 ${alertBg(alert.level)}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-black text-red-300">AVOID｜不要碰</div>
