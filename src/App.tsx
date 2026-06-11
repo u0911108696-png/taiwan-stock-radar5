@@ -2454,7 +2454,7 @@ function FocusStockCard({
   return (
     <button
       onClick={onClick}
-      className="w-full rounded-[1.8rem] border border-emerald-400/40 bg-gradient-to-br from-emerald-950/40 to-slate-950 p-4 text-left shadow-[0_0_35px_rgba(16,185,129,0.16)] active:scale-95"
+      className="min-w-[250px] rounded-[1.8rem] border border-emerald-400/40 bg-gradient-to-br from-emerald-950/40 to-slate-950 p-4 text-left shadow-[0_0_35px_rgba(16,185,129,0.16)] active:scale-95"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -4736,7 +4736,7 @@ const mainMoneyFlow = useMemo(() => {
         </button>
       </div>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {focusRows.length === 0 && (
           <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
             目前沒有明確重點候選，先不要硬做。
