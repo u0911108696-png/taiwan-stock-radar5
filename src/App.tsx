@@ -4512,7 +4512,7 @@ const mainMoneyFlow = useMemo(() => {
         <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">偷偷</div>
           <div className="text-2xl font-black text-orange-200">
-  {Math.min(HOME_CARD_LIMIT, stealthMoneyWatchList.length)}/{stealthMoneyWatchList.length}
+  {mergedNextDayWatchList.length}
 </div>
       </div>
 </div>
@@ -4523,7 +4523,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {stealthMoneyWatchList.slice(0, HOME_CARD_LIMIT).map((item, index) => (
+        {stealthMoneyWatchList.map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
@@ -4568,7 +4568,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {mergedNextDayWatchList.slice(0, HOME_CARD_LIMIT).map((item, index) => (
+        {mergedNextDayWatchList.map((item, index) => (
           <button
             key={item.code}
             onClick={() => setSelectedCode(item.code)}
@@ -4676,7 +4676,7 @@ const mainMoneyFlow = useMemo(() => {
         <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">候選</div>
           <div className="text-2xl font-black text-fuchsia-200">
-  {Math.min(HOME_CARD_LIMIT, nextDayCandidates.length)}/{nextDayCandidates.length}
+  {nextDayCandidates.length}
 </div>
         </div>
       </div>
@@ -4688,7 +4688,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {nextDayCandidates.slice(0, HOME_CARD_LIMIT).map((item, index) => (
+        {nextDayCandidates.map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
@@ -4773,7 +4773,7 @@ const mainMoneyFlow = useMemo(() => {
   <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
     <div className="text-xs font-black text-slate-400">不要碰</div>
     <div className="text-xl font-black text-red-200">
-      {Math.min(HOME_CARD_LIMIT, avoidAlerts.length)}/{avoidAlerts.length}
+      {avoidAlerts.length}
     </div>
   </div>
 
@@ -4790,7 +4790,7 @@ const mainMoneyFlow = useMemo(() => {
           </div>
         )}
 
-        {avoidAlerts.slice(0, HOME_CARD_LIMIT).map((alert) => (
+        {avoidAlerts.map((alert) => (
           <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
         ))}
       </div>
