@@ -4675,7 +4675,9 @@ const mainMoneyFlow = useMemo(() => {
 
         <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">候選</div>
-          <div className="text-2xl font-black text-fuchsia-200">{nextDayCandidates.length}</div>
+          <div className="text-2xl font-black text-fuchsia-200">
+  {Math.min(HOME_CARD_LIMIT, nextDayCandidates.length)}/{nextDayCandidates.length}
+</div>
         </div>
       </div>
 
@@ -4767,9 +4769,18 @@ const mainMoneyFlow = useMemo(() => {
           <div className="text-xs font-black tracking-[0.18em] text-red-300">AVOID LIST</div>
           <h3 className="mt-1 text-2xl font-black text-white">不要碰清單</h3>
         </div>
-        <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
-          看全部
-        </button>
+        <div className="flex items-center gap-2">
+  <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+    <div className="text-xs font-black text-slate-400">不要碰</div>
+    <div className="text-xl font-black text-red-200">
+      {Math.min(HOME_CARD_LIMIT, avoidAlerts.length)}/{avoidAlerts.length}
+    </div>
+  </div>
+
+  <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
+    看全部
+  </button>
+</div>
       </div>
 
       <div className="mt-4 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
