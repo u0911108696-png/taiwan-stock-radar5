@@ -4570,14 +4570,14 @@ const mainMoneyFlow = useMemo(() => {
           <button
             key={item.code}
             onClick={() => setSelectedCode(item.code)}
-            className="min-w-[250px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+            className="min-w-[230px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
           >
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="text-xs font-black text-slate-400">
                   #{index + 1}｜{item.tag}
                 </div>
-                <div className="text-lg font-black text-white">
+                <div className="text-base font-black text-white">
                   {item.code} {item.name}
                 </div>
                 <div className="mt-1 text-xs font-bold text-cyan-200">
