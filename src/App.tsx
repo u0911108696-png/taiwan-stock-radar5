@@ -4515,7 +4515,7 @@ const mainMoneyFlow = useMemo(() => {
             {Math.min(HOME_CARD_LIMIT, stealthMoneyWatchList.length)}/{stealthMoneyWatchList.length}>
           </div>
       </div>
-
+</div>
       <div className="mt-2 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {stealthMoneyWatchList.length === 0 && (
           <div className="min-w-full rounded-xl bg-black/30 p-3 text-sm font-bold text-slate-400">
@@ -4560,7 +4560,7 @@ const mainMoneyFlow = useMemo(() => {
            {Math.min(HOME_CARD_LIMIT, mergedNextDayWatchList.length)}/{mergedNextDayWatchList.length}>
           </div>
       </div>
-
+</div>
       <div className="mt-3 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
         {mergedNextDayWatchList.length === 0 && (
           <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
