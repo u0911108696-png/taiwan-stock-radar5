@@ -4512,8 +4512,8 @@ const mainMoneyFlow = useMemo(() => {
         <div className="rounded-xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">偷偷</div>
           <div className="text-2xl font-black text-orange-200">
-            {Math.min(HOME_CARD_LIMIT, stealthMoneyWatchList.length)}/{stealthMoneyWatchList.length}>
-          </div>
+  {Math.min(HOME_CARD_LIMIT, stealthMoneyWatchList.length)}/{stealthMoneyWatchList.length}
+</div>
       </div>
 </div>
       <div className="mt-2 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
@@ -4557,8 +4557,8 @@ const mainMoneyFlow = useMemo(() => {
         <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
           <div className="text-xs font-black text-slate-400">觀察</div>
           <div className="text-2xl font-black text-cyan-200">
-           {Math.min(HOME_CARD_LIMIT, mergedNextDayWatchList.length)}/{mergedNextDayWatchList.length}>
-          </div>
+  {Math.min(HOME_CARD_LIMIT, mergedNextDayWatchList.length)}/{mergedNextDayWatchList.length}
+</div>
       </div>
 </div>
       <div className="mt-3 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
