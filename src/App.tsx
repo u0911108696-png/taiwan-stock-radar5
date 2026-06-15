@@ -4435,9 +4435,13 @@ const mainAttackList = useMemo(() => {
           ))}
         </div>
 
-        <div className="mt-2 rounded-xl bg-yellow-400/10 px-2 py-1 text-[11px] font-black text-yellow-200">
-          明天 9:10 後確認站穩開盤價；開高超過 3% 不追。
-        </div>
+        <div className="mt-2 rounded-xl bg-yellow-400/10 px-2 py-1 text-[11px] font-black leading-5 text-yellow-200">
+  明天 9:10 後追蹤：
+  <br />
+  ① 站穩開盤價＝續強觀察
+  <br />
+  ② 量能放大但不破開盤＝資金續航
+</div>
       </button>
     ))}
   </div>
