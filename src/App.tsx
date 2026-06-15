@@ -4382,7 +4382,17 @@ const mainAttackList = useMemo(() => {
         只看同時符合資金、主線、明日觀察、突破訊號的股票。
       </div>
     </div>
-
+<div className="mt-3 rounded-2xl bg-black/30 p-3">
+  <div className="text-xs font-black text-slate-400">今日主攻快照</div>
+  <div className="mt-1 text-sm font-black leading-6 text-white">
+    {mainAttackList.length > 0
+      ? mainAttackList.map((item, index) => `${index + 1}. ${item.stock.code} ${stockDisplayName(item.stock)}`).join("　")
+      : "目前沒有明確主攻股"}
+  </div>
+  <div className="mt-1 text-[11px] font-bold text-slate-400">
+    明天開盤後回來對照：是否站穩開盤價、是否仍在資金榜內。
+  </div>
+</div>
     <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
       <div className="text-xs font-black text-slate-400">主攻</div>
       <div className="text-2xl font-black text-emerald-200">{mainAttackList.length}</div>
