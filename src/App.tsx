@@ -3508,6 +3508,79 @@ const mainMoneyFlow = useMemo(() => {
     focusStocks,
   };
 }, [industryRanking, top50, capitalCoreWatchList, stealthMoneyWatchList, mergedNextDayWatchList]);
+const mainAttackList = useMemo(() => {
+  const map = new Map<
+    string,
+    {
+      stock: Stock;
+      score: number;
+      tags: string[];
+      reasons: string[];
+    }
+  >();
+
+  function addStock(stock: Stock | undefined, score: number, tag: string, reason: string) {
+    if (!stock || !stock.code) return;
+
+    const old =
+      map.get(stock.code) ||
+      ({
+        stock,
+        score: 0,
+        tags: [],
+        reasons: [],
+      } as {
+        stock: Stock;
+        score: number;
+        tags: string[];
+        reasons: string[];
+      });
+
+    old.score += score;
+
+    if (!old.tags.includes(tag)) old.tags.push(tag);
+    if (!old.reasons.includes(reason)) old.reasons.push(reason);
+
+    map.set(stock.code, old);
+  }
+
+  capitalCoreWatchList.forEach((item) => {
+    addStock(item.stock, 30, "資金核心", `資金分數 ${item.score}`);
+  });
+
+  stealthMoneyWatchList.forEach((item) => {
+    addStock(item.stock, 22, "資金偷偷變多", `偷偷分數 ${item.score}`);
+  });
+
+  mergedNextDayWatchList.forEach((item) => {
+    addStock(item.stock as Stock, 26, "明日觀察", `明日分數 ${item.score}`);
+  });
+
+  fiveDayBreakAlerts.forEach((item) => {
+    addStock(item.stock, 16, "5日線突破", `突破分數 ${item.score}`);
+  });
+
+  mainMoneyFlow.focusStocks.forEach((item) => {
+    addStock(item.stock as Stock, 18, "資金交集", `交集分數 ${item.score}`);
+  });
+
+  return Array.from(map.values())
+    .map((item) => ({
+      ...item,
+      score: Math.min(100, Math.round(item.score)),
+      tags: item.tags.slice(0, 4),
+      reasons: item.reasons.slice(0, 3),
+    }))
+    .filter((item) => item.score >= 45)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 5);
+}, [
+  capitalCoreWatchList,
+  stealthMoneyWatchList,
+  mergedNextDayWatchList,
+  fiveDayBreakAlerts,
+  mainMoneyFlow,
+]);
  function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -4300,6 +4373,75 @@ const mainMoneyFlow = useMemo(() => {
           {tab === "home" && (
   <div className="space-y-4">
     
+<div className="rounded-3xl border border-emerald-400/40 bg-emerald-500/10 p-4 shadow-[0_0_35px_rgba(16,185,129,0.16)]">
+  <div className="flex items-start justify-between gap-3">
+    <div>
+      <div className="text-xs font-black text-emerald-300">MAIN ATTACK TOP5</div>
+      <div className="mt-1 text-2xl font-black text-white">明日主攻交集 TOP5</div>
+      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
+        只看同時符合資金、主線、明日觀察、突破訊號的股票。
+      </div>
+    </div>
+
+    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
+      <div className="text-xs font-black text-slate-400">主攻</div>
+      <div className="text-2xl font-black text-emerald-200">{mainAttackList.length}</div>
+    </div>
+  </div>
+
+  <div className="mt-3 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
+    {mainAttackList.length === 0 && (
+      <div className="min-w-full rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
+        目前沒有明確主攻交集股，先不要硬做。
+      </div>
+    )}
+
+    {mainAttackList.map((item, index) => (
+      <button
+        key={item.stock.code}
+        onClick={() => setSelectedCode(item.stock.code)}
+        className="min-w-[250px] rounded-2xl border border-white/10 bg-black/30 p-3 text-left"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="text-xs font-black text-emerald-300">
+              #{index + 1}｜主攻交集
+            </div>
+            <div className="mt-1 text-lg font-black text-white">
+              {item.stock.code} {stockDisplayName(item.stock)}
+            </div>
+            <div className="mt-1 text-xs font-bold text-cyan-200">
+              {item.stock.industry || "其他"}
+            </div>
+          </div>
+
+          <div className="text-right">
+            <div className="text-xs font-black text-slate-400">主攻分</div>
+            <div className="text-2xl font-black text-emerald-200">{item.score}</div>
+          </div>
+        </div>
+
+        <div className="mt-2 flex flex-wrap gap-1">
+          {item.tags.map((tag) => (
+            <span key={tag} className="rounded-full bg-emerald-500/15 px-2 py-1 text-[11px] font-black text-emerald-200">
+              {tag}
+            </span>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-black/30 p-2 text-xs font-bold leading-5 text-slate-300">
+          {item.reasons.map((reason) => (
+            <div key={reason}>・{reason}</div>
+          ))}
+        </div>
+
+        <div className="mt-2 rounded-xl bg-yellow-400/10 px-2 py-1 text-[11px] font-black text-yellow-200">
+          明天 9:10 後確認站穩開盤價；開高超過 3% 不追。
+        </div>
+      </button>
+    ))}
+  </div>
+</div>
     <div className="rounded-3xl border border-cyan-400/30 bg-cyan-500/10 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -4763,38 +4905,6 @@ const mainMoneyFlow = useMemo(() => {
       </div>
     </NeonPanel>
 
-    <NeonPanel className="border-red-400/35 shadow-[0_0_38px_rgba(239,68,68,0.16)]">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <div className="text-xs font-black tracking-[0.18em] text-red-300">AVOID LIST</div>
-          <h3 className="mt-1 text-2xl font-black text-white">不要碰清單</h3>
-        </div>
-        <div className="flex items-center gap-2">
-  <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-    <div className="text-xs font-black text-slate-400">不要碰</div>
-    <div className="text-xl font-black text-red-200">
-      {avoidAlerts.length}
-    </div>
-  </div>
-
-  <button onClick={() => setPopup("avoid")} className="rounded-2xl border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs font-black text-red-200">
-    看全部
-  </button>
-</div>
-      </div>
-
-      <div className="mt-4 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
-        {avoidAlerts.length === 0 && (
-          <div className="rounded-[1.5rem] border border-slate-700 bg-black/35 p-4 text-sm font-bold text-slate-400">
-            目前沒有明顯不要碰清單。
-          </div>
-        )}
-
-        {avoidAlerts.map((alert) => (
-          <AvoidStockCard key={alert.id} alert={alert} onClick={() => setSelectedCode(alert.code)} />
-        ))}
-      </div>
-    </NeonPanel>
   </div>
 )}
           {tab === "top50" && (
