@@ -1,5 +1,14 @@
 import { ReactNode, useEffect, useMemo, useRef, useState } from "react";
-
+type MainAttackSnapshot = {
+  date: string;
+  items: {
+    code: string;
+    name: string;
+    industry: string;
+    score: number;
+    tags: string[];
+  }[];
+};
 type Stock = {
   code: string;
   name: string;
@@ -186,6 +195,7 @@ const SETTINGS_KEY = "taiwan-stock-radar-v66-settings";
 const CACHE_KEY = "taiwan-stock-radar-v66-cache";
 const MONEY_HISTORY_KEY = "taiwan-stock-radar-v66-money-history";
 const SNAPSHOT_KEY = "taiwan-stock-radar-v66-snapshot";
+const MAIN_ATTACK_SNAPSHOT_KEY = "tw-stock-radar-main-attack-snapshot-v1";
 const HIGH_WIN_HISTORY_KEY = "taiwan-stock-radar-high-win-history-v117";
 const defaultSettings: Settings = {
   refreshSeconds: 15,
@@ -3005,6 +3015,7 @@ export default function App() {
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [searchHistory, setSearchHistory] = useState<Stock[]>([]);
   const [settings, setSettings] = useState<Settings>(defaultSettings);
+  const [yesterdayMainAttack, setYesterdayMainAttack] = useState<MainAttackSnapshot | null>(null);
   const [positions, setPositions] = useState<Record<string, Position>>({});
   const [moneyHistory, setMoneyHistory] = useState<Record<string, MoneyHistory>>({});
   const [snapshot, setSnapshot] = useState<Open910Snapshot | null>(null);
@@ -3581,6 +3592,26 @@ const mainAttackList = useMemo(() => {
   fiveDayBreakAlerts,
   mainMoneyFlow,
 ]);
+useEffect(() => {
+  try {
+    if (mainAttackList.length === 0) return;
+
+    const today = todayKey();
+
+    const snapshot: MainAttackSnapshot = {
+      date: today,
+      items: mainAttackList.map((item) => ({
+        code: item.stock.code,
+        name: stockDisplayName(item.stock),
+        industry: item.stock.industry || "其他",
+        score: item.score,
+        tags: item.tags,
+      })),
+    };
+
+    localStorage.setItem(MAIN_ATTACK_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {}
+}, [mainAttackList]);
  function stockIndustryStatus(stock: Stock) {
     return industryRanking.find((item) => item.industry === stock.industry)?.status || "觀察中";
   }
@@ -4182,7 +4213,17 @@ const mainAttackList = useMemo(() => {
     loadStocks();
     loadActiveEtf();
     }, []);
+useEffect(() => {
+  try {
+    const raw = localStorage.getItem(MAIN_ATTACK_SNAPSHOT_KEY);
+    if (!raw) return;
 
+    const saved = JSON.parse(raw) as MainAttackSnapshot;
+    if (!saved || !saved.date || !Array.isArray(saved.items)) return;
+
+    setYesterdayMainAttack(saved);
+  } catch {}
+}, []);
   useEffect(() => {
     if (settings.refreshSeconds <= 0) return;
 
