@@ -4417,11 +4417,11 @@ useEffect(() => {
 <div className="rounded-3xl border border-emerald-400/40 bg-emerald-500/10 p-4 shadow-[0_0_35px_rgba(16,185,129,0.16)]">
   <div className="space-y-3">
     <div>
-      <div className="text-xs font-black text-emerald-300">MAIN ATTACK TOP5</div>
-      <div className="mt-1 text-2xl font-black text-white">明日主攻交集 TOP5</div>
-      <div className="mt-1 text-sm font-bold leading-relaxed text-slate-300">
-        只看同時符合資金、主線、明日觀察、突破訊號的股票。
-      </div>
+      <div className="text-[11px] font-black text-emerald-300">MAIN ATTACK</div>
+<div className="mt-1 text-xl font-black text-white">明日主攻 TOP5</div>
+<div className="mt-1 text-xs font-bold leading-5 text-slate-300">
+  資金、主線、明日觀察交集股。
+</div>
     </div>
 <div className="mt-3 rounded-2xl bg-black/30 p-3">
   <div className="text-xs font-black text-slate-400">今日主攻快照</div>
