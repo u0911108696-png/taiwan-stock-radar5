@@ -4415,7 +4415,7 @@ useEffect(() => {
   <div className="space-y-4">
     
 <div className="rounded-3xl border border-emerald-400/40 bg-emerald-500/10 p-4 shadow-[0_0_35px_rgba(16,185,129,0.16)]">
-  <div className="flex items-start justify-between gap-3">
+  <div className="space-y-3">
     <div>
       <div className="text-xs font-black text-emerald-300">MAIN ATTACK TOP5</div>
       <div className="mt-1 text-2xl font-black text-white">明日主攻交集 TOP5</div>
@@ -4452,10 +4452,10 @@ useEffect(() => {
     追蹤重點：是否站穩開盤價、是否還在主攻交集、是否資金續航。
   </div>
 </div>
-    <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
-      <div className="text-xs font-black text-slate-400">主攻</div>
-      <div className="text-2xl font-black text-emerald-200">{mainAttackList.length}</div>
-    </div>
+    <div className="flex items-center justify-between rounded-2xl bg-black/40 px-3 py-2">
+  <div className="text-xs font-black text-slate-400">主攻數量</div>
+  <div className="text-2xl font-black text-emerald-200">{mainAttackList.length}</div>
+</div>
   </div>
 
   <div className="mt-3 flex gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch]">
