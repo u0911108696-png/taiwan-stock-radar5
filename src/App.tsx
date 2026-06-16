@@ -4434,6 +4434,24 @@ useEffect(() => {
     明天開盤後回來對照：是否站穩開盤價、是否仍在資金榜內。
   </div>
 </div>
+<div className="mt-2 rounded-2xl bg-cyan-400/10 p-3">
+  <div className="flex items-center justify-between gap-2">
+    <div className="text-xs font-black text-cyan-300">昨日主攻追蹤</div>
+    <div className="rounded-full bg-black/30 px-2 py-1 text-[11px] font-black text-cyan-200">
+      {yesterdayMainAttack?.date || "尚未保存"}
+    </div>
+  </div>
+
+  <div className="mt-1 text-sm font-black leading-6 text-white">
+    {yesterdayMainAttack?.items?.length
+      ? yesterdayMainAttack.items.map((item, index) => `${index + 1}. ${item.code} ${item.name}`).join("　")
+      : "目前還沒有昨日主攻資料"}
+  </div>
+
+  <div className="mt-1 text-[11px] font-bold text-slate-400">
+    追蹤重點：是否站穩開盤價、是否還在主攻交集、是否資金續航。
+  </div>
+</div>
     <div className="rounded-2xl bg-black/40 px-3 py-2 text-right">
       <div className="text-xs font-black text-slate-400">主攻</div>
       <div className="text-2xl font-black text-emerald-200">{mainAttackList.length}</div>
