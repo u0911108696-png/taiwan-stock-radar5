@@ -4839,7 +4839,7 @@ useEffect(() => {
       <div className="mt-3 space-y-2">
         {fiveDayBreakAlerts.length === 0 && (
           <div className="rounded-2xl bg-black/30 p-3 text-sm font-bold text-slate-400">
-            目前沒有偵測到剛突破 5日線的個股；系統已嘗試抓前 10 檔日K計算 ma5。
+            目前沒有偵測到突破 5日線的個股；系統已嘗試抓前 50 檔日K計算 MA5。
           </div>
         )}
 
