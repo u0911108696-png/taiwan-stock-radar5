@@ -3062,7 +3062,7 @@ export default function App() {
   }
   const top50 = useMemo(() => stocks.slice(0, 50), [stocks]);
   const ma5KlineCodes = useMemo(() => {
-  return top50.slice(0, 10).map((item) => item.code).join(",");
+  return top50.slice(0, 50).map((item) => item.code).join(",");
 }, [top50]);
 
 const [ma5KlineMap, setMa5KlineMap] = useState<Record<string, any[]>>({});
