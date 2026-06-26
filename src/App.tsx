@@ -2182,6 +2182,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
 
       let score = 0;
       if (nowAboveMa5) score += 40;
+      if (hasMa5 && Math.abs(maGap) <= 0.5) score += 35;
       if (wasBelowOrNearMa5) score += 25;
       if (notTooHot) score += 20;
       if (volumeRatio >= 1.5 && volumeRatio <= 3.5) {
@@ -2199,7 +2200,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
         score,
         reason:
   price > 0 && ma5 > 0
-    ? `現價 ${price.toFixed(2)} 站上 5日線 ${ma5.toFixed(2)}｜量比 ${volumeRatio.toFixed(1)}`
+    ? `現價 ${price.toFixed(2)} 接近/站上 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`
     : "尚未取得完整 5日線資料",
       } as FiveDayBreakAlert;
     })
