@@ -2174,44 +2174,33 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
       const prevClose = getStockPrevCloseValue(stock);
       const rise = getStockRisePercent(stock);
       const volumeRatio = getStockVolumeRatio(stock);
+
+      if (price <= 0 || ma5 <= 0) return null;
+
       const maGap = ((price - ma5) / ma5) * 100;
-      const hasMa5 = ma5 > 0;
-      const nowAboveMa5 = hasMa5 && price > ma5;
-      const wasBelowOrNearMa5 = prevClose > 0 ? prevClose <= ma5 * 1.01 : true;
-      const notTooHot = rise > 0 && rise <= 7.5;
+      const nearMa5 = Math.abs(maGap) <= 1;
+      const breakMa5 = price > ma5 && (prevClose <= ma5 * 1.01 || nearMa5);
+      const volumeOk = volumeRatio >= 1;
+      const riseOk = rise >= 0 && rise <= 8;
 
       let score = 0;
-      if (nowAboveMa5) score += 40;
-      if (hasMa5 && Math.abs(maGap) <= 0.5) score += 35;
-      if (wasBelowOrNearMa5) score += 25;
-      if (notTooHot) score += 20;
-      if (volumeRatio >= 1.5 && volumeRatio <= 3.5) {
-  score += 20;
-} else if (volumeRatio >= 1.2) {
-  score += 10;
-} else {
-  score -= 20;
-}
+      if (breakMa5) score += 45;
+      if (nearMa5) score += 30;
+      if (volumeOk) score += 15;
+      if (riseOk) score += 10;
 
       return {
         stock,
         price,
         ma5,
         score,
-        reason:
-  price > 0 && ma5 > 0
-    ? `現價 ${price.toFixed(2)} 接近/站上 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`
-    : "尚未取得完整 5日線資料",
+        reason: breakMa5
+          ? `現價 ${price.toFixed(2)} 接近/站上 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`
+          : `現價 ${price.toFixed(2)} 接近 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`,
       } as FiveDayBreakAlert;
     })
-    .filter((item) => {
-      const rise = getStockRisePercent(item.stock);
-      return item.ma5 > 0 &&
-       item.price > item.ma5 &&
-       rise > 1 &&
-       rise < 8 &&
-       item.score >= 70;
-    })
+    .filter((item): item is FiveDayBreakAlert => Boolean(item))
+    .filter((item) => item.score >= 45)
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
 }
