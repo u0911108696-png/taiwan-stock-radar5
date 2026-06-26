@@ -2174,7 +2174,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
       const prevClose = getStockPrevCloseValue(stock);
       const rise = getStockRisePercent(stock);
       const volumeRatio = getStockVolumeRatio(stock);
-
+      const maGap = ((price - ma5) / ma5) * 100;
       const hasMa5 = ma5 > 0;
       const nowAboveMa5 = hasMa5 && price > ma5;
       const wasBelowOrNearMa5 = prevClose > 0 ? prevClose <= ma5 * 1.01 : true;
@@ -2205,7 +2205,11 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
     })
     .filter((item) => {
       const rise = getStockRisePercent(item.stock);
-      return item.ma5 > 0 && item.price > item.ma5 && item.score >= 80 && rise > 0 && rise <= 7.5 && getStockVolumeRatio(item.stock) >= 1.2;
+      return item.ma5 > 0 &&
+       item.price > item.ma5 &&
+       rise > 1 &&
+       rise < 8 &&
+       item.score >= 70;
     })
     .sort((a, b) => b.score - a.score)
     .slice(0, 8);
