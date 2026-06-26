@@ -4861,7 +4861,7 @@ useEffect(() => {
             <div className="flex items-start justify-between gap-2">
               <div>
                 <div className="text-xs font-black text-slate-400">
-                  #{index + 1}｜5日線突破
+                  #{index + 1} | {item.tag || "🟢 剛突破"}
                 </div>
                 <div className="text-lg font-black text-white">
                   {item.stock.code} {stockDisplayName(item.stock)}
