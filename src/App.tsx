@@ -2190,14 +2190,29 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
       if (riseOk) score += 10;
 
       return {
-        stock,
-        price,
-        ma5,
-        score,
-        reason: breakMa5
-          ? `現價 ${price.toFixed(2)} 接近/站上 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`
-          : `現價 ${price.toFixed(2)} 接近 5日線 ${ma5.toFixed(2)}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`,
-      } as FiveDayBreakAlert;
+  stock,
+  price,
+  ma5,
+  score,
+
+  tag:
+    breakMa5 && volumeRatio >= 1.5
+      ? "🟢 剛突破｜🔥量能確認"
+      : breakMa5
+      ? "🟢 剛突破"
+      : nearMa5
+      ? "🟡 接近5日線"
+      : "🔵 回踩5日線",
+
+  reason: breakMa5
+    ? `現價 ${price.toFixed(2)} 接近/站上5日線 ${ma5.toFixed(
+        2
+      )}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`
+    : `現價 ${price.toFixed(2)} 接近5日線 ${ma5.toFixed(
+        2
+      )}｜距離 ${maGap.toFixed(2)}%｜量比 ${volumeRatio.toFixed(1)}`,
+
+} as FiveDayBreakAlert;
     })
     .filter((item): item is FiveDayBreakAlert => Boolean(item))
     .filter((item) => item.score >= 45)
