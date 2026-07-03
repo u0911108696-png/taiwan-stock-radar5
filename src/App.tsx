@@ -2216,7 +2216,11 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
     })
     .filter((item): item is FiveDayBreakAlert => Boolean(item))
     .filter((item) => item.score >= 45)
-    .sort((a, b) => b.score - a.score)
+    .sort((a, b) => {
+  if (a.tag.includes("剛突破") && !b.tag.includes("剛突破")) return -1;
+  if (!a.tag.includes("剛突破") && b.tag.includes("剛突破")) return 1;
+  return b.score - a.score;
+})
     .slice(0, 8);
 }
 function buildActiveEtfFlows(list: ActiveEtfHolding[] = ACTIVE_ETF_HOLDINGS): ActiveEtfFlow[] {
@@ -4852,7 +4856,7 @@ useEffect(() => {
           </div>
         )}
 
-        {fiveDayBreakAlerts.slice(0, 3).map((item, index) => (
+        {fiveDayBreakAlerts.slice(0,20).map((item, index) => (
           <button
             key={item.stock.code}
             onClick={() => setSelectedCode(item.stock.code)}
