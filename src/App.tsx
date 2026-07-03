@@ -2184,10 +2184,16 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
       const riseOk = rise >= 0 && rise <= 8;
 
       let score = 0;
-      if (breakMa5) score += 45;
-      if (nearMa5) score += 30;
-      if (volumeOk) score += 15;
-      if (riseOk) score += 10;
+
+if (breakMa5 && volumeRatio >= 1.5) {
+  score = 100; // A級
+} else if (breakMa5) {
+  score = 90; // B級
+} else if (nearMa5) {
+  score = 70; // C級
+} else {
+  score = 55; // 回踩
+}
 
       return {
   stock,
