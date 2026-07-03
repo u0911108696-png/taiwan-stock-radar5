@@ -2196,13 +2196,13 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
   score,
 
   tag:
-    breakMa5 && volumeRatio >= 1.5
-      ? "🟢 剛突破｜🔥量能確認"
-      : breakMa5
-      ? "🟢 剛突破"
-      : nearMa5
-      ? "🟡 接近5日線"
-      : "🔵 回踩5日線",
+    breakMa5 && volumeRatio >= 2
+        ? "🟢 A級｜剛突破＋量能"
+        : breakMa5 && volumeRatio >= 1.2
+        ? "🟢 B級｜剛突破"
+        : nearMa5
+        ? "🟡 C級｜接近5日線"
+        : "🔵 回踩5日線",
 
   reason: breakMa5
     ? `現價 ${price.toFixed(2)} 接近/站上5日線 ${ma5.toFixed(
