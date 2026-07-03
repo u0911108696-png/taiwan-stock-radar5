@@ -3038,6 +3038,7 @@ export default function App() {
   const [activeEtfUpdatedAt, setActiveEtfUpdatedAt] = useState("");
   const [activeEtfUsableForTrading, setActiveEtfUsableForTrading] = useState(false);
   const [activeEtfDataLevel, setActiveEtfDataLevel] = useState("MOCK_ONLY");
+  const notifiedBreakRef = useRef<Set<string>>(new Set());
   const [activeEtfConfidence, setActiveEtfConfidence] = useState(0);
   const [activeEtfWarning, setActiveEtfWarning] = useState("尚未取得主動ETF實戰狀態。");
   const [tab, setTab] = useState<TabKey>("home");
