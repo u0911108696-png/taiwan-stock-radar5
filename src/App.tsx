@@ -2179,7 +2179,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
 
       const maGap = ((price - ma5) / ma5) * 100;
       const nearMa5 = Math.abs(maGap) <= 1;
-      const breakMa5 = price > ma5 && (prevClose <= ma5 * 1.01 || nearMa5);
+      const breakMa5 = price > ma5 && prevClose <= ma5;
       const volumeOk = volumeRatio >= 1;
       const riseOk = rise >= 0 && rise <= 8;
 
