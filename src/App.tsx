@@ -2203,7 +2203,7 @@ function buildFiveDayBreakAlerts(stocks: Stock[] = []) {
         : nearMa5
         ? "🟡 C級｜接近5日線"
         : "🔵 回踩5日線",
-
+  distance: maGap,
   reason: breakMa5
     ? `現價 ${price.toFixed(2)} 接近/站上5日線 ${ma5.toFixed(
         2
@@ -4872,8 +4872,28 @@ useEffect(() => {
                   {item.stock.code} {stockDisplayName(item.stock)}
                 </div>
                 <div className="mt-1 text-xs font-bold text-emerald-200">
-                  {item.reason}
-                </div>
+  {item.reason}
+</div>
+
+<div className="mt-1 text-xs font-bold">
+  {item.tag.includes("A級") ? (
+    <span className="text-red-300">
+      🔥 強勢突破（距離 MA5：{item.distance.toFixed(2)}%）
+    </span>
+  ) : item.tag.includes("B級") ? (
+    <span className="text-emerald-300">
+      🟢 已突破（距離 MA5：{item.distance.toFixed(2)}%）
+    </span>
+  ) : item.tag.includes("C級") ? (
+    <span className="text-yellow-300">
+      ⏳ 即將突破（距離 MA5：{Math.abs(item.distance).toFixed(2)}%）
+    </span>
+  ) : (
+    <span className="text-sky-300">
+      🔵 回踩5日線（距離 MA5：{Math.abs(item.distance).toFixed(2)}%）
+    </span>
+  )}
+</div>
               </div>
 
               <div className="text-right">
